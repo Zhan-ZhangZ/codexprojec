@@ -1,6 +1,6 @@
 ---
 name: qwen-audio-agent
-description: "通义千问语音智能体框架（Agent Skills Hub voice-agent 场景实测首选）。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio"
+description: "通义千问语音智能体框架。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio"
 metadata:
   upstream: "github.com/QwenAudio/qwen-audio-agent"
 ---

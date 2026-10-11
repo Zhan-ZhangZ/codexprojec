@@ -1,6 +1,6 @@
 ---
 name: casdoor
-description: "开源身份认证与访问管理平台（Agent Skills Hub authentication 场景实测首选，★10k+）。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管 UI 世代。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor"
+description: "开源身份认证与访问管理平台。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管部署。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor"
 metadata:
   upstream: "github.com/casdoor/casdoor"
 ---

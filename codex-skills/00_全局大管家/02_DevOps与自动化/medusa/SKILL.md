@@ -1,6 +1,6 @@
 ---
 name: medusa
-description: "AI 代码安全扫描器（Agent Skills Hub secret-detection 场景实测首选，Pantheon Security）。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner"
+description: "AI 代码安全扫描器。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner"
 metadata:
   upstream: "github.com/Pantheon-Security/medusa"
 ---

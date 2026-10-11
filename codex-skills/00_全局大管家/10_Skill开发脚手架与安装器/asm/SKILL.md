@@ -1,6 +1,6 @@
 ---
 name: asm
-description: "Agent Skills 管理器 CLI（Agent Skills Hub skill-management-tools 场景实测首选）。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager"
+description: "Agent Skills 管理器 CLI。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager"
 metadata:
   upstream: "github.com/luongnv89/asm"
 ---

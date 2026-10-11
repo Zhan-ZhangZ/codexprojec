@@ -1,6 +1,6 @@
 ---
 name: Atomic-Chat
-description: "本地大模型桌面聊天客户端（Agent Skills Hub local-llm 场景实测首选，Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat"
+description: "本地大模型桌面聊天客户端（Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat"
 metadata:
   upstream: "github.com/AtomicBot-ai/Atomic-Chat"
 ---

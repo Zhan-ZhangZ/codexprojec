@@ -1,6 +1,6 @@
 ---
 name: OpenMontage
-description: "AI 视频叙事创作工具（Agent Skills Hub claude-video-skills 场景实测首选，calesthio）。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与 tools 管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage"
+description: "AI 视频叙事创作工具。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与工具管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage"
 metadata:
   upstream: "github.com/calesthio/OpenMontage"
 ---

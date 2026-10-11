@@ -1,6 +1,6 @@
 ---
 name: vanna
-description: "文本生成 SQL 框架（Agent Skills Hub mcp-database 场景实测首选）。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna"
+description: "文本生成 SQL 框架。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna"
 metadata:
   upstream: "github.com/vanna-ai/vanna"
 ---

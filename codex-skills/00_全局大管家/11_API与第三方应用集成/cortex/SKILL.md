@@ -1,6 +1,6 @@
 ---
 name: cortex
-description: "API 规范上下文服务器（Agent Skills Hub mcp-api 场景实测首选）。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex"
+description: "API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex"
 metadata:
   upstream: "github.com/cortex-docs/cortex"
 ---

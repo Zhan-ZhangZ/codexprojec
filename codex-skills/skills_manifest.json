@@ -2020,7 +2020,7 @@
   },
   {
     "name": "Scrapling",
-    "description": "自适应网页抓取库（Agent Skills Hub web-scraping 场景实测首选）。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集",
+    "description": "自适应网页抓取库。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集",
     "category": "03_效率工具与协同管理",
     "folder": "Scrapling",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/Scrapling",
@@ -2031,7 +2031,7 @@
   },
   {
     "name": "cortex",
-    "description": "API 规范上下文服务器（Agent Skills Hub mcp-api 场景实测首选）。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex",
+    "description": "API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex",
     "category": "11_API与第三方应用集成",
     "folder": "cortex",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/cortex",
@@ -2042,7 +2042,7 @@
   },
   {
     "name": "asm",
-    "description": "Agent Skills 管理器 CLI（Agent Skills Hub skill-management-tools 场景实测首选）。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
+    "description": "Agent Skills 管理器 CLI。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "asm",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/asm",
@@ -2053,7 +2053,7 @@
   },
   {
     "name": "medusa",
-    "description": "AI 代码安全扫描器（Agent Skills Hub secret-detection 场景实测首选，Pantheon Security）。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner",
+    "description": "AI 代码安全扫描器。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner",
     "category": "02_DevOps与自动化",
     "folder": "medusa",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/medusa",
@@ -2064,7 +2064,7 @@
   },
   {
     "name": "Skill-Seekers",
-    "description": "Agent Skills 发现与检索引擎（Agent Skills Hub mcp-for-github 场景实测首选，v3.9.0）。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers",
+    "description": "Agent Skills 发现与检索引擎。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "Skill-Seekers",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/Skill-Seekers",
@@ -2075,7 +2075,7 @@
   },
   {
     "name": "OpenMontage",
-    "description": "AI 视频叙事创作工具（Agent Skills Hub claude-video-skills 场景实测首选，calesthio）。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与 tools 管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage",
+    "description": "AI 视频叙事创作工具。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与工具管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage",
     "category": "05_多媒体与设计资产",
     "folder": "OpenMontage",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/OpenMontage",
@@ -2086,7 +2086,7 @@
   },
   {
     "name": "headroom",
-    "description": "上下文窗口管理引擎（Agent Skills Hub prompt-engineering 场景实测首选，Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom",
+    "description": "上下文窗口管理引擎（Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom",
     "category": "07_智能体框架与协同",
     "folder": "headroom",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/headroom",
@@ -2097,7 +2097,7 @@
   },
   {
     "name": "qwen-audio-agent",
-    "description": "通义千问语音智能体框架（Agent Skills Hub voice-agent 场景实测首选）。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio",
+    "description": "通义千问语音智能体框架。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio",
     "category": "07_智能体框架与协同",
     "folder": "qwen-audio-agent",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/qwen-audio-agent",
@@ -2108,7 +2108,7 @@
   },
   {
     "name": "casdoor",
-    "description": "开源身份认证与访问管理平台（Agent Skills Hub authentication 场景实测首选，★10k+）。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管 UI 世代。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor",
+    "description": "开源身份认证与访问管理平台。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管部署。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor",
     "category": "11_API与第三方应用集成",
     "folder": "casdoor",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/casdoor",
@@ -2130,7 +2130,7 @@
   },
   {
     "name": "vanna",
-    "description": "文本生成 SQL 框架（Agent Skills Hub mcp-database 场景实测首选）。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna",
+    "description": "文本生成 SQL 框架。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna",
     "category": "08_MCP服务开发与评估",
     "folder": "vanna",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/vanna",
@@ -2141,7 +2141,7 @@
   },
   {
     "name": "x-cmd",
-    "description": "命令行工具集大成者（Agent Skills Hub cli-tools 场景实测首选）。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd",
+    "description": "命令行工具集大成者。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd",
     "category": "03_效率工具与协同管理",
     "folder": "x-cmd",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/x-cmd",
@@ -2152,7 +2152,7 @@
   },
   {
     "name": "Atomic-Chat",
-    "description": "本地大模型桌面聊天客户端（Agent Skills Hub local-llm 场景实测首选，Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat",
+    "description": "本地大模型桌面聊天客户端（Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat",
     "category": "03_效率工具与协同管理",
     "folder": "Atomic-Chat",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/Atomic-Chat",

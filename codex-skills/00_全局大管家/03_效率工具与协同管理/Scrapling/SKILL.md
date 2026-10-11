@@ -1,6 +1,6 @@
 ---
 name: Scrapling
-description: "自适应网页抓取库（Agent Skills Hub web-scraping 场景实测首选）。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集"
+description: "自适应网页抓取库。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集"
 metadata:
   upstream: "github.com/D4Vinci/Scrapling"
 ---

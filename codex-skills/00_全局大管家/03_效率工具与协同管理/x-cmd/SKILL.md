@@ -1,6 +1,6 @@
 ---
 name: x-cmd
-description: "命令行工具集大成者（Agent Skills Hub cli-tools 场景实测首选）。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd"
+description: "命令行工具集大成者。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd"
 metadata:
   upstream: "github.com/x-cmd/x-cmd"
 ---
