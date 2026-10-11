@@ -1,6 +1,6 @@
 ---
 name: opencrew
-description: "OpenCrew 多智能体操作系统（ASH multi-agent 榜 #2，中文项目）。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew"
+description: "OpenCrew 多智能体操作系统。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew"
 metadata:
   upstream: "github.com/AlexAnys/opencrew"
 ---

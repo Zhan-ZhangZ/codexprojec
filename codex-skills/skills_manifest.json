@@ -2453,7 +2453,7 @@
   },
   {
     "name": "opencrew",
-    "description": "OpenCrew 多智能体操作系统（ASH multi-agent 榜 #2，中文项目）。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew",
+    "description": "OpenCrew 多智能体操作系统。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew",
     "category": "07_智能体框架与协同",
     "folder": "opencrew",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/opencrew",
@@ -2464,7 +2464,7 @@
   },
   {
     "name": "captain-claw",
-    "description": "AI 舰队指挥官（ASH multi-agent 榜 #3，kstevica）。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw",
+    "description": "AI 舰队指挥官。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw",
     "category": "07_智能体框架与协同",
     "folder": "captain-claw",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/captain-claw",
@@ -2540,7 +2540,7 @@
   },
   {
     "name": "agent-rules-books",
-    "description": "智能体规则书库（ASH refactoring 榜 #1，ciembor）。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库",
+    "description": "智能体规则书库。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库",
     "category": "01_代码工程与架构",
     "folder": "agent-rules-books",
     "relative_path": "./00_全局大管家/01_代码工程与架构/agent-rules-books",
@@ -2550,7 +2550,7 @@
   },
   {
     "name": "smell-check",
-    "description": "代码与测试坏味道审计（ASH refactoring 榜 #2，Zhen-Bo）。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查",
+    "description": "代码与测试坏味道审计。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查",
     "category": "01_代码工程与架构",
     "folder": "smell-check",
     "relative_path": "./00_全局大管家/01_代码工程与架构/smell-check",
@@ -2561,7 +2561,7 @@
   },
   {
     "name": "kru",
-    "description": "KRU 本地 MCP 密码凭证管理器（ASH secret-detection 榜 #1）。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru",
+    "description": "KRU 本地 MCP 密码凭证管理器。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru",
     "category": "02_DevOps与自动化",
     "folder": "kru",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/kru",
@@ -2572,7 +2572,7 @@
   },
   {
     "name": "vahta",
-    "description": "Vahta 密钥检测与预防（ASH secret-detection 榜 #2/#3 同项目——key-amnesia 为其归档旧名）。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia",
+    "description": "Vahta 密钥检测与预防。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia",
     "category": "02_DevOps与自动化",
     "folder": "vahta",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/vahta",
@@ -2583,7 +2583,7 @@
   },
   {
     "name": "skills-manager",
-    "description": "本地 AI Agent Skills 管理器（zhuyansen——ASH 站长出品，skill-management 榜 #1）。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri",
+    "description": "本地 AI Agent Skills 管理器。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "skills-manager",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skills-manager",
@@ -2594,7 +2594,7 @@
   },
   {
     "name": "pm-skills",
-    "description": "产品经理技能集（ASH skill-management 榜 #2，phuryn）。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills",
+    "description": "产品经理技能集。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills",
     "category": "06_商业与专业领域",
     "folder": "pm-skills",
     "relative_path": "./00_全局大管家/06_商业与专业领域/pm-skills",
@@ -2605,7 +2605,7 @@
   },
   {
     "name": "aiogram",
-    "description": "Python 异步 Telegram Bot 框架事实标准（ASH telegram-bot 榜 #1）。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发",
+    "description": "Python 异步 Telegram Bot 框架事实标准。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发",
     "category": "11_API与第三方应用集成",
     "folder": "aiogram",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/aiogram",
@@ -2616,7 +2616,7 @@
   },
   {
     "name": "chatgpt_telegram_bot",
-    "description": "ChatGPT Telegram 机器人（ASH telegram-bot 榜 #2，father-bot）。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用",
+    "description": "ChatGPT Telegram 机器人。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用",
     "category": "11_API与第三方应用集成",
     "folder": "chatgpt_telegram_bot",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt_telegram_bot",
@@ -2626,7 +2626,7 @@
   },
   {
     "name": "telegram-search",
-    "description": "Telegram 消息搜索引擎（ASH telegram-bot 榜 #3，groupultra）。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索",
+    "description": "Telegram 消息搜索引擎。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索",
     "category": "11_API与第三方应用集成",
     "folder": "telegram-search",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/telegram-search",
@@ -2636,7 +2636,7 @@
   },
   {
     "name": "fast-jev-compaction",
-    "description": "Jev 快速压缩插件（ASH typesafe-jev 榜 #2，tamaratran）。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction",
+    "description": "Jev 快速压缩插件。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction",
     "category": "07_智能体框架与协同",
     "folder": "fast-jev-compaction",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/fast-jev-compaction",

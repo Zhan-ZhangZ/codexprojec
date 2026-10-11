@@ -1,6 +1,6 @@
 ---
 name: smell-check
-description: "代码与测试坏味道审计（ASH refactoring 榜 #2，Zhen-Bo）。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查"
+description: "代码与测试坏味道审计。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查"
 metadata:
   upstream: "github.com/Zhen-Bo/smell-check"
 ---

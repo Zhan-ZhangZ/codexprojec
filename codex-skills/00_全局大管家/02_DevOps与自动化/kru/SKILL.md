@@ -1,6 +1,6 @@
 ---
 name: kru
-description: "KRU 本地 MCP 密码凭证管理器（ASH secret-detection 榜 #1）。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru"
+description: "KRU 本地 MCP 密码凭证管理器。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru"
 metadata:
   upstream: "github.com/omaekumiko2-create/kru"
 ---

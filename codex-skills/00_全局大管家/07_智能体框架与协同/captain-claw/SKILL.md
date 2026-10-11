@@ -1,6 +1,6 @@
 ---
 name: captain-claw
-description: "AI 舰队指挥官（ASH multi-agent 榜 #3，kstevica）。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw"
+description: "AI 舰队指挥官。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw"
 metadata:
   upstream: "github.com/kstevica/captain-claw"
 ---
