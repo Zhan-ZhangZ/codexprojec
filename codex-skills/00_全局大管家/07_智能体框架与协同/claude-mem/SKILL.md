@@ -1,6 +1,6 @@
 ---
 name: claude-mem
-description: "Claude Code 记忆层（Agent Skills Hub 场景实测首选）。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能、Cursor/Cowork 集成与使用文档。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem"
+description: "Claude Code 记忆层。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能与 Cursor/Cowork 集成。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem"
 metadata:
   upstream: "github.com/thedotmack/claude-mem"
 ---

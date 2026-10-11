@@ -1,6 +1,6 @@
 ---
 name: claude-code-best-practice
-description: "Claude Code 最佳实践知识库（Agent Skills Hub 场景实测首选）。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战"
+description: "Claude Code 最佳实践知识库。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战"
 metadata:
   upstream: "github.com/shanraisshan/claude-code-best-practice"
 ---

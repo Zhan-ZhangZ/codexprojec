@@ -1871,7 +1871,7 @@
   },
   {
     "name": "slop-guard",
-    "description": "规则型散文 AI 腔评分器（Slop Scoring，Agent Skills Hub 实测 4/5）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议",
+    "description": "规则型散文 AI 腔评分器（Slop Scoring）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议",
     "category": "04_内容创作与文档处理",
     "folder": "slop-guard",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/slop-guard",
@@ -1890,7 +1890,7 @@
   },
   {
     "name": "anti-slop",
-    "description": "反 AI 味多面规则系统（miqdadbadjuber 版，4.5k★，Agent Skills Hub 实测 4/5）：核心规则文件 + 6 个按关注点拆分的子技能——antislop 总纲（默认常载过滤）、antislop-code 代码、antislop-copywriting 文案、antislop-human 文风（含 contrast-check.py 对比检查脚本）、antislop-layoutmobile 移动端布局、antislop-ui 界面设计；另配 rules/antislop.md 规则单文件版与 cli/ 安装器，多平台插件入口（Claude/Codex/Cursor/Cline/Kimi 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器",
+    "description": "反 AI 味多面规则系统：核心总纲常载过滤 + 6 个子技能分域把关——代码、文案、文风（含对比检查脚本）、移动端布局、UI 设计；另配规则单文件版与 CLI 安装器，多平台插件入口（Claude/Codex/Cursor/Cline 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器",
     "category": "04_内容创作与文档处理",
     "folder": "anti-slop",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/anti-slop",
@@ -1910,7 +1910,7 @@
   },
   {
     "name": "claude-hud",
-    "description": "Claude Code 实时状态栏 HUD（Agent Skills Hub 场景实测首选）。TypeScript 编写，在终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud",
+    "description": "Claude Code 实时状态栏 HUD。TypeScript 编写，终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud",
     "category": "07_智能体框架与协同",
     "folder": "claude-hud",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-hud",
@@ -1921,7 +1921,7 @@
   },
   {
     "name": "claude-mem",
-    "description": "Claude Code 记忆层（Agent Skills Hub 场景实测首选）。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能、Cursor/Cowork 集成与使用文档。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem",
+    "description": "Claude Code 记忆层。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能与 Cursor/Cowork 集成。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem",
     "category": "07_智能体框架与协同",
     "folder": "claude-mem",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-mem",
@@ -1932,7 +1932,7 @@
   },
   {
     "name": "obsidian-skills",
-    "description": "Obsidian 官方 Agent Skills 套件（kepano 出品，Agent Skills Hub 场景实测首选）。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场可一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理",
+    "description": "Obsidian 官方 Agent Skills 套件。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理",
     "category": "03_效率工具与协同管理",
     "folder": "obsidian-skills",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-skills",
@@ -1943,7 +1943,7 @@
   },
   {
     "name": "open-code-review",
-    "description": "阿里巴巴开源混合架构代码评审工具（Agent Skills Hub 场景实测首选，★45.5k）。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声，SWR-Bench 实测领先；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，另含 open-code-review/open-code-review-delegate 两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, SWR-Bench, 低噪声评审, open code review",
+    "description": "阿里巴巴开源混合架构代码评审工具。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，含评审与委托两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, 低噪声评审, open code review",
     "category": "01_代码工程与架构",
     "folder": "open-code-review",
     "relative_path": "./00_全局大管家/01_代码工程与架构/open-code-review",
@@ -1954,7 +1954,7 @@
   },
   {
     "name": "Mole",
-    "description": "tw93 出品的 AI 命令行编码智能体网关（Agent Skills Hub 场景实测首选）。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制，八语 README。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole",
+    "description": "AI 命令行编码智能体网关。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole",
     "category": "01_代码工程与架构",
     "folder": "Mole",
     "relative_path": "./00_全局大管家/01_代码工程与架构/Mole",
@@ -1965,7 +1965,7 @@
   },
   {
     "name": "claude-code-best-practice",
-    "description": "Claude Code 最佳实践知识库（Agent Skills Hub 场景实测首选）。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战",
+    "description": "Claude Code 最佳实践知识库。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战",
     "category": "07_智能体框架与协同",
     "folder": "claude-code-best-practice",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-code-best-practice",
@@ -1975,7 +1975,7 @@
   },
   {
     "name": "ian-xiaohei-illustrations",
-    "description": "Ian 小黑怪诞中文正文配图技能（Agent Skills Hub image-generation/codex-skills 双榜 Top2）。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei",
+    "description": "Ian 小黑怪诞中文正文配图技能。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei",
     "category": "05_多媒体与设计资产",
     "folder": "ian-xiaohei-illustrations",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ian-xiaohei-illustrations",
@@ -1986,7 +1986,7 @@
   },
   {
     "name": "marketingskills",
-    "description": "AI Agent 营销技能集（Agent Skills Hub 场景实测首选，50 个子技能）。覆盖 A/B 测试、广告素材、AI-SEO、分析归因、冷邮件、社区营销、竞品画像、留存挽回等增长工程全链路；兼容 Agent Skills 规范（Claude Code/Codex/Cursor 等），含 tools 营销账号连接工作流。Leading Words: 营销技能集, 增长工程, 转化优化, AI SEO, 冷邮件, 营销自动化",
+    "description": "AI Agent 营销技能集（50 个子技能）。覆盖 A/B 测试、广告素材、AI-SEO、分析归因、冷邮件、社区营销、竞品画像、留存挽回等增长工程全链路；兼容 Agent Skills 规范，含营销账号连接工作流。Leading Words: 营销技能集, 增长工程, 转化优化, AI SEO, 冷邮件, 营销自动化",
     "category": "04_内容创作与文档处理",
     "folder": "marketingskills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/marketingskills",
@@ -1997,7 +1997,7 @@
   },
   {
     "name": "jev-ultrafast",
-    "description": "超快浏览器智能体技能（browser-use × TypeSafe Jev，Agent Skills Hub typesafe-jev 场景实测首选）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本；实测苏黎世→伦敦机票全程 7.1 秒。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe",
+    "description": "超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe",
     "category": "07_智能体框架与协同",
     "folder": "jev-ultrafast",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/jev-ultrafast",
@@ -2008,7 +2008,7 @@
   },
   {
     "name": "google-workspace-mcp",
-    "description": "Google Workspace 全家桶 MCP 服务器（Agent Skills Hub mcp-for-google 场景实测首选，PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp",
+    "description": "Google Workspace 全家桶 MCP 服务器（PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp",
     "category": "11_API与第三方应用集成",
     "folder": "google-workspace-mcp",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/google-workspace-mcp",

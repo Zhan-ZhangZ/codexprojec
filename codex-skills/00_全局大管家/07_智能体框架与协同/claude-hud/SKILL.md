@@ -1,6 +1,6 @@
 ---
 name: claude-hud
-description: "Claude Code 实时状态栏 HUD（Agent Skills Hub 场景实测首选）。TypeScript 编写，在终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud"
+description: "Claude Code 实时状态栏 HUD。TypeScript 编写，终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud"
 metadata:
   upstream: "github.com/jarrodwatts/claude-hud"
 ---

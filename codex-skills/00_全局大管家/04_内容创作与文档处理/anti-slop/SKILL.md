@@ -1,6 +1,6 @@
 ---
 name: anti-slop
-description: "反 AI 味多面规则系统（miqdadbadjuber 版，4.5k★，Agent Skills Hub 实测 4/5）：核心规则文件 + 6 个按关注点拆分的子技能——antislop 总纲（默认常载过滤）、antislop-code 代码、antislop-copywriting 文案、antislop-human 文风（含 contrast-check.py 对比检查脚本）、antislop-layoutmobile 移动端布局、antislop-ui 界面设计；另配 rules/antislop.md 规则单文件版与 cli/ 安装器，多平台插件入口（Claude/Codex/Cursor/Cline/Kimi 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器"
+description: "反 AI 味多面规则系统：核心总纲常载过滤 + 6 个子技能分域把关——代码、文案、文风（含对比检查脚本）、移动端布局、UI 设计；另配规则单文件版与 CLI 安装器，多平台插件入口（Claude/Codex/Cursor/Cline 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器"
 metadata:
   upstream: "github.com/miqdadbadjuber/anti-slop"
 ---

@@ -1,6 +1,6 @@
 ---
 name: ian-xiaohei-illustrations
-description: "Ian 小黑怪诞中文正文配图技能（Agent Skills Hub image-generation/codex-skills 双榜 Top2）。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei"
+description: "Ian 小黑怪诞中文正文配图技能。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei"
 metadata:
   upstream: "github.com/helloianneo/ian-xiaohei-illustrations"
 ---
