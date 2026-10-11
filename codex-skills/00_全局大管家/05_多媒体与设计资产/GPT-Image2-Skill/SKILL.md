@@ -1,6 +1,6 @@
 ---
 name: GPT-Image2-Skill
-description: "GPT-Image2 生图技能（ASH image-generation 榜 #3 + codex-skills 榜 #2 双榜在列，wuyoscar）。顶级生图 prompt 工程与排版规范，双语巨幅 README 即知识库。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范"
+description: "GPT-Image2 生图技能。生图 prompt 工程与排版规范知识库（中英双语），覆盖构图、文字渲染与风格控制。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范"
 metadata:
   upstream: "github.com/wuyoscar/GPT-Image2-Skill"
 ---

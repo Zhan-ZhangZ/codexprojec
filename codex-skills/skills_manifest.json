@@ -2303,7 +2303,7 @@
   },
   {
     "name": "code-review-graph",
-    "description": "代码评审知识图谱工具（ASH code-review 榜 #3）。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展",
+    "description": "代码评审知识图谱工具。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展",
     "category": "01_代码工程与架构",
     "folder": "code-review-graph",
     "relative_path": "./00_全局大管家/01_代码工程与架构/code-review-graph",
@@ -2324,7 +2324,7 @@
   },
   {
     "name": "GPT-Image2-Skill",
-    "description": "GPT-Image2 生图技能（ASH image-generation 榜 #3 + codex-skills 榜 #2 双榜在列，wuyoscar）。顶级生图 prompt 工程与排版规范，双语巨幅 README 即知识库。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范",
+    "description": "GPT-Image2 生图技能。生图 prompt 工程与排版规范知识库（中英双语），覆盖构图、文字渲染与风格控制。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范",
     "category": "05_多媒体与设计资产",
     "folder": "GPT-Image2-Skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/GPT-Image2-Skill",
@@ -2335,7 +2335,7 @@
   },
   {
     "name": "last30days-skill",
-    "description": "近 30 天热点内容技能（ASH content-syndication 榜 #3，mvanhorn）。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days",
+    "description": "近 30 天热点内容技能。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days",
     "category": "04_内容创作与文档处理",
     "folder": "last30days-skill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/last30days-skill",
@@ -2345,7 +2345,7 @@
   },
   {
     "name": "wechat-article-skills",
-    "description": "微信公众号文章技能集（ASH content-writing 榜 #1，aiworkskills）。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article",
+    "description": "微信公众号文章技能集。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article",
     "category": "04_内容创作与文档处理",
     "folder": "wechat-article-skills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/wechat-article-skills",
@@ -2355,7 +2355,7 @@
   },
   {
     "name": "tui-test",
-    "description": "微软官方终端 UI 测试框架（ASH cli-tools 榜 #2/#3 同仓双列——shell-use 为其旧名重定向）。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test",
+    "description": "微软官方终端 UI 测试框架。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test",
     "category": "01_代码工程与架构",
     "folder": "tui-test",
     "relative_path": "./00_全局大管家/01_代码工程与架构/tui-test",
@@ -2366,7 +2366,7 @@
   },
   {
     "name": "codegraph",
-    "description": "代码知识图谱引擎（ASH knowledge-base 榜 #2，colbymchenry）。tree-sitter WASM 解析器全集（66M）+ 文法内核（55M）把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph",
+    "description": "代码知识图谱引擎。tree-sitter WASM 解析器全集 + 文法内核把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph",
     "category": "01_代码工程与架构",
     "folder": "codegraph",
     "relative_path": "./00_全局大管家/01_代码工程与架构/codegraph",
@@ -2377,7 +2377,7 @@
   },
   {
     "name": "LightRAG",
-    "description": "轻量 RAG 引擎（港大 HKUDS 出品，ASH knowledge-base 榜 #3）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag",
+    "description": "轻量 RAG 引擎（港大 HKUDS 出品）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag",
     "category": "03_效率工具与协同管理",
     "folder": "LightRAG",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/LightRAG",
@@ -2388,7 +2388,7 @@
   },
   {
     "name": "OpenSpace",
-    "description": "Agent Skills 管理层（港大 HKUDS，ASH skill-management 榜 #3）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
+    "description": "Agent Skills 管理层（港大 HKUDS 出品）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "OpenSpace",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/OpenSpace",
@@ -2399,7 +2399,7 @@
   },
   {
     "name": "octocode-mcp",
-    "description": "Agentic 研究平台 MCP（ASH mcp-for-github 榜 #1，MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
+    "description": "Agentic 研究平台 MCP（MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
     "category": "11_API与第三方应用集成",
     "folder": "octocode-mcp",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/octocode-mcp",
@@ -2410,7 +2410,7 @@
   },
   {
     "name": "martin-loop",
-    "description": "编码智能体无人值守循环（ASH mcp-for-github 榜 #2）。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop",
+    "description": "编码智能体无人值守循环。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop",
     "category": "11_API与第三方应用集成",
     "folder": "martin-loop",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/martin-loop",
@@ -2421,7 +2421,7 @@
   },
   {
     "name": "Aletheore",
-    "description": "可验证代码智能（ASH mcp-for-github 榜 #3）。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore",
+    "description": "可验证代码智能。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore",
     "category": "11_API与第三方应用集成",
     "folder": "Aletheore",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/Aletheore",
@@ -2442,7 +2442,7 @@
   },
   {
     "name": "modular-context-obsidian-plugin",
-    "description": "Obsidian LLM 知识库 + 多账号 Google Workspace MCP（ASH mcp-for-google 榜 #3）。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context",
+    "description": "Obsidian LLM 知识库 + 多账号 Google Workspace MCP。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context",
     "category": "03_效率工具与协同管理",
     "folder": "modular-context-obsidian-plugin",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/modular-context-obsidian-plugin",

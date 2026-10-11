@@ -1,6 +1,6 @@
 ---
 name: last30days-skill
-description: "近 30 天热点内容技能（ASH content-syndication 榜 #3，mvanhorn）。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days"
+description: "近 30 天热点内容技能。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days"
 metadata:
   upstream: "github.com/mvanhorn/last30days-skill"
 ---

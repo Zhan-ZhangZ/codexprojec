@@ -1,6 +1,6 @@
 ---
 name: codegraph
-description: "代码知识图谱引擎（ASH knowledge-base 榜 #2，colbymchenry）。tree-sitter WASM 解析器全集（66M）+ 文法内核（55M）把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph"
+description: "代码知识图谱引擎。tree-sitter WASM 解析器全集 + 文法内核把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph"
 metadata:
   upstream: "github.com/colbymchenry/codegraph"
 ---

@@ -1,6 +1,6 @@
 ---
 name: martin-loop
-description: "编码智能体无人值守循环（ASH mcp-for-github 榜 #2）。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop"
+description: "编码智能体无人值守循环。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop"
 metadata:
   upstream: "github.com/Keesan12/martin-loop"
 ---

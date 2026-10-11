@@ -1,6 +1,6 @@
 ---
 name: wechat-article-skills
-description: "微信公众号文章技能集（ASH content-writing 榜 #1，aiworkskills）。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article"
+description: "微信公众号文章技能集。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article"
 metadata:
   upstream: "github.com/aiworkskills/wechat-article-skills"
 ---

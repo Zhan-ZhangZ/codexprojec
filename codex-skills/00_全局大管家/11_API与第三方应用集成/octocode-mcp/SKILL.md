@@ -1,6 +1,6 @@
 ---
 name: octocode-mcp
-description: "Agentic 研究平台 MCP（ASH mcp-for-github 榜 #1，MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode"
+description: "Agentic 研究平台 MCP（MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode"
 metadata:
   upstream: "github.com/bgauryy/octocode-mcp"
 ---

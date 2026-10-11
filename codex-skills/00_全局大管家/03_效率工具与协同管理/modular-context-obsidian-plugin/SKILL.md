@@ -1,6 +1,6 @@
 ---
 name: modular-context-obsidian-plugin
-description: "Obsidian LLM 知识库 + 多账号 Google Workspace MCP（ASH mcp-for-google 榜 #3）。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context"
+description: "Obsidian LLM 知识库 + 多账号 Google Workspace MCP。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context"
 metadata:
   upstream: "github.com/klemensgc/modular-context-obsidian-plugin"
 ---
