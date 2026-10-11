@@ -1,6 +1,6 @@
 ---
 name: codex-ppt-skill
-description: "Codex PPT 技能（ASH codex-skills 榜 #3 + image-generation 榜 #2 双榜在列，ningzimu）。学术论文级幻灯片生成，含风格预览与优秀设计样例 PPTX。Leading Words: PPT技能, 幻灯片生成, 学术演示, codex ppt"
+description: "整页图片式 PPT 生成技能。把文章/论文/报告/笔记转为演示文稿：大纲确认 → 12 种内置视觉风格（手绘技术解释/科研答辩/麦肯锡等）→ 样张确认 → 逐页生图 → 本地脚本组装 PPTX；演讲稿自动写入每页备注，支持个人风格库、指定页插入原图与多 Agent 并发生成。Leading Words: PPT生成, 幻灯片制作, 图片式PPT, 演示文稿, codex ppt"
 metadata:
   upstream: "github.com/ningzimu/codex-ppt-skill"
 ---
