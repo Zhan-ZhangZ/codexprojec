@@ -1,6 +1,6 @@
 ---
 name: loki-mode
-description: "Loki 自主编码智能体（ASH vibe-coding 榜 #3，asklokesh）。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode"
+description: "Loki 自主编码智能体。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode"
 metadata:
   upstream: "github.com/asklokesh/loki-mode"
 ---

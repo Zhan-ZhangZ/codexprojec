@@ -1,6 +1,6 @@
 ---
 name: mcp-toolbox
-description: "谷歌官方 Databases MCP Toolbox（ASH mcp-database 榜 #3）。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox"
+description: "谷歌官方 Databases MCP Toolbox。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox"
 metadata:
   upstream: "github.com/googleapis/mcp-toolbox"
 ---

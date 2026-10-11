@@ -2486,7 +2486,7 @@
   },
   {
     "name": "MARS",
-    "description": "MATLAB Agent RPC Server（ASH mcp-api 榜 #1，andrea-magni）。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
+    "description": "MATLAB Agent RPC Server。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
     "category": "11_API与第三方应用集成",
     "folder": "MARS",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/MARS",
@@ -2507,7 +2507,7 @@
   },
   {
     "name": "mcp-toolbox",
-    "description": "谷歌官方 Databases MCP Toolbox（ASH mcp-database 榜 #3）。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox",
+    "description": "谷歌官方 Databases MCP Toolbox。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox",
     "category": "08_MCP服务开发与评估",
     "folder": "mcp-toolbox",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-toolbox",
@@ -2518,7 +2518,7 @@
   },
   {
     "name": "WrenAI",
-    "description": "开源 Text-to-SQL 数据智能体（ASH mcp-database 榜 #2，Canner）。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层",
+    "description": "开源 Text-to-SQL 数据智能体。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层",
     "category": "08_MCP服务开发与评估",
     "folder": "WrenAI",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/WrenAI",
@@ -2529,7 +2529,7 @@
   },
   {
     "name": "agentic-signal",
-    "description": "可视化 AI 工作流自动化平台（ASH local-llm 榜 #2，code-forge-temple）。本地智能体智力驱动的节点式工作流。Leading Words: 可视化工作流, 节点编排, 本地智能体, agentic signal",
+    "description": "可视化 AI 工作流自动化平台。本地智能体智力驱动的节点式工作流。Leading Words: 可视化工作流, 节点编排, 本地智能体, agentic signal",
     "category": "03_效率工具与协同管理",
     "folder": "agentic-signal",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/agentic-signal",
@@ -2646,7 +2646,7 @@
   },
   {
     "name": "typesafe-computer-use",
-    "description": "TypeSafe 计算机操作（ASH typesafe-jev 榜 #3，awlevin）。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe",
+    "description": "TypeSafe 计算机操作。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe",
     "category": "07_智能体框架与协同",
     "folder": "typesafe-computer-use",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/typesafe-computer-use",
@@ -2656,7 +2656,7 @@
   },
   {
     "name": "ralphy",
-    "description": "Ralphy AI 编码智能体 CLI（ASH vibe-coding 榜 #1，michaelshimeles，npm 分发）。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent",
+    "description": "AI 编码智能体 CLI（npm 分发 ralphy-cli）。自然语言下达编码任务，终端内完成代码工作。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent",
     "category": "01_代码工程与架构",
     "folder": "ralphy",
     "relative_path": "./00_全局大管家/01_代码工程与架构/ralphy",
@@ -2666,7 +2666,7 @@
   },
   {
     "name": "vibe-coding-prompt-template",
-    "description": "Vibe Coding 工作流提示词模板（ASH vibe-coding 榜 #2，KhazP）。Leading Words: vibe coding, 提示词模板, 工作流模板",
+    "description": "Vibe Coding 工作流提示词模板。面向 AI 结对编程的结构化提示词与工作流模板集。Leading Words: vibe coding, 提示词模板, 工作流模板",
     "category": "07_智能体框架与协同",
     "folder": "vibe-coding-prompt-template",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-coding-prompt-template",
@@ -2676,7 +2676,7 @@
   },
   {
     "name": "loki-mode",
-    "description": "Loki 自主编码智能体（ASH vibe-coding 榜 #3，asklokesh）。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode",
+    "description": "Loki 自主编码智能体。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode",
     "category": "01_代码工程与架构",
     "folder": "loki-mode",
     "relative_path": "./00_全局大管家/01_代码工程与架构/loki-mode",
@@ -2687,7 +2687,7 @@
   },
   {
     "name": "moli",
-    "description": "墨鲤网页生成引擎（ASH web-scraping 榜 #1，lexmount）。浏览器渲染驱动的网页生成/截图：moli-renderer-v8 渲染内核+protocol 协议层+wpt-compat 兼容层。Leading Words: 墨鲤, 网页渲染, 浏览器截图, 网页生成, moli",
+    "description": "墨鲤网页生成引擎。浏览器渲染驱动的网页生成/截图：渲染内核+协议层+兼容层。Leading Words: 墨鲤, 网页渲染, 浏览器截图, 网页生成, moli",
     "category": "03_效率工具与协同管理",
     "folder": "moli",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/moli",
@@ -2698,7 +2698,7 @@
   },
   {
     "name": "agents-kit",
-    "description": "Agent 界面组件库（ASH voice-agent 榜 #2，agents-ui）。构建更好智能体界面的 React 组件集。Leading Words: agent界面, 智能体组件库, react组件, agents kit",
+    "description": "Agent 界面组件库。构建更好智能体界面的 React 组件集。Leading Words: agent界面, 智能体组件库, react组件, agents kit",
     "category": "07_智能体框架与协同",
     "folder": "agents-kit",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/agents-kit",
@@ -2709,7 +2709,7 @@
   },
   {
     "name": "claudian",
-    "description": "Claudian Obsidian 智能体（ASH obsidian-second-brain 榜 #2，YishenTu）。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手",
+    "description": "Claudian Obsidian 智能体。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手",
     "category": "03_效率工具与协同管理",
     "folder": "claudian",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/claudian",
@@ -2719,7 +2719,7 @@
   },
   {
     "name": "elevenlabs-cli",
-    "description": "ElevenLabs 官方 CLI（ASH voice-agent 榜 #3）。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆",
+    "description": "ElevenLabs 官方 CLI。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆",
     "category": "07_智能体框架与协同",
     "folder": "elevenlabs-cli",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/elevenlabs-cli",
@@ -2730,7 +2730,7 @@
   },
   {
     "name": "crawl4ai",
-    "description": "LLM 友好爬虫框架（ASH web-scraping 榜 #3，unclecode）。为 AI 智能体优化的网页抓取：Markdown 输出/结构化抽取/浏览器自动化。Leading Words: LLM爬虫, 网页转markdown, 智能体抓取, crawl4ai",
+    "description": "LLM 友好爬虫框架。为 AI 智能体优化的网页抓取：Markdown 输出/结构化抽取/浏览器自动化。Leading Words: LLM爬虫, 网页转markdown, 智能体抓取, crawl4ai",
     "category": "03_效率工具与协同管理",
     "folder": "crawl4ai",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/crawl4ai",
@@ -2763,7 +2763,7 @@
   },
   {
     "name": "ppt-image-first",
-    "description": "图像优先 PPT 工作流技能（ASH ppt-presentation 榜 #3，NyxTides）。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first",
+    "description": "图像优先 PPT 工作流技能。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first",
     "category": "05_多媒体与设计资产",
     "folder": "ppt-image-first",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-image-first",

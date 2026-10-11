@@ -1,6 +1,6 @@
 ---
 name: ralphy
-description: "Ralphy AI 编码智能体 CLI（ASH vibe-coding 榜 #1，michaelshimeles，npm 分发）。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent"
+description: "AI 编码智能体 CLI（npm 分发 ralphy-cli）。自然语言下达编码任务，终端内完成代码工作。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent"
 metadata:
   upstream: "github.com/michaelshimeles/ralphy"
 ---

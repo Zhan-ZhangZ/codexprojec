@@ -1,6 +1,6 @@
 ---
 name: elevenlabs-cli
-description: "ElevenLabs 官方 CLI（ASH voice-agent 榜 #3）。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆"
+description: "ElevenLabs 官方 CLI。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆"
 metadata:
   upstream: "github.com/elevenlabs/cli"
 ---

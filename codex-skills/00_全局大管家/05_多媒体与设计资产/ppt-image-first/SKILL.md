@@ -1,6 +1,6 @@
 ---
 name: ppt-image-first
-description: "图像优先 PPT 工作流技能（ASH ppt-presentation 榜 #3，NyxTides）。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first"
+description: "图像优先 PPT 工作流技能。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first"
 metadata:
   upstream: "github.com/NyxTides/ppt-image-first"
 ---
