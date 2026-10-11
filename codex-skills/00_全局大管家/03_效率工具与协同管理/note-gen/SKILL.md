@@ -1,6 +1,6 @@
 ---
 name: note-gen
-description: "NoteGen 笔记生成（ASH obsidian-second-brain 榜 #3，codexu）。多源素材→结构化笔记。Leading Words: 笔记生成, 素材整理, notegen"
+description: "本地优先 Markdown 笔记应用。先收集后整理：把截图/网页/聊天等碎片信息攒进收件箱，AI 辅助整理为结构化笔记。Leading Words: 笔记生成, 碎片信息收集, AI整理笔记, 本地优先, notegen"
 metadata:
   upstream: "github.com/codexu/note-gen"
 ---

@@ -1,6 +1,6 @@
 ---
 name: phoenix
-description: "LLM 可观测性平台（Arize 出品，ASH prompt-engineering 榜 #1）。追踪/评估/实验追踪：prompt 版本对比、LLM trace、数据集评估。文档层集成。Leading Words: LLM可观测, prompt评估, Arize, trace追踪, phoenix"
+description: "LLM 可观测性平台（Arize 出品）。追踪/评估/实验三合一：LLM trace、prompt 版本对比、数据集评估与实验追踪。Leading Words: LLM可观测, prompt评估, trace追踪, 评估数据集, phoenix"
 metadata:
   upstream: "github.com/Arize-ai/phoenix"
 ---

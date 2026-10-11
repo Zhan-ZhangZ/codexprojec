@@ -1,6 +1,6 @@
 ---
 name: backlot
-description: "Backlot（ASH mcp-for-google 榜 #2，brekkylab）。Python 工具集，配合 Google Workspace 工作流。Leading Words: backlot, google工作流, python工具"
+description: "企业 SaaS API 本地模拟器。在本地复现 Slack/Gmail/Drive/GitHub/Jira/Notion/S3 等平台的响应结构、分页、鉴权、错误与文档级权限——无需厂商账号、无需 OAuth 审批、CI 无密钥、零网络，直接用官方 SDK 构建与测试集成。Leading Words: API本地模拟, SaaS沙箱, 免账号集成测试, 无网络联调, backlot"
 metadata:
   upstream: "github.com/brekkylab/backlot"
 ---

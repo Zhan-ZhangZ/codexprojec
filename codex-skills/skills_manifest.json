@@ -1851,7 +1851,7 @@
   },
   {
     "name": "sloptrim",
-    "description": "去 AI 味文本修剪与本地检测器（Agent Skills Hub 实测榜首 4.5/5）。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；交付 CV、求职信、邮件、报告、 essay 前可作 pre-delivery 检查；Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像",
+    "description": "去 AI 味文本修剪与本地检测器。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；CV、求职信、邮件、报告、essay 交付前可作 pre-delivery 检查；附 Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像",
     "category": "04_内容创作与文档处理",
     "folder": "sloptrim",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/sloptrim",
@@ -2119,7 +2119,7 @@
   },
   {
     "name": "ragflow",
-    "description": "深度文档理解 RAG 引擎（Agent Skills Hub knowledge-base 场景实测首选，infiniflow）。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，文档层集成（README 全语种 + docs）。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow",
+    "description": "深度文档理解 RAG 引擎。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，构建企业级知识库问答系统。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow",
     "category": "03_效率工具与协同管理",
     "folder": "ragflow",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/ragflow",
@@ -2249,7 +2249,7 @@
   },
   {
     "name": "open-design",
-    "description": "开源 AI 设计画布工具（nexu-io 出品，ASH ai-design 榜 #1，html-anything 同门）。文档层集成：README/QUICKSTART/TRANSLATIONS/docs 与插件注册表（spec/registry/community），产品本体（daemon/desktop/web 应用与官方插件二进制）见上游。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design",
+    "description": "开源 AI 设计画布工具。在可视化画布上用 AI 生成与迭代设计，配套插件体系（规范/注册表/社区插件）可扩展能力。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design",
     "category": "05_多媒体与设计资产",
     "folder": "open-design",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/open-design",
@@ -2432,7 +2432,7 @@
   },
   {
     "name": "backlot",
-    "description": "Backlot（ASH mcp-for-google 榜 #2，brekkylab）。Python 工具集，配合 Google Workspace 工作流。Leading Words: backlot, google工作流, python工具",
+    "description": "企业 SaaS API 本地模拟器。在本地复现 Slack/Gmail/Drive/GitHub/Jira/Notion/S3 等平台的响应结构、分页、鉴权、错误与文档级权限——无需厂商账号、无需 OAuth 审批、CI 无密钥、零网络，直接用官方 SDK 构建与测试集成。Leading Words: API本地模拟, SaaS沙箱, 免账号集成测试, 无网络联调, backlot",
     "category": "11_API与第三方应用集成",
     "folder": "backlot",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/backlot",
@@ -2475,7 +2475,7 @@
   },
   {
     "name": "phoenix",
-    "description": "LLM 可观测性平台（Arize 出品，ASH prompt-engineering 榜 #1）。追踪/评估/实验追踪：prompt 版本对比、LLM trace、数据集评估。文档层集成。Leading Words: LLM可观测, prompt评估, Arize, trace追踪, phoenix",
+    "description": "LLM 可观测性平台（Arize 出品）。追踪/评估/实验三合一：LLM trace、prompt 版本对比、数据集评估与实验追踪。Leading Words: LLM可观测, prompt评估, trace追踪, 评估数据集, phoenix",
     "category": "02_DevOps与自动化",
     "folder": "phoenix",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/phoenix",
@@ -2497,7 +2497,7 @@
   },
   {
     "name": "lilbee",
-    "description": "Lilbee（ASH local-llm 榜 #3，tobocop2）。本地智能体 CLI 工具。Leading Words: lilbee, 本地CLI智能体, local llm",
+    "description": "本地一体化 LLM 工作台。自带模型管理与多 GPU 编队（llama.cpp），把 chat/embedding/vision/rerank 模型变成可对话的搜索引擎：索引文件/笔记/代码/网页，答案带文件行级引用；单可执行程序，终端/CLI/MCP/HTTP/Python 库多形态接入，Obsidian 插件同引擎；全本地隐私优先。Leading Words: 本地LLM工作台, 多GPU模型管理, 行级引用搜索, 本地搜索引擎, lilbee",
     "category": "03_效率工具与协同管理",
     "folder": "lilbee",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/lilbee",
@@ -2741,7 +2741,7 @@
   },
   {
     "name": "note-gen",
-    "description": "NoteGen 笔记生成（ASH obsidian-second-brain 榜 #3，codexu）。多源素材→结构化笔记。Leading Words: 笔记生成, 素材整理, notegen",
+    "description": "本地优先 Markdown 笔记应用。先收集后整理：把截图/网页/聊天等碎片信息攒进收件箱，AI 辅助整理为结构化笔记。Leading Words: 笔记生成, 碎片信息收集, AI整理笔记, 本地优先, notegen",
     "category": "03_效率工具与协同管理",
     "folder": "note-gen",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/note-gen",
@@ -2752,7 +2752,7 @@
   },
   {
     "name": "openlive",
-    "description": "OpenLive（ASH voice-agent 榜 #1，katipally）。实时语音/直播智能体应用。Leading Words: 实时语音, 直播智能体, openlive",
+    "description": "AI 智能体开放语音视觉层。为编码智能体装上耳朵、嘴巴与眼睛：自带模型或对接现有 agent，完整语音回路跑在本机——ElevenLabs Agents/Gemini Live/OpenAI Realtime 的开源替代。Leading Words: 实时语音智能体, 语音回路本机运行, 视觉语音层, 开源语音方案, openlive",
     "category": "07_智能体框架与协同",
     "folder": "openlive",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/openlive",
@@ -2773,7 +2773,7 @@
   },
   {
     "name": "chatgpt-specimen-toolbox",
-    "description": "ChatGPT 样本工具箱（ASH authentication 榜 #3）。Leading Words: 样本工具, chatgpt toolbox",
+    "description": "ChatGPT 认证会话格式转换工具箱。把 chatgpt.com 的 auth session JSON 一键导出为 9 种主流认证格式，反向导入 11 种来源互转；附 Plus/Team 订阅链接生成与路由检测（请求模型→实际模型·PoW·可导出）。Leading Words: ChatGPT认证格式, session导出导入, 中转格式互转, 订阅链接生成, 路由检测",
     "category": "11_API与第三方应用集成",
     "folder": "chatgpt-specimen-toolbox",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt-specimen-toolbox",
@@ -2783,7 +2783,7 @@
   },
   {
     "name": "streamable-mcp-server-template",
-    "description": "可流式 MCP 服务器模板（ASH authentication 榜 #2，iceener）。Leading Words: MCP模板, 流式服务器, streamable mcp",
+    "description": "远程 MCP 服务器开发模板。Bun 与 Cloudflare Workers 双运行时，基于官方 TypeScript SDK；内置 Host/Origin 头校验、OAuth 资源服务器模式（业务代码不接触 token）、错误策略与双运行时测试。Leading Words: MCP服务器模板, Cloudflare Workers, OAuth资源服务器, Bun运行时, 远程MCP开发",
     "category": "11_API与第三方应用集成",
     "folder": "streamable-mcp-server-template",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/streamable-mcp-server-template",

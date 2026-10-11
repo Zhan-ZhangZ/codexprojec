@@ -1,6 +1,6 @@
 ---
 name: sloptrim
-description: "去 AI 味文本修剪与本地检测器（Agent Skills Hub 实测榜首 4.5/5）。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；交付 CV、求职信、邮件、报告、 essay 前可作 pre-delivery 检查；Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像"
+description: "去 AI 味文本修剪与本地检测器。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；CV、求职信、邮件、报告、essay 交付前可作 pre-delivery 检查；附 Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像"
 version: 0.9.4
 license: Apache-2.0
 metadata:
