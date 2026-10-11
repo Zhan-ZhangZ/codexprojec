@@ -1,6 +1,6 @@
 ---
 name: aiogram
-description: "Python 异步 Telegram Bot 框架事实标准（ASH telegram-bot 榜 #1）。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发"
+description: "Python 异步 Telegram Bot 框架事实标准。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发"
 metadata:
   upstream: "github.com/aiogram/aiogram"
 ---

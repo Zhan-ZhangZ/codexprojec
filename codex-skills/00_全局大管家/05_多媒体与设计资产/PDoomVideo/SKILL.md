@@ -1,6 +1,6 @@
 ---
 name: PDoomVideo
-description: "AI 长视频叙事生成（ASH claude-video-skills 榜 #2，JohnHeibel）。P(Doom) 概率式分镜叙事：多层时间线与场景图驱动成片。Leading Words: AI长视频, 概率分镜, 叙事生成, pdoom video"
+description: "AI 长视频叙事生成。P(Doom) 概率式分镜叙事：多层时间线与场景图驱动成片。Leading Words: AI长视频, 概率分镜, 叙事生成, pdoom video"
 metadata:
   upstream: "github.com/JohnHeibel/PDoomVideo"
 ---

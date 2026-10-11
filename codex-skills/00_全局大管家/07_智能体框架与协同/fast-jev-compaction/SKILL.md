@@ -1,6 +1,6 @@
 ---
 name: fast-jev-compaction
-description: "Jev 快速压缩插件（ASH typesafe-jev 榜 #2，tamaratran）。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction"
+description: "Jev 快速压缩插件。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction"
 metadata:
   upstream: "github.com/tamaratran/fast-jev-compaction"
 ---

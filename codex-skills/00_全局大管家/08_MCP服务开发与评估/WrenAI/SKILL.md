@@ -1,6 +1,6 @@
 ---
 name: WrenAI
-description: "开源 Text-to-SQL 数据智能体（ASH mcp-database 榜 #2，Canner）。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层"
+description: "开源 Text-to-SQL 数据智能体。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层"
 metadata:
   upstream: "github.com/Canner/WrenAI"
 ---

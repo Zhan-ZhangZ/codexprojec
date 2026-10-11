@@ -1,6 +1,6 @@
 ---
 name: slop-guard
-description: "规则型散文 AI 腔评分器（Slop Scoring，Agent Skills Hub 实测 4/5）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议"
+description: "规则型散文 AI 腔评分器（Slop Scoring）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议"
 metadata:
   upstream: "github.com/eric-tramel/slop-guard"
 ---

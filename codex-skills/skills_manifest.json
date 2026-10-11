@@ -372,7 +372,7 @@
   },
   {
     "name": "chubbyskills",
-    "description": "中文全渠道内容采集与个人知识库 AI 技能集（14 个子技能）。覆盖 B 站/抖音/YouTube/TikTok/微博/知乎/小宇宙播客/X/小红书/微信公众号等 10 个渠道的视频转录与图文采集，配套知识库管理、内容加工、学习笔记自动化、行业情报雷达四项整理能力；统一 CLI（tools/chubby.py）串起「采集→入库→检索→资料包导出」全链路；字幕优先策略（官方/自动字幕秒级、免 GPU）。Leading Words: 中文内容采集, 视频转录, 字幕优先, 个人知识库, Obsidian 整理, GBrain, GraphRAG, 小红书采集, 公众号采集, B站转录, 抖音转录, 知乎采集, 播客转录, X图文采集, 资料包导出, 知识库索引, MCP知识库",
+    "description": "中文全渠道内容采集与个人知识库技能集（14 个子技能）。B站/抖音/YouTube/TikTok/微博/知乎/小宇宙/X/小红书/公众号十渠道视频转录与图文采集，配套知识库管理/内容加工/学习笔记/情报雷达；统一 CLI 串起采集→入库→检索→导出，字幕优先免 GPU。Leading Words: 中文内容采集, 视频转录, 字幕优先, 个人知识库, 小红书采集, 公众号采集, B站转录, 抖音转录, 知乎采集, 播客转录",
     "category": "04_内容创作与文档处理",
     "folder": "chubbyskills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/chubbyskills",
@@ -629,7 +629,7 @@
   },
   {
     "name": "blender-mcp",
-    "description": "Blender 3D 建模 MCP 集成指南 (MCP for Blender)。让 AI 按双组件架构（uvx 运行的 MCP 服务器 + Blender 内 socket 插件）完成配置并接管 Blender，进行场景搭建、物体创建修改、材质灯光摄像机控制、任意 Python 代码执行与视口截图视觉自查，并直连 Poly Haven 资产库、Sketchfab/Poly Pizza 模型库与 Hyper3D Rodin/Hunyuan3D AI 生成 3D 模型，支持安全模式脚本校验与遥测开关。Leading Words: Blender 3D建模, MCP控制Blender, Blender配置指南, 场景搭建, 材质编辑, execute_blender_code, 视口截图自查, Poly Haven资产, Sketchfab模型, Poly Pizza低模, Hyper3D, Hunyuan3D, 安全模式",
+    "description": "Blender 3D 建模 MCP 集成。双组件架构（uvx 服务器 + Blender 内 socket 插件）：场景搭建/物体创建修改/材质灯光摄像机控制/任意 Python 代码执行/视口截图自查，直连 Poly Haven 资产、Sketchfab/Poly Pizza 模型库与 Hyper3D/Hunyuan3D 生成，支持安全模式。Leading Words: Blender 3D建模, MCP控制Blender, 场景搭建, execute_blender_code, Poly Haven资产, Sketchfab模型",
     "category": "06_商业与专业领域",
     "folder": "blender-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/blender-mcp",
@@ -1417,7 +1417,7 @@
   },
   {
     "name": "guizang-material-illustration",
-    "description": "Generate Guizang-style material illustrations, labeled explanatory visuals, material-styled chart illustrations, and data-first editorial images from articles, notes, product concepts, workplace reports, creator posts, tutorials, school materials, humanities topics, science explanations, screenshots, or chart data. Use when the user asks for 配图, 带字插图, 解释图, 图解插画, 概念拆解图, 图表美化, 数据图美化, 3D 图表, 汇报配图, 内容配图, 小学课文配图, 生物/化学/物理解释图, 人文类配图, process/loop/system diagrams, or wants GPT-Image / image generation to create supporting images that can sit inside social cards, docs, slides, PPTs, or posts.",
+    "description": "Guizang 风格素材插图生成。从文章/笔记/产品概念/报告/教程/科普等内容生成带字解释图、素材风图表插图与数据优先的编辑图，可嵌入社交卡片/文档/幻灯片。适用于配图、带字插图、概念拆解图、图表美化、汇报配图等需求。Leading Words: 素材插图, 带字解释图, 图表美化, 概念拆解, 汇报配图, 3D图表",
     "category": "05_多媒体与设计资产",
     "folder": "guizang-material-illustration",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
@@ -1445,7 +1445,7 @@
   },
   {
     "name": "human-writing",
-    "description": "通用中文创作与改稿 Skill。用于知乎回答、论坛长帖、公众号文章、博客、评论、人物故事、历史叙事、新闻与行业解读、科普、教程、评测、个人叙事、小说、故事、对白、口播和演讲稿。默认写成一个见过事、查过材料、愿意把来龙去脉讲清楚的人在说话，重点保留中文互联网长回答与长帖的活人感和自然中文韵律，避免空泛的机构腔、喊口号式演说腔、营销腔和模型腔。非虚构长文先检查材料够不够，材料不足时研究、追问或缩短，绝不用重复解释灌字数。现实内容额外核验事实、引语、数据与用户亲历，虚构内容可以创造人物、场景、对白、心理与情节。成稿正文严禁冒号、破折号、“不是……而是……”及同类翻案句，并清除商业黑话和模型惯用黑话。不创建作者画像、个人规则库或个人写作 Skill。",
+    "description": "通用中文创作与改稿。知乎/公众号/博客/故事/口播等长文写作：保留活人感与自然中文韵律，避免机构腔/口号腔/模型腔；非虚构先查材料、核验事实，虚构可创造；成稿禁冒号破折号与翻案句，清除商业黑话。Leading Words: 活人感写作, 中文创作, 防AI味写作, 改稿, 长文写作",
     "aliases": [
       "活人感写作",
       "中文创作",
@@ -1576,14 +1576,14 @@
   },
   {
     "name": "engineering-tender-writer",
-    "description": "Draft, restructure, review, and refine Chinese technical tender proposals for engineering and science projects. Use when working on 技术标书、服务方案、研究内容、建设方案、技术路线、模型或算法方案、性能验收、技术参数响应表、点对点响应，or when extracting requirements from DOCX/Markdown tender materials and checking clause coverage, indicator consistency, task boundaries, unsupported commitments, and formal bid-writing style.",
+    "description": "中文工程技术标书撰写器。起草/重构/审查技术标书、服务方案、研究内容、技术路线与参数响应表；从 DOCX/Markdown 标书材料提取需求并检查条款覆盖、指标一致性、任务边界与不当承诺。Leading Words: 技术标书, 服务方案, 技术路线, 参数响应表, 点对点响应, 条款覆盖检查",
     "category": "06_商业与专业领域",
     "folder": "engineering-tender-writer",
     "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer"
   },
   {
     "name": "source-check",
-    "description": "Verify every external claim in your output via multi-criteria scientific verification routed by claim type. NO skip mechanism (which would constitute Hansson pseudoscience pathology #4 \"unwillingness to test\" + #6 \"built-in subterfuge\"). Six claim types — factual-citation / time-sensitive / subjective / future / private / scientific — each route to a type-specific verifier subagent with the criteria appropriate to that claim type per philosophy-of-science consensus (single-criterion demarcation a la Popper alone is known to fail; Hansson SEP 2025, Pigliucci & Boudry 2013). Verifiers MUST use web tools, return verbatim quotes with ≥200 chars surrounding context, perform negative-control searches, make at least one tool call to a domain not appearing in the candidate claim, and produce strict JSON output checkable downstream by substring-match.",
+    "description": "多准则信源核查器。对输出中的每条外部断言按类型路由到专项核查子代理（事实引用/时效/主观/预测/私密/科学六类），强制使用 web 工具、返回带上下文的逐字引文、执行反例检索并输出可机检的 JSON 结论；无跳过机制。Leading Words: 信源核查, 断言验证, 引文溯源, 反例检索, 科学验证",
     "category": "04_内容创作与文档处理",
     "folder": "source-check-skill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/source-check-skill"
@@ -1851,7 +1851,7 @@
   },
   {
     "name": "sloptrim",
-    "description": "去 AI 味文本修剪与本地检测器（Agent Skills Hub 实测榜首 4.5/5）。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；交付 CV、求职信、邮件、报告、 essay 前可作 pre-delivery 检查；Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像",
+    "description": "去 AI 味文本修剪与本地检测器。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；CV、求职信、邮件、报告、essay 交付前可作 pre-delivery 检查；附 Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像",
     "category": "04_内容创作与文档处理",
     "folder": "sloptrim",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/sloptrim",
@@ -1871,7 +1871,7 @@
   },
   {
     "name": "slop-guard",
-    "description": "规则型散文 AI 腔评分器（Slop Scoring，Agent Skills Hub 实测 4/5）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议",
+    "description": "规则型散文 AI 腔评分器（Slop Scoring）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议",
     "category": "04_内容创作与文档处理",
     "folder": "slop-guard",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/slop-guard",
@@ -1890,7 +1890,7 @@
   },
   {
     "name": "anti-slop",
-    "description": "反 AI 味多面规则系统（miqdadbadjuber 版，4.5k★，Agent Skills Hub 实测 4/5）：核心规则文件 + 6 个按关注点拆分的子技能——antislop 总纲（默认常载过滤）、antislop-code 代码、antislop-copywriting 文案、antislop-human 文风（含 contrast-check.py 对比检查脚本）、antislop-layoutmobile 移动端布局、antislop-ui 界面设计；另配 rules/antislop.md 规则单文件版与 cli/ 安装器，多平台插件入口（Claude/Codex/Cursor/Cline/Kimi 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器",
+    "description": "反 AI 味多面规则系统：核心总纲常载过滤 + 6 个子技能分域把关——代码、文案、文风（含对比检查脚本）、移动端布局、UI 设计；另配规则单文件版与 CLI 安装器，多平台插件入口（Claude/Codex/Cursor/Cline 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器",
     "category": "04_内容创作与文档处理",
     "folder": "anti-slop",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/anti-slop",
@@ -1910,7 +1910,7 @@
   },
   {
     "name": "claude-hud",
-    "description": "Claude Code 实时状态栏 HUD（Agent Skills Hub 场景实测首选）。TypeScript 编写，在终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud",
+    "description": "Claude Code 实时状态栏 HUD。TypeScript 编写，终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud",
     "category": "07_智能体框架与协同",
     "folder": "claude-hud",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-hud",
@@ -1921,7 +1921,7 @@
   },
   {
     "name": "claude-mem",
-    "description": "Claude Code 记忆层（Agent Skills Hub 场景实测首选）。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能、Cursor/Cowork 集成与使用文档。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem",
+    "description": "Claude Code 记忆层。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能与 Cursor/Cowork 集成。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem",
     "category": "07_智能体框架与协同",
     "folder": "claude-mem",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-mem",
@@ -1932,7 +1932,7 @@
   },
   {
     "name": "obsidian-skills",
-    "description": "Obsidian 官方 Agent Skills 套件（kepano 出品，Agent Skills Hub 场景实测首选）。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场可一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理",
+    "description": "Obsidian 官方 Agent Skills 套件。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理",
     "category": "03_效率工具与协同管理",
     "folder": "obsidian-skills",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-skills",
@@ -1943,7 +1943,7 @@
   },
   {
     "name": "open-code-review",
-    "description": "阿里巴巴开源混合架构代码评审工具（Agent Skills Hub 场景实测首选，★45.5k）。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声，SWR-Bench 实测领先；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，另含 open-code-review/open-code-review-delegate 两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, SWR-Bench, 低噪声评审, open code review",
+    "description": "阿里巴巴开源混合架构代码评审工具。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，含评审与委托两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, 低噪声评审, open code review",
     "category": "01_代码工程与架构",
     "folder": "open-code-review",
     "relative_path": "./00_全局大管家/01_代码工程与架构/open-code-review",
@@ -1954,7 +1954,7 @@
   },
   {
     "name": "Mole",
-    "description": "tw93 出品的 AI 命令行编码智能体网关（Agent Skills Hub 场景实测首选）。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制，八语 README。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole",
+    "description": "AI 命令行编码智能体网关。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole",
     "category": "01_代码工程与架构",
     "folder": "Mole",
     "relative_path": "./00_全局大管家/01_代码工程与架构/Mole",
@@ -1965,7 +1965,7 @@
   },
   {
     "name": "claude-code-best-practice",
-    "description": "Claude Code 最佳实践知识库（Agent Skills Hub 场景实测首选）。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战",
+    "description": "Claude Code 最佳实践知识库。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战",
     "category": "07_智能体框架与协同",
     "folder": "claude-code-best-practice",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-code-best-practice",
@@ -1975,7 +1975,7 @@
   },
   {
     "name": "ian-xiaohei-illustrations",
-    "description": "Ian 小黑怪诞中文正文配图技能（Agent Skills Hub image-generation/codex-skills 双榜 Top2）。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei",
+    "description": "Ian 小黑怪诞中文正文配图技能。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei",
     "category": "05_多媒体与设计资产",
     "folder": "ian-xiaohei-illustrations",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ian-xiaohei-illustrations",
@@ -1986,7 +1986,7 @@
   },
   {
     "name": "marketingskills",
-    "description": "AI Agent 营销技能集（Agent Skills Hub 场景实测首选，50 个子技能）。覆盖 A/B 测试、广告素材、AI-SEO、分析归因、冷邮件、社区营销、竞品画像、留存挽回等增长工程全链路；兼容 Agent Skills 规范（Claude Code/Codex/Cursor 等），含 tools 营销账号连接工作流。Leading Words: 营销技能集, 增长工程, 转化优化, AI SEO, 冷邮件, 营销自动化",
+    "description": "AI Agent 营销技能集（50 个子技能）。覆盖 A/B 测试、广告素材、AI-SEO、分析归因、冷邮件、社区营销、竞品画像、留存挽回等增长工程全链路；兼容 Agent Skills 规范，含营销账号连接工作流。Leading Words: 营销技能集, 增长工程, 转化优化, AI SEO, 冷邮件, 营销自动化",
     "category": "04_内容创作与文档处理",
     "folder": "marketingskills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/marketingskills",
@@ -1997,7 +1997,7 @@
   },
   {
     "name": "jev-ultrafast",
-    "description": "超快浏览器智能体技能（browser-use × TypeSafe Jev，Agent Skills Hub typesafe-jev 场景实测首选）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本；实测苏黎世→伦敦机票全程 7.1 秒。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe",
+    "description": "超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe",
     "category": "07_智能体框架与协同",
     "folder": "jev-ultrafast",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/jev-ultrafast",
@@ -2008,7 +2008,7 @@
   },
   {
     "name": "google-workspace-mcp",
-    "description": "Google Workspace 全家桶 MCP 服务器（Agent Skills Hub mcp-for-google 场景实测首选，PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp",
+    "description": "Google Workspace 全家桶 MCP 服务器（PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp",
     "category": "11_API与第三方应用集成",
     "folder": "google-workspace-mcp",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/google-workspace-mcp",
@@ -2020,7 +2020,7 @@
   },
   {
     "name": "Scrapling",
-    "description": "自适应网页抓取库（Agent Skills Hub web-scraping 场景实测首选）。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集",
+    "description": "自适应网页抓取库。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集",
     "category": "03_效率工具与协同管理",
     "folder": "Scrapling",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/Scrapling",
@@ -2031,7 +2031,7 @@
   },
   {
     "name": "cortex",
-    "description": "API 规范上下文服务器（Agent Skills Hub mcp-api 场景实测首选）。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex",
+    "description": "API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex",
     "category": "11_API与第三方应用集成",
     "folder": "cortex",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/cortex",
@@ -2042,7 +2042,7 @@
   },
   {
     "name": "asm",
-    "description": "Agent Skills 管理器 CLI（Agent Skills Hub skill-management-tools 场景实测首选）。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
+    "description": "Agent Skills 管理器 CLI。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "asm",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/asm",
@@ -2053,7 +2053,7 @@
   },
   {
     "name": "medusa",
-    "description": "AI 代码安全扫描器（Agent Skills Hub secret-detection 场景实测首选，Pantheon Security）。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner",
+    "description": "AI 代码安全扫描器。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner",
     "category": "02_DevOps与自动化",
     "folder": "medusa",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/medusa",
@@ -2064,7 +2064,7 @@
   },
   {
     "name": "Skill-Seekers",
-    "description": "Agent Skills 发现与检索引擎（Agent Skills Hub mcp-for-github 场景实测首选，v3.9.0）。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers",
+    "description": "Agent Skills 发现与检索引擎。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "Skill-Seekers",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/Skill-Seekers",
@@ -2075,7 +2075,7 @@
   },
   {
     "name": "OpenMontage",
-    "description": "AI 视频叙事创作工具（Agent Skills Hub claude-video-skills 场景实测首选，calesthio）。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与 tools 管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage",
+    "description": "AI 视频叙事创作工具。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与工具管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage",
     "category": "05_多媒体与设计资产",
     "folder": "OpenMontage",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/OpenMontage",
@@ -2086,7 +2086,7 @@
   },
   {
     "name": "headroom",
-    "description": "上下文窗口管理引擎（Agent Skills Hub prompt-engineering 场景实测首选，Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom",
+    "description": "上下文窗口管理引擎（Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom",
     "category": "07_智能体框架与协同",
     "folder": "headroom",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/headroom",
@@ -2097,7 +2097,7 @@
   },
   {
     "name": "qwen-audio-agent",
-    "description": "通义千问语音智能体框架（Agent Skills Hub voice-agent 场景实测首选）。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio",
+    "description": "通义千问语音智能体框架。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio",
     "category": "07_智能体框架与协同",
     "folder": "qwen-audio-agent",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/qwen-audio-agent",
@@ -2108,7 +2108,7 @@
   },
   {
     "name": "casdoor",
-    "description": "开源身份认证与访问管理平台（Agent Skills Hub authentication 场景实测首选，★10k+）。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管 UI 世代。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor",
+    "description": "开源身份认证与访问管理平台。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管部署。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor",
     "category": "11_API与第三方应用集成",
     "folder": "casdoor",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/casdoor",
@@ -2119,7 +2119,7 @@
   },
   {
     "name": "ragflow",
-    "description": "深度文档理解 RAG 引擎（Agent Skills Hub knowledge-base 场景实测首选，infiniflow）。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，文档层集成（README 全语种 + docs）。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow",
+    "description": "深度文档理解 RAG 引擎。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，构建企业级知识库问答系统。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow",
     "category": "03_效率工具与协同管理",
     "folder": "ragflow",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/ragflow",
@@ -2130,7 +2130,7 @@
   },
   {
     "name": "vanna",
-    "description": "文本生成 SQL 框架（Agent Skills Hub mcp-database 场景实测首选）。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna",
+    "description": "文本生成 SQL 框架。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna",
     "category": "08_MCP服务开发与评估",
     "folder": "vanna",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/vanna",
@@ -2141,7 +2141,7 @@
   },
   {
     "name": "x-cmd",
-    "description": "命令行工具集大成者（Agent Skills Hub cli-tools 场景实测首选）。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd",
+    "description": "命令行工具集大成者。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd",
     "category": "03_效率工具与协同管理",
     "folder": "x-cmd",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/x-cmd",
@@ -2152,7 +2152,7 @@
   },
   {
     "name": "Atomic-Chat",
-    "description": "本地大模型桌面聊天客户端（Agent Skills Hub local-llm 场景实测首选，Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat",
+    "description": "本地大模型桌面聊天客户端（Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat",
     "category": "03_效率工具与协同管理",
     "folder": "Atomic-Chat",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/Atomic-Chat",
@@ -2163,7 +2163,7 @@
   },
   {
     "name": "humanizer",
-    "description": "英语去 AI 痕迹改写技能（blader 出品 54k★，ASH anti-slop 榜 #2，实测 3/5 事实全保）。重写 AI 腔文本使其像作者本人所写而不改变含义：not-X-but-Y 对比、一行式收尾、套路开场、强制三连、滥用破折号、夸大断言、销售话术等模式目录。Leading Words: 去AI痕迹, 英文人性化改写, AI腔消除, humanizer, blader",
+    "description": "英语去 AI 痕迹改写技能。重写 AI 腔文本使其像作者本人所写而不改变含义：not-X-but-Y 对比、一行式收尾、套路开场、强制三连、滥用破折号、夸大断言、销售话术等模式目录。Leading Words: 去AI痕迹, 英文人性化改写, AI腔消除, humanizer",
     "category": "04_内容创作与文档处理",
     "folder": "humanizer",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanizer",
@@ -2174,7 +2174,7 @@
   },
   {
     "name": "Humanizer-zh",
-    "description": "humanizer 官方汉化版（ASH anti-slop 榜 #3，实测 3/5 事实全保）。编辑中文文章/评论/文档中的空话、重复与模板化表达，让文字更自然，保留事实、确定程度与作者声音。Leading Words: 中文去AI味, 汉化humanizer, 空话消除, 模板化表达清理",
+    "description": "humanizer 官方汉化版。编辑中文文章/评论/文档中的空话、重复与模板化表达，让文字更自然，保留事实、确定程度与作者声音。Leading Words: 中文去AI味, 汉化humanizer, 空话消除, 模板化表达清理",
     "category": "04_内容创作与文档处理",
     "folder": "Humanizer-zh",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/Humanizer-zh",
@@ -2185,7 +2185,7 @@
   },
   {
     "name": "ccstatusline",
-    "description": "Claude Code 终端状态栏（ASH claude-code-hooks 榜 #3，sirmalloc 出品）。Remotion 渲染 powerline 风状态栏：token 用量/成本/会话/git/模型切换指示，高度可配置模板系统。Leading Words: Claude Code状态栏, powerline, token用量显示, remotion状态栏, ccstatusline",
+    "description": "Claude Code 终端状态栏。Remotion 渲染 powerline 风状态栏：token 用量/成本/会话/git/模型切换指示，高度可配置模板系统。Leading Words: Claude Code状态栏, powerline, token用量显示, remotion状态栏, ccstatusline",
     "category": "07_智能体框架与协同",
     "folder": "ccstatusline",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/ccstatusline",
@@ -2196,7 +2196,7 @@
   },
   {
     "name": "awesome-claude-code-subagents",
-    "description": "Claude Code 子代理（subagents）精选库（ASH claude-code-hooks 榜 #2，VoltAgent 出品）。百余个开箱即用 subagent 定义：代码审查/测试/文档/DevOps/营销等领域专家代理。Leading Words: Claude子代理, subagent库, 专家代理集合, claude code agents",
+    "description": "Claude Code 子代理（subagents）精选库。百余个开箱即用 subagent 定义：代码审查/测试/文档/DevOps/营销等领域专家代理。Leading Words: Claude子代理, subagent库, 专家代理集合, claude code agents",
     "category": "07_智能体框架与协同",
     "folder": "awesome-claude-code-subagents",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/awesome-claude-code-subagents",
@@ -2207,7 +2207,7 @@
   },
   {
     "name": "awesome-claude-skills",
-    "description": "Claude Skills 精选清单（ASH claude-code-skills 榜 #1，travisvn 出品）。分类收录社区 Claude 技能：编码/写作/数据/自动化等，附简介与链接。Leading Words: Claude技能清单, skills大全, awesome list, 技能导航",
+    "description": "Claude Skills 精选清单。分类收录社区 Claude 技能：编码/写作/数据/自动化等，附简介与链接。Leading Words: Claude技能清单, skills大全, awesome list, 技能导航",
     "category": "07_智能体框架与协同",
     "folder": "awesome-claude-skills",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/awesome-claude-skills",
@@ -2217,7 +2217,7 @@
   },
   {
     "name": "awesome-gamedev-agent-skills",
-    "description": "游戏开发 Agent Skills 精选库（ASH claude-code-skills 榜 #3）。Unity/Unreal/Godot/Web 游戏开发技能集合：关卡设计/美术生成/代码脚手架/平衡性分析。Leading Words: 游戏开发技能, gamedev skills, Unity Unreal Godot, 游戏AI辅助",
+    "description": "游戏开发 Agent Skills 精选库。Unity/Unreal/Godot/Web 游戏开发技能集合：关卡设计/美术生成/代码脚手架/平衡性分析。Leading Words: 游戏开发技能, gamedev skills, Unity Unreal Godot, 游戏AI辅助",
     "category": "01_代码工程与架构",
     "folder": "awesome-gamedev-agent-skills",
     "relative_path": "./00_全局大管家/01_代码工程与架构/awesome-gamedev-agent-skills",
@@ -2227,7 +2227,7 @@
   },
   {
     "name": "linkedin-skills",
-    "description": "LinkedIn 内容创作技能集（ASH claude-code-skills 榜 #2）。帖子/文章/个人品牌/求职内容生成，含钩子库与传播优化。Leading Words: LinkedIn内容, 领英帖子, 个人品牌, 职场内容创作",
+    "description": "LinkedIn 内容创作技能集。帖子/文章/个人品牌/求职内容生成，含钩子库与传播优化。Leading Words: LinkedIn内容, 领英帖子, 个人品牌, 职场内容创作",
     "category": "04_内容创作与文档处理",
     "folder": "linkedin-skills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/linkedin-skills",
@@ -2238,7 +2238,7 @@
   },
   {
     "name": "Figma-Context-MCP",
-    "description": "Figma → 代码 MCP 服务器（ASH ai-design 榜 #2，GLips 出品）。把 Figma 设计稿转为 AI 友好的简化上下文（布局/样式/组件结构），供编码智能体直接消费。Leading Words: Figma转代码, 设计稿上下文, MCP设计接入, figma context",
+    "description": "Figma → 代码 MCP 服务器。把 Figma 设计稿转为 AI 友好的简化上下文（布局/样式/组件结构），供编码智能体直接消费。Leading Words: Figma转代码, 设计稿上下文, MCP设计接入, figma context",
     "category": "05_多媒体与设计资产",
     "folder": "Figma-Context-MCP",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/Figma-Context-MCP",
@@ -2249,7 +2249,7 @@
   },
   {
     "name": "open-design",
-    "description": "开源 AI 设计画布工具（nexu-io 出品，ASH ai-design 榜 #1，html-anything 同门）。文档层集成：README/QUICKSTART/TRANSLATIONS/docs 与插件注册表（spec/registry/community），产品本体（daemon/desktop/web 应用与官方插件二进制）见上游。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design",
+    "description": "开源 AI 设计画布工具。在可视化画布上用 AI 生成与迭代设计，配套插件体系（规范/注册表/社区插件）可扩展能力。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design",
     "category": "05_多媒体与设计资产",
     "folder": "open-design",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/open-design",
@@ -2260,7 +2260,7 @@
   },
   {
     "name": "stagehand",
-    "description": "浏览器自动化 SDK（ASH browser-automation 榜 #3，Browserbase 出品）。在 Playwright 之上提供 act/extract/observe 三原语，自然语言驱动页面操作与数据抽取。Leading Words: 浏览器自动化, act extract observe, 自然语言网页操作, stagehand SDK",
+    "description": "浏览器自动化 SDK（Browserbase）。在 Playwright 之上提供 act/extract/observe 三原语，自然语言驱动页面操作与数据抽取。Leading Words: 浏览器自动化, act extract observe, 自然语言网页操作, stagehand SDK",
     "category": "03_效率工具与协同管理",
     "folder": "stagehand",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/stagehand",
@@ -2271,7 +2271,7 @@
   },
   {
     "name": "ClaudeAnimationBase",
-    "description": "Claude 动画基础引擎（ASH claude-video-skills 榜 #1，JohnHeibel）。HTML/JS 逐帧动画渲染：ANIMATION_GUIDE 动画语法 + render.mjs 渲染管线 + studio 实时预览。Leading Words: Claude动画, 逐帧渲染, HTML动画, animation guide, 动画基础引擎",
+    "description": "Claude 动画基础引擎。HTML/JS 逐帧动画渲染：ANIMATION_GUIDE 动画语法 + render.mjs 渲染管线 + studio 实时预览。Leading Words: Claude动画, 逐帧渲染, HTML动画, animation guide, 动画基础引擎",
     "category": "05_多媒体与设计资产",
     "folder": "ClaudeAnimationBase",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ClaudeAnimationBase",
@@ -2282,7 +2282,7 @@
   },
   {
     "name": "PDoomVideo",
-    "description": "AI 长视频叙事生成（ASH claude-video-skills 榜 #2，JohnHeibel）。P(Doom) 概率式分镜叙事：多层时间线与场景图驱动成片。Leading Words: AI长视频, 概率分镜, 叙事生成, pdoom video",
+    "description": "AI 长视频叙事生成。P(Doom) 概率式分镜叙事：多层时间线与场景图驱动成片。Leading Words: AI长视频, 概率分镜, 叙事生成, pdoom video",
     "category": "05_多媒体与设计资产",
     "folder": "PDoomVideo",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/PDoomVideo",
@@ -2293,7 +2293,7 @@
   },
   {
     "name": "codex-plugin-cc",
-    "description": "OpenAI Codex 官方 Claude Code 插件（ASH code-review 榜 #2）。把 Codex 接入 Claude Code 作为编码后端。Leading Words: Codex插件, Claude Code接入, OpenAI Codex, 官方插件",
+    "description": "OpenAI Codex 官方 Claude Code 插件。把 Codex 接入 Claude Code 作为编码后端。Leading Words: Codex插件, Claude Code接入, OpenAI Codex, 官方插件",
     "category": "07_智能体框架与协同",
     "folder": "codex-plugin-cc",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/codex-plugin-cc",
@@ -2303,7 +2303,7 @@
   },
   {
     "name": "code-review-graph",
-    "description": "代码评审知识图谱工具（ASH code-review 榜 #3）。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展",
+    "description": "代码评审知识图谱工具。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展",
     "category": "01_代码工程与架构",
     "folder": "code-review-graph",
     "relative_path": "./00_全局大管家/01_代码工程与架构/code-review-graph",
@@ -2324,7 +2324,7 @@
   },
   {
     "name": "GPT-Image2-Skill",
-    "description": "GPT-Image2 生图技能（ASH image-generation 榜 #3 + codex-skills 榜 #2 双榜在列，wuyoscar）。顶级生图 prompt 工程与排版规范，双语巨幅 README 即知识库。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范",
+    "description": "GPT-Image2 生图技能。生图 prompt 工程与排版规范知识库（中英双语），覆盖构图、文字渲染与风格控制。Leading Words: GPT Image2, 生图技能, prompt工程, 图像生成规范",
     "category": "05_多媒体与设计资产",
     "folder": "GPT-Image2-Skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/GPT-Image2-Skill",
@@ -2335,7 +2335,7 @@
   },
   {
     "name": "last30days-skill",
-    "description": "近 30 天热点内容技能（ASH content-syndication 榜 #3，mvanhorn）。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days",
+    "description": "近 30 天热点内容技能。聚合近期趋势生成时效性内容。Leading Words: 近30天热点, 时效内容, 趋势聚合, last30days",
     "category": "04_内容创作与文档处理",
     "folder": "last30days-skill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/last30days-skill",
@@ -2345,7 +2345,7 @@
   },
   {
     "name": "wechat-article-skills",
-    "description": "微信公众号文章技能集（ASH content-writing 榜 #1，aiworkskills）。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article",
+    "description": "微信公众号文章技能集。选题/标题/正文/排版全链路公众号内容生产。Leading Words: 公众号文章, 微信内容创作, 新媒体写作, wechat article",
     "category": "04_内容创作与文档处理",
     "folder": "wechat-article-skills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/wechat-article-skills",
@@ -2355,7 +2355,7 @@
   },
   {
     "name": "tui-test",
-    "description": "微软官方终端 UI 测试框架（ASH cli-tools 榜 #2/#3 同仓双列——shell-use 为其旧名重定向）。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test",
+    "description": "微软官方终端 UI 测试框架。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test",
     "category": "01_代码工程与架构",
     "folder": "tui-test",
     "relative_path": "./00_全局大管家/01_代码工程与架构/tui-test",
@@ -2366,7 +2366,7 @@
   },
   {
     "name": "codegraph",
-    "description": "代码知识图谱引擎（ASH knowledge-base 榜 #2，colbymchenry）。tree-sitter WASM 解析器全集（66M）+ 文法内核（55M）把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph",
+    "description": "代码知识图谱引擎。tree-sitter WASM 解析器全集 + 文法内核把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph",
     "category": "01_代码工程与架构",
     "folder": "codegraph",
     "relative_path": "./00_全局大管家/01_代码工程与架构/codegraph",
@@ -2377,7 +2377,7 @@
   },
   {
     "name": "LightRAG",
-    "description": "轻量 RAG 引擎（港大 HKUDS 出品，ASH knowledge-base 榜 #3）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag",
+    "description": "轻量 RAG 引擎（港大 HKUDS 出品）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag",
     "category": "03_效率工具与协同管理",
     "folder": "LightRAG",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/LightRAG",
@@ -2388,7 +2388,7 @@
   },
   {
     "name": "OpenSpace",
-    "description": "Agent Skills 管理层（港大 HKUDS，ASH skill-management 榜 #3）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
+    "description": "Agent Skills 管理层（港大 HKUDS 出品）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "OpenSpace",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/OpenSpace",
@@ -2399,7 +2399,7 @@
   },
   {
     "name": "octocode-mcp",
-    "description": "Agentic 研究平台 MCP（ASH mcp-for-github 榜 #1，MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
+    "description": "Agentic 研究平台 MCP（MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
     "category": "11_API与第三方应用集成",
     "folder": "octocode-mcp",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/octocode-mcp",
@@ -2410,7 +2410,7 @@
   },
   {
     "name": "martin-loop",
-    "description": "编码智能体无人值守循环（ASH mcp-for-github 榜 #2）。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop",
+    "description": "编码智能体无人值守循环。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop",
     "category": "11_API与第三方应用集成",
     "folder": "martin-loop",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/martin-loop",
@@ -2421,7 +2421,7 @@
   },
   {
     "name": "Aletheore",
-    "description": "可验证代码智能（ASH mcp-for-github 榜 #3）。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore",
+    "description": "可验证代码智能。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore",
     "category": "11_API与第三方应用集成",
     "folder": "Aletheore",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/Aletheore",
@@ -2432,7 +2432,7 @@
   },
   {
     "name": "backlot",
-    "description": "Backlot（ASH mcp-for-google 榜 #2，brekkylab）。Python 工具集，配合 Google Workspace 工作流。Leading Words: backlot, google工作流, python工具",
+    "description": "企业 SaaS API 本地模拟器。在本地复现 Slack/Gmail/Drive/GitHub/Jira/Notion/S3 等平台的响应结构、分页、鉴权、错误与文档级权限——无需厂商账号、无需 OAuth 审批、CI 无密钥、零网络，直接用官方 SDK 构建与测试集成。Leading Words: API本地模拟, SaaS沙箱, 免账号集成测试, 无网络联调, backlot",
     "category": "11_API与第三方应用集成",
     "folder": "backlot",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/backlot",
@@ -2442,7 +2442,7 @@
   },
   {
     "name": "modular-context-obsidian-plugin",
-    "description": "Obsidian LLM 知识库 + 多账号 Google Workspace MCP（ASH mcp-for-google 榜 #3）。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context",
+    "description": "Obsidian LLM 知识库 + 多账号 Google Workspace MCP。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context",
     "category": "03_效率工具与协同管理",
     "folder": "modular-context-obsidian-plugin",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/modular-context-obsidian-plugin",
@@ -2453,7 +2453,7 @@
   },
   {
     "name": "opencrew",
-    "description": "OpenCrew 多智能体操作系统（ASH multi-agent 榜 #2，中文项目）。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew",
+    "description": "OpenCrew 多智能体操作系统。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew",
     "category": "07_智能体框架与协同",
     "folder": "opencrew",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/opencrew",
@@ -2464,7 +2464,7 @@
   },
   {
     "name": "captain-claw",
-    "description": "AI 舰队指挥官（ASH multi-agent 榜 #3，kstevica）。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw",
+    "description": "AI 舰队指挥官。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw",
     "category": "07_智能体框架与协同",
     "folder": "captain-claw",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/captain-claw",
@@ -2475,7 +2475,7 @@
   },
   {
     "name": "phoenix",
-    "description": "LLM 可观测性平台（Arize 出品，ASH prompt-engineering 榜 #1）。追踪/评估/实验追踪：prompt 版本对比、LLM trace、数据集评估。文档层集成。Leading Words: LLM可观测, prompt评估, Arize, trace追踪, phoenix",
+    "description": "LLM 可观测性平台（Arize 出品）。追踪/评估/实验三合一：LLM trace、prompt 版本对比、数据集评估与实验追踪。Leading Words: LLM可观测, prompt评估, trace追踪, 评估数据集, phoenix",
     "category": "02_DevOps与自动化",
     "folder": "phoenix",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/phoenix",
@@ -2486,7 +2486,7 @@
   },
   {
     "name": "MARS",
-    "description": "MATLAB Agent RPC Server（ASH mcp-api 榜 #1，andrea-magni）。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
+    "description": "MATLAB Agent RPC Server。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
     "category": "11_API与第三方应用集成",
     "folder": "MARS",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/MARS",
@@ -2497,7 +2497,7 @@
   },
   {
     "name": "lilbee",
-    "description": "Lilbee（ASH local-llm 榜 #3，tobocop2）。本地智能体 CLI 工具。Leading Words: lilbee, 本地CLI智能体, local llm",
+    "description": "本地一体化 LLM 工作台。自带模型管理与多 GPU 编队（llama.cpp），把 chat/embedding/vision/rerank 模型变成可对话的搜索引擎：索引文件/笔记/代码/网页，答案带文件行级引用；单可执行程序，终端/CLI/MCP/HTTP/Python 库多形态接入，Obsidian 插件同引擎；全本地隐私优先。Leading Words: 本地LLM工作台, 多GPU模型管理, 行级引用搜索, 本地搜索引擎, lilbee",
     "category": "03_效率工具与协同管理",
     "folder": "lilbee",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/lilbee",
@@ -2507,7 +2507,7 @@
   },
   {
     "name": "mcp-toolbox",
-    "description": "谷歌官方 Databases MCP Toolbox（ASH mcp-database 榜 #3）。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox",
+    "description": "谷歌官方 Databases MCP Toolbox。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox",
     "category": "08_MCP服务开发与评估",
     "folder": "mcp-toolbox",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-toolbox",
@@ -2518,7 +2518,7 @@
   },
   {
     "name": "WrenAI",
-    "description": "开源 Text-to-SQL 数据智能体（ASH mcp-database 榜 #2，Canner）。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层",
+    "description": "开源 Text-to-SQL 数据智能体。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层",
     "category": "08_MCP服务开发与评估",
     "folder": "WrenAI",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/WrenAI",
@@ -2529,7 +2529,7 @@
   },
   {
     "name": "agentic-signal",
-    "description": "可视化 AI 工作流自动化平台（ASH local-llm 榜 #2，code-forge-temple）。本地智能体智力驱动的节点式工作流。Leading Words: 可视化工作流, 节点编排, 本地智能体, agentic signal",
+    "description": "可视化 AI 工作流自动化平台。本地智能体智力驱动的节点式工作流。Leading Words: 可视化工作流, 节点编排, 本地智能体, agentic signal",
     "category": "03_效率工具与协同管理",
     "folder": "agentic-signal",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/agentic-signal",
@@ -2540,7 +2540,7 @@
   },
   {
     "name": "agent-rules-books",
-    "description": "智能体规则书库（ASH refactoring 榜 #1，ciembor）。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库",
+    "description": "智能体规则书库。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库",
     "category": "01_代码工程与架构",
     "folder": "agent-rules-books",
     "relative_path": "./00_全局大管家/01_代码工程与架构/agent-rules-books",
@@ -2550,7 +2550,7 @@
   },
   {
     "name": "smell-check",
-    "description": "代码与测试坏味道审计（ASH refactoring 榜 #2，Zhen-Bo）。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查",
+    "description": "代码与测试坏味道审计。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查",
     "category": "01_代码工程与架构",
     "folder": "smell-check",
     "relative_path": "./00_全局大管家/01_代码工程与架构/smell-check",
@@ -2561,7 +2561,7 @@
   },
   {
     "name": "kru",
-    "description": "KRU 本地 MCP 密码凭证管理器（ASH secret-detection 榜 #1）。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru",
+    "description": "KRU 本地 MCP 密码凭证管理器。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru",
     "category": "02_DevOps与自动化",
     "folder": "kru",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/kru",
@@ -2572,7 +2572,7 @@
   },
   {
     "name": "vahta",
-    "description": "Vahta 密钥检测与预防（ASH secret-detection 榜 #2/#3 同项目——key-amnesia 为其归档旧名）。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia",
+    "description": "Vahta 密钥检测与预防。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia",
     "category": "02_DevOps与自动化",
     "folder": "vahta",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/vahta",
@@ -2583,7 +2583,7 @@
   },
   {
     "name": "skills-manager",
-    "description": "本地 AI Agent Skills 管理器（zhuyansen——ASH 站长出品，skill-management 榜 #1）。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri",
+    "description": "本地 AI Agent Skills 管理器。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "skills-manager",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skills-manager",
@@ -2594,7 +2594,7 @@
   },
   {
     "name": "pm-skills",
-    "description": "产品经理技能集（ASH skill-management 榜 #2，phuryn）。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills",
+    "description": "产品经理技能集。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills",
     "category": "06_商业与专业领域",
     "folder": "pm-skills",
     "relative_path": "./00_全局大管家/06_商业与专业领域/pm-skills",
@@ -2605,7 +2605,7 @@
   },
   {
     "name": "aiogram",
-    "description": "Python 异步 Telegram Bot 框架事实标准（ASH telegram-bot 榜 #1）。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发",
+    "description": "Python 异步 Telegram Bot 框架事实标准。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发",
     "category": "11_API与第三方应用集成",
     "folder": "aiogram",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/aiogram",
@@ -2616,7 +2616,7 @@
   },
   {
     "name": "chatgpt_telegram_bot",
-    "description": "ChatGPT Telegram 机器人（ASH telegram-bot 榜 #2，father-bot）。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用",
+    "description": "ChatGPT Telegram 机器人。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用",
     "category": "11_API与第三方应用集成",
     "folder": "chatgpt_telegram_bot",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt_telegram_bot",
@@ -2626,7 +2626,7 @@
   },
   {
     "name": "telegram-search",
-    "description": "Telegram 消息搜索引擎（ASH telegram-bot 榜 #3，groupultra）。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索",
+    "description": "Telegram 消息搜索引擎。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索",
     "category": "11_API与第三方应用集成",
     "folder": "telegram-search",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/telegram-search",
@@ -2636,7 +2636,7 @@
   },
   {
     "name": "fast-jev-compaction",
-    "description": "Jev 快速压缩插件（ASH typesafe-jev 榜 #2，tamaratran）。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction",
+    "description": "Jev 快速压缩插件。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction",
     "category": "07_智能体框架与协同",
     "folder": "fast-jev-compaction",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/fast-jev-compaction",
@@ -2646,7 +2646,7 @@
   },
   {
     "name": "typesafe-computer-use",
-    "description": "TypeSafe 计算机操作（ASH typesafe-jev 榜 #3，awlevin）。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe",
+    "description": "TypeSafe 计算机操作。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe",
     "category": "07_智能体框架与协同",
     "folder": "typesafe-computer-use",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/typesafe-computer-use",
@@ -2656,7 +2656,7 @@
   },
   {
     "name": "ralphy",
-    "description": "Ralphy AI 编码智能体 CLI（ASH vibe-coding 榜 #1，michaelshimeles，npm 分发）。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent",
+    "description": "AI 编码智能体 CLI（npm 分发 ralphy-cli）。自然语言下达编码任务，终端内完成代码工作。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent",
     "category": "01_代码工程与架构",
     "folder": "ralphy",
     "relative_path": "./00_全局大管家/01_代码工程与架构/ralphy",
@@ -2666,7 +2666,7 @@
   },
   {
     "name": "vibe-coding-prompt-template",
-    "description": "Vibe Coding 工作流提示词模板（ASH vibe-coding 榜 #2，KhazP）。Leading Words: vibe coding, 提示词模板, 工作流模板",
+    "description": "Vibe Coding 工作流提示词模板。面向 AI 结对编程的结构化提示词与工作流模板集。Leading Words: vibe coding, 提示词模板, 工作流模板",
     "category": "07_智能体框架与协同",
     "folder": "vibe-coding-prompt-template",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-coding-prompt-template",
@@ -2676,7 +2676,7 @@
   },
   {
     "name": "loki-mode",
-    "description": "Loki 自主编码智能体（ASH vibe-coding 榜 #3，asklokesh）。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode",
+    "description": "Loki 自主编码智能体。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode",
     "category": "01_代码工程与架构",
     "folder": "loki-mode",
     "relative_path": "./00_全局大管家/01_代码工程与架构/loki-mode",
@@ -2687,7 +2687,7 @@
   },
   {
     "name": "moli",
-    "description": "墨鲤网页生成引擎（ASH web-scraping 榜 #1，lexmount）。浏览器渲染驱动的网页生成/截图：moli-renderer-v8 渲染内核+protocol 协议层+wpt-compat 兼容层。Leading Words: 墨鲤, 网页渲染, 浏览器截图, 网页生成, moli",
+    "description": "墨鲤网页生成引擎。浏览器渲染驱动的网页生成/截图：渲染内核+协议层+兼容层。Leading Words: 墨鲤, 网页渲染, 浏览器截图, 网页生成, moli",
     "category": "03_效率工具与协同管理",
     "folder": "moli",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/moli",
@@ -2698,7 +2698,7 @@
   },
   {
     "name": "agents-kit",
-    "description": "Agent 界面组件库（ASH voice-agent 榜 #2，agents-ui）。构建更好智能体界面的 React 组件集。Leading Words: agent界面, 智能体组件库, react组件, agents kit",
+    "description": "Agent 界面组件库。构建更好智能体界面的 React 组件集。Leading Words: agent界面, 智能体组件库, react组件, agents kit",
     "category": "07_智能体框架与协同",
     "folder": "agents-kit",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/agents-kit",
@@ -2709,7 +2709,7 @@
   },
   {
     "name": "claudian",
-    "description": "Claudian Obsidian 智能体（ASH obsidian-second-brain 榜 #2，YishenTu）。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手",
+    "description": "Claudian Obsidian 智能体。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手",
     "category": "03_效率工具与协同管理",
     "folder": "claudian",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/claudian",
@@ -2719,7 +2719,7 @@
   },
   {
     "name": "elevenlabs-cli",
-    "description": "ElevenLabs 官方 CLI（ASH voice-agent 榜 #3）。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆",
+    "description": "ElevenLabs 官方 CLI。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆",
     "category": "07_智能体框架与协同",
     "folder": "elevenlabs-cli",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/elevenlabs-cli",
@@ -2730,7 +2730,7 @@
   },
   {
     "name": "crawl4ai",
-    "description": "LLM 友好爬虫框架（ASH web-scraping 榜 #3，unclecode）。为 AI 智能体优化的网页抓取：Markdown 输出/结构化抽取/浏览器自动化。Leading Words: LLM爬虫, 网页转markdown, 智能体抓取, crawl4ai",
+    "description": "LLM 友好爬虫框架。为 AI 智能体优化的网页抓取：Markdown 输出/结构化抽取/浏览器自动化。Leading Words: LLM爬虫, 网页转markdown, 智能体抓取, crawl4ai",
     "category": "03_效率工具与协同管理",
     "folder": "crawl4ai",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/crawl4ai",
@@ -2741,7 +2741,7 @@
   },
   {
     "name": "note-gen",
-    "description": "NoteGen 笔记生成（ASH obsidian-second-brain 榜 #3，codexu）。多源素材→结构化笔记。Leading Words: 笔记生成, 素材整理, notegen",
+    "description": "本地优先 Markdown 笔记应用。先收集后整理：把截图/网页/聊天等碎片信息攒进收件箱，AI 辅助整理为结构化笔记。Leading Words: 笔记生成, 碎片信息收集, AI整理笔记, 本地优先, notegen",
     "category": "03_效率工具与协同管理",
     "folder": "note-gen",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/note-gen",
@@ -2752,7 +2752,7 @@
   },
   {
     "name": "openlive",
-    "description": "OpenLive（ASH voice-agent 榜 #1，katipally）。实时语音/直播智能体应用。Leading Words: 实时语音, 直播智能体, openlive",
+    "description": "AI 智能体开放语音视觉层。为编码智能体装上耳朵、嘴巴与眼睛：自带模型或对接现有 agent，完整语音回路跑在本机——ElevenLabs Agents/Gemini Live/OpenAI Realtime 的开源替代。Leading Words: 实时语音智能体, 语音回路本机运行, 视觉语音层, 开源语音方案, openlive",
     "category": "07_智能体框架与协同",
     "folder": "openlive",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/openlive",
@@ -2763,7 +2763,7 @@
   },
   {
     "name": "ppt-image-first",
-    "description": "图像优先 PPT 工作流技能（ASH ppt-presentation 榜 #3，NyxTides）。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first",
+    "description": "图像优先 PPT 工作流技能。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first",
     "category": "05_多媒体与设计资产",
     "folder": "ppt-image-first",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-image-first",
@@ -2773,7 +2773,7 @@
   },
   {
     "name": "chatgpt-specimen-toolbox",
-    "description": "ChatGPT 样本工具箱（ASH authentication 榜 #3）。Leading Words: 样本工具, chatgpt toolbox",
+    "description": "ChatGPT 认证会话格式转换工具箱。把 chatgpt.com 的 auth session JSON 一键导出为 9 种主流认证格式，反向导入 11 种来源互转；附 Plus/Team 订阅链接生成与路由检测（请求模型→实际模型·PoW·可导出）。Leading Words: ChatGPT认证格式, session导出导入, 中转格式互转, 订阅链接生成, 路由检测",
     "category": "11_API与第三方应用集成",
     "folder": "chatgpt-specimen-toolbox",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt-specimen-toolbox",
@@ -2783,7 +2783,7 @@
   },
   {
     "name": "streamable-mcp-server-template",
-    "description": "可流式 MCP 服务器模板（ASH authentication 榜 #2，iceener）。Leading Words: MCP模板, 流式服务器, streamable mcp",
+    "description": "远程 MCP 服务器开发模板。Bun 与 Cloudflare Workers 双运行时，基于官方 TypeScript SDK；内置 Host/Origin 头校验、OAuth 资源服务器模式（业务代码不接触 token）、错误策略与双运行时测试。Leading Words: MCP服务器模板, Cloudflare Workers, OAuth资源服务器, Bun运行时, 远程MCP开发",
     "category": "11_API与第三方应用集成",
     "folder": "streamable-mcp-server-template",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/streamable-mcp-server-template",

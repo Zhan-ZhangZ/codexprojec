@@ -1,6 +1,6 @@
 ---
 name: streamable-mcp-server-template
-description: "可流式 MCP 服务器模板（ASH authentication 榜 #2，iceener）。Leading Words: MCP模板, 流式服务器, streamable mcp"
+description: "远程 MCP 服务器开发模板。Bun 与 Cloudflare Workers 双运行时，基于官方 TypeScript SDK；内置 Host/Origin 头校验、OAuth 资源服务器模式（业务代码不接触 token）、错误策略与双运行时测试。Leading Words: MCP服务器模板, Cloudflare Workers, OAuth资源服务器, Bun运行时, 远程MCP开发"
 metadata:
   upstream: "github.com/iceener/streamable-mcp-server-template"
 ---

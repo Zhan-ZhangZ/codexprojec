@@ -1,6 +1,6 @@
 ---
 name: ragflow
-description: "深度文档理解 RAG 引擎（Agent Skills Hub knowledge-base 场景实测首选，infiniflow）。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，文档层集成（README 全语种 + docs）。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow"
+description: "深度文档理解 RAG 引擎。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，构建企业级知识库问答系统。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow"
 metadata:
   upstream: "github.com/infiniflow/ragflow"
 ---

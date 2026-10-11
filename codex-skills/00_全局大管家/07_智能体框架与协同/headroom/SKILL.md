@@ -1,6 +1,6 @@
 ---
 name: headroom
-description: "上下文窗口管理引擎（Agent Skills Hub prompt-engineering 场景实测首选，Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom"
+description: "上下文窗口管理引擎（Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom"
 metadata:
   upstream: "github.com/headroomlabs-ai/headroom"
 ---

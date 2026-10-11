@@ -1,6 +1,6 @@
 ---
 name: MARS
-description: "MATLAB Agent RPC Server（ASH mcp-api 榜 #1，andrea-magni）。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS"
+description: "MATLAB Agent RPC Server。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS"
 metadata:
   upstream: "github.com/andrea-magni/MARS"
 ---

@@ -1,6 +1,6 @@
 ---
 name: codex-plugin-cc
-description: "OpenAI Codex 官方 Claude Code 插件（ASH code-review 榜 #2）。把 Codex 接入 Claude Code 作为编码后端。Leading Words: Codex插件, Claude Code接入, OpenAI Codex, 官方插件"
+description: "OpenAI Codex 官方 Claude Code 插件。把 Codex 接入 Claude Code 作为编码后端。Leading Words: Codex插件, Claude Code接入, OpenAI Codex, 官方插件"
 metadata:
   upstream: "github.com/openai/codex-plugin-cc"
 ---

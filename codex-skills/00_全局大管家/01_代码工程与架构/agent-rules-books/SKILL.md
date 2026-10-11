@@ -1,6 +1,6 @@
 ---
 name: agent-rules-books
-description: "智能体规则书库（ASH refactoring 榜 #1，ciembor）。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库"
+description: "智能体规则书库。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库"
 metadata:
   upstream: "github.com/ciembor/agent-rules-books"
 ---

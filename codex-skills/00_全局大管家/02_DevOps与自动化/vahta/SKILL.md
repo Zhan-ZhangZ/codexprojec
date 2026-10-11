@@ -1,6 +1,6 @@
 ---
 name: vahta
-description: "Vahta 密钥检测与预防（ASH secret-detection 榜 #2/#3 同项目——key-amnesia 为其归档旧名）。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia"
+description: "Vahta 密钥检测与预防。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia"
 metadata:
   upstream: "github.com/vahta-team/vahta"
 ---

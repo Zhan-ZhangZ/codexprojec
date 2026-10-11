@@ -1,6 +1,6 @@
 ---
 name: pm-skills
-description: "产品经理技能集（ASH skill-management 榜 #2，phuryn）。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills"
+description: "产品经理技能集。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills"
 metadata:
   upstream: "github.com/phuryn/pm-skills"
 ---

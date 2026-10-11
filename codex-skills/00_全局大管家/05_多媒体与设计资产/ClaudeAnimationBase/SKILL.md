@@ -1,6 +1,6 @@
 ---
 name: ClaudeAnimationBase
-description: "Claude 动画基础引擎（ASH claude-video-skills 榜 #1，JohnHeibel）。HTML/JS 逐帧动画渲染：ANIMATION_GUIDE 动画语法 + render.mjs 渲染管线 + studio 实时预览。Leading Words: Claude动画, 逐帧渲染, HTML动画, animation guide, 动画基础引擎"
+description: "Claude 动画基础引擎。HTML/JS 逐帧动画渲染：ANIMATION_GUIDE 动画语法 + render.mjs 渲染管线 + studio 实时预览。Leading Words: Claude动画, 逐帧渲染, HTML动画, animation guide, 动画基础引擎"
 metadata:
   upstream: "github.com/JohnHeibel/ClaudeAnimationBase"
 ---

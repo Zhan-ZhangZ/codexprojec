@@ -1,6 +1,6 @@
 ---
 name: vibe-coding-prompt-template
-description: "Vibe Coding 工作流提示词模板（ASH vibe-coding 榜 #2，KhazP）。Leading Words: vibe coding, 提示词模板, 工作流模板"
+description: "Vibe Coding 工作流提示词模板。面向 AI 结对编程的结构化提示词与工作流模板集。Leading Words: vibe coding, 提示词模板, 工作流模板"
 metadata:
   upstream: "github.com/KhazP/vibe-coding-prompt-template"
 ---

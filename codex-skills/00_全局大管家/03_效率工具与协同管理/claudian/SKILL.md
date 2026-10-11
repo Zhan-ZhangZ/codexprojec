@@ -1,6 +1,6 @@
 ---
 name: claudian
-description: "Claudian Obsidian 智能体（ASH obsidian-second-brain 榜 #2，YishenTu）。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手"
+description: "Claudian Obsidian 智能体。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手"
 metadata:
   upstream: "github.com/YishenTu/claudian"
 ---

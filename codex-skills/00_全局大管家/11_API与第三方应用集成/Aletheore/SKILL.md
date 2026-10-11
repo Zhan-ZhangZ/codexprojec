@@ -1,6 +1,6 @@
 ---
 name: Aletheore
-description: "可验证代码智能（ASH mcp-for-github 榜 #3）。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore"
+description: "可验证代码智能。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore"
 metadata:
   upstream: "github.com/Aletheore/Aletheore"
 ---

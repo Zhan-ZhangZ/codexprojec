@@ -1,6 +1,6 @@
 ---
 name: linkedin-skills
-description: "LinkedIn 内容创作技能集（ASH claude-code-skills 榜 #2）。帖子/文章/个人品牌/求职内容生成，含钩子库与传播优化。Leading Words: LinkedIn内容, 领英帖子, 个人品牌, 职场内容创作"
+description: "LinkedIn 内容创作技能集。帖子/文章/个人品牌/求职内容生成，含钩子库与传播优化。Leading Words: LinkedIn内容, 领英帖子, 个人品牌, 职场内容创作"
 metadata:
   upstream: "github.com/sergebulaev/linkedin-skills"
 ---

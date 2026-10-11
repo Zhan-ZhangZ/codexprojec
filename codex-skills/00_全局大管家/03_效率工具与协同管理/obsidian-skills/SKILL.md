@@ -1,6 +1,6 @@
 ---
 name: obsidian-skills
-description: "Obsidian 官方 Agent Skills 套件（kepano 出品，Agent Skills Hub 场景实测首选）。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场可一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理"
+description: "Obsidian 官方 Agent Skills 套件。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理"
 metadata:
   upstream: "github.com/kepano/obsidian-skills"
 ---

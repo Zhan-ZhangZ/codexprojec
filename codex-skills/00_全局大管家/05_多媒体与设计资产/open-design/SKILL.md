@@ -1,6 +1,6 @@
 ---
 name: open-design
-description: "开源 AI 设计画布工具（nexu-io 出品，ASH ai-design 榜 #1，html-anything 同门）。文档层集成：README/QUICKSTART/TRANSLATIONS/docs 与插件注册表（spec/registry/community），产品本体（daemon/desktop/web 应用与官方插件二进制）见上游。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design"
+description: "开源 AI 设计画布工具。在可视化画布上用 AI 生成与迭代设计，配套插件体系（规范/注册表/社区插件）可扩展能力。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design"
 metadata:
   upstream: "github.com/nexu-io/open-design"
 ---

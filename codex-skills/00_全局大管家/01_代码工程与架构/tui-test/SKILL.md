@@ -1,6 +1,6 @@
 ---
 name: tui-test
-description: "微软官方终端 UI 测试框架（ASH cli-tools 榜 #2/#3 同仓双列——shell-use 为其旧名重定向）。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test"
+description: "微软官方终端 UI 测试框架。AI agent 驱动的 TUI 快照测试：截图基线+断言。Leading Words: TUI测试, 终端UI快照, 快照基线, microsoft tui-test"
 metadata:
   upstream: "github.com/microsoft/tui-test"
 ---

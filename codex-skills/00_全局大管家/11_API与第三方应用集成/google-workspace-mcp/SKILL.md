@@ -1,6 +1,6 @@
 ---
 name: google-workspace-mcp
-description: "Google Workspace 全家桶 MCP 服务器（Agent Skills Hub mcp-for-google 场景实测首选，PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp"
+description: "Google Workspace 全家桶 MCP 服务器（PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp"
 metadata:
   upstream: "github.com/taylorwilsdon/google_workspace_mcp"
 ---

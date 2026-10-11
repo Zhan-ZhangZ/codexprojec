@@ -1,6 +1,6 @@
 ---
 name: awesome-gamedev-agent-skills
-description: "游戏开发 Agent Skills 精选库（ASH claude-code-skills 榜 #3）。Unity/Unreal/Godot/Web 游戏开发技能集合：关卡设计/美术生成/代码脚手架/平衡性分析。Leading Words: 游戏开发技能, gamedev skills, Unity Unreal Godot, 游戏AI辅助"
+description: "游戏开发 Agent Skills 精选库。Unity/Unreal/Godot/Web 游戏开发技能集合：关卡设计/美术生成/代码脚手架/平衡性分析。Leading Words: 游戏开发技能, gamedev skills, Unity Unreal Godot, 游戏AI辅助"
 metadata:
   upstream: "github.com/gamedev-skills/awesome-gamedev-agent-skills"
 ---

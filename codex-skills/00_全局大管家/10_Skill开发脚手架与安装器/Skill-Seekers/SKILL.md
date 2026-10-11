@@ -1,6 +1,6 @@
 ---
 name: Skill-Seekers
-description: "Agent Skills 发现与检索引擎（Agent Skills Hub mcp-for-github 场景实测首选，v3.9.0）。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers"
+description: "Agent Skills 发现与检索引擎。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers"
 metadata:
   upstream: "github.com/yusufkaraaslan/Skill_Seekers"
 ---

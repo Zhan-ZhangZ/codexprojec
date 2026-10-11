@@ -1,6 +1,6 @@
 ---
 name: Mole
-description: "tw93 出品的 AI 命令行编码智能体网关（Agent Skills Hub 场景实测首选）。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制，八语 README。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole"
+description: "AI 命令行编码智能体网关。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole"
 metadata:
   upstream: "github.com/tw93/Mole"
 ---

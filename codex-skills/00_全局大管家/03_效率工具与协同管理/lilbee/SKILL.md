@@ -1,6 +1,6 @@
 ---
 name: lilbee
-description: "Lilbee（ASH local-llm 榜 #3，tobocop2）。本地智能体 CLI 工具。Leading Words: lilbee, 本地CLI智能体, local llm"
+description: "本地一体化 LLM 工作台。自带模型管理与多 GPU 编队（llama.cpp），把 chat/embedding/vision/rerank 模型变成可对话的搜索引擎：索引文件/笔记/代码/网页，答案带文件行级引用；单可执行程序，终端/CLI/MCP/HTTP/Python 库多形态接入，Obsidian 插件同引擎；全本地隐私优先。Leading Words: 本地LLM工作台, 多GPU模型管理, 行级引用搜索, 本地搜索引擎, lilbee"
 metadata:
   upstream: "github.com/tobocop2/lilbee"
 ---

@@ -1,6 +1,6 @@
 ---
 name: auto-empirical-research-skills
-description: Route empirical-research requests through the Auto-Empirical Research Skills catalog when this whole repository is installed as one skill in Codex, CodeBuddy, Claude Code, or another IDE. Use to choose and load the right vendored AERS skill for causal inference, econometrics, replication, data acquisition, manuscript writing, peer review and referee responses, citation checking, de-AIGC editing, or full empirical-paper workflows without reading the entire repository at once.
+description: "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵"
 license: CC-BY-SA-4.0
 ---
 

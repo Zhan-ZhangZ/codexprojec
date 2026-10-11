@@ -1,6 +1,6 @@
 ---
 name: LightRAG
-description: "轻量 RAG 引擎（港大 HKUDS 出品，ASH knowledge-base 榜 #3）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag"
+description: "轻量 RAG 引擎（港大 HKUDS 出品）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag"
 metadata:
   upstream: "github.com/HKUDS/LightRAG"
 ---

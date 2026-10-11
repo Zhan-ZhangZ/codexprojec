@@ -1,6 +1,6 @@
 ---
 name: telegram-search
-description: "Telegram 消息搜索引擎（ASH telegram-bot 榜 #3，groupultra）。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索"
+description: "Telegram 消息搜索引擎。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索"
 metadata:
   upstream: "github.com/groupultra/telegram-search"
 ---

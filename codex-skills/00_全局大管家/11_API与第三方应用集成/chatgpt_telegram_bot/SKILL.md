@@ -1,6 +1,6 @@
 ---
 name: chatgpt_telegram_bot
-description: "ChatGPT Telegram 机器人（ASH telegram-bot 榜 #2，father-bot）。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用"
+description: "ChatGPT Telegram 机器人。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用"
 metadata:
   upstream: "github.com/father-bot/chatgpt_telegram_bot"
 ---

@@ -1,6 +1,6 @@
 ---
 name: skills-manager
-description: "本地 AI Agent Skills 管理器（zhuyansen——ASH 站长出品，skill-management 榜 #1）。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri"
+description: "本地 AI Agent Skills 管理器。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri"
 metadata:
   upstream: "github.com/zhuyansen/skills-manager"
 ---

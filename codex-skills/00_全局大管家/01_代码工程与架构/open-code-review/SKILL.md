@@ -1,6 +1,6 @@
 ---
 name: open-code-review
-description: "阿里巴巴开源混合架构代码评审工具（Agent Skills Hub 场景实测首选，★45.5k）。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声，SWR-Bench 实测领先；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，另含 open-code-review/open-code-review-delegate 两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, SWR-Bench, 低噪声评审, open code review"
+description: "阿里巴巴开源混合架构代码评审工具。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，含评审与委托两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, 低噪声评审, open code review"
 metadata:
   upstream: "github.com/alibaba/open-code-review"
 ---

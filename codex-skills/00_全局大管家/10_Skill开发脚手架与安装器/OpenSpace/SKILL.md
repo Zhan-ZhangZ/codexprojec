@@ -1,6 +1,6 @@
 ---
 name: OpenSpace
-description: "Agent Skills 管理层（港大 HKUDS，ASH skill-management 榜 #3）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace"
+description: "Agent Skills 管理层（港大 HKUDS 出品）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace"
 metadata:
   upstream: "github.com/HKUDS/OpenSpace"
 ---

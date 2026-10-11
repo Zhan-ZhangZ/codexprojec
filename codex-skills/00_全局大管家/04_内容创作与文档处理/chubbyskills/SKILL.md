@@ -1,6 +1,6 @@
 ---
 name: chubbyskills
-description: 中文全渠道内容采集与个人知识库 AI 技能集（14 个子技能，按大管家路由架构暴露）。覆盖 B 站/抖音/TikTok/YouTube/微博/知乎/小宇宙播客/X/小红书/微信公众号 十渠道视频转录与图文采集；统一 CLI（tools/chubby.py）串起采集→入库→检索→资料包导出全链路。本条目为包级路由入口；项目总览、能力地图、安装矩阵、平台 YAML、vault 模板等详见包内 README.md。Leading Words: 中文内容采集, 视频转录, 字幕优先, 个人知识库, Obsidian 整理, GBrain, GraphRAG, 小红书采集, 公众号采集, B站转录, 抖音转录, 知乎采集, 播客转录, X图文采集, 资料包导出, 知识库索引, MCP知识库
+description: "中文全渠道内容采集与个人知识库技能集（14 个子技能）。B站/抖音/YouTube/TikTok/微博/知乎/小宇宙/X/小红书/公众号十渠道视频转录与图文采集，配套知识库管理/内容加工/学习笔记/情报雷达；统一 CLI 串起采集→入库→检索→导出，字幕优先免 GPU。Leading Words: 中文内容采集, 视频转录, 字幕优先, 个人知识库, 小红书采集, 公众号采集, B站转录, 抖音转录, 知乎采集, 播客转录"
 license: MIT
 version: 0.13.0
 metadata:

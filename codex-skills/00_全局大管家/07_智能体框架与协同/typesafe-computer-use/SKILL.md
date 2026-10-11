@@ -1,6 +1,6 @@
 ---
 name: typesafe-computer-use
-description: "TypeSafe 计算机操作（ASH typesafe-jev 榜 #3，awlevin）。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe"
+description: "TypeSafe 计算机操作。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe"
 metadata:
   upstream: "github.com/awlevin/typesafe-computer-use"
 ---

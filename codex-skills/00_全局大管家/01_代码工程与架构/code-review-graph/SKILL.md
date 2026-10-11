@@ -1,6 +1,6 @@
 ---
 name: code-review-graph
-description: "代码评审知识图谱工具（ASH code-review 榜 #3）。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展"
+description: "代码评审知识图谱工具。把 PR 变更构建为可导航图结构，跨文件追踪改动影响；含 VSCode 扩展。Leading Words: 代码评审图谱, 变更影响追踪, PR分析, vscode扩展"
 metadata:
   upstream: "github.com/tirth8205/code-review-graph"
 ---

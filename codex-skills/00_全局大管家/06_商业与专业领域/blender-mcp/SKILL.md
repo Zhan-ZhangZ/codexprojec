@@ -1,6 +1,6 @@
 ---
 name: blender-mcp
-description: Blender 3D 建模 MCP 集成指南 (MCP for Blender)。让 AI 按双组件架构（uvx 运行的 MCP 服务器 + Blender 内 socket 插件）完成配置并接管 Blender，进行场景搭建、物体创建修改、材质灯光摄像机控制、任意 Python 代码执行与视口截图视觉自查，并直连 Poly Haven 资产库、Sketchfab/Poly Pizza 模型库与 Hyper3D Rodin/Hunyuan3D AI 生成 3D 模型，支持安全模式脚本校验与遥测开关。Leading Words: Blender 3D建模, MCP控制Blender, Blender配置指南, 场景搭建, 材质编辑, execute_blender_code, 视口截图自查, Poly Haven资产, Sketchfab模型, Poly Pizza低模, Hyper3D, Hunyuan3D, 安全模式
+description: "Blender 3D 建模 MCP 集成。双组件架构（uvx 服务器 + Blender 内 socket 插件）：场景搭建/物体创建修改/材质灯光摄像机控制/任意 Python 代码执行/视口截图自查，直连 Poly Haven 资产、Sketchfab/Poly Pizza 模型库与 Hyper3D/Hunyuan3D 生成，支持安全模式。Leading Words: Blender 3D建模, MCP控制Blender, 场景搭建, execute_blender_code, Poly Haven资产, Sketchfab模型"
 metadata:
   version: "1.9.1"
   upstream: "github.com/ahujasid/blender-mcp"
