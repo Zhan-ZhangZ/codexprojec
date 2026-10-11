@@ -1,6 +1,6 @@
 ---
 name: Humanizer-zh
-description: "humanizer 官方汉化版（ASH anti-slop 榜 #3，实测 3/5 事实全保）。编辑中文文章/评论/文档中的空话、重复与模板化表达，让文字更自然，保留事实、确定程度与作者声音。Leading Words: 中文去AI味, 汉化humanizer, 空话消除, 模板化表达清理"
+description: "humanizer 官方汉化版。编辑中文文章/评论/文档中的空话、重复与模板化表达，让文字更自然，保留事实、确定程度与作者声音。Leading Words: 中文去AI味, 汉化humanizer, 空话消除, 模板化表达清理"
 metadata:
   upstream: "github.com/op7418/Humanizer-zh"
 ---

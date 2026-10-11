@@ -1,6 +1,6 @@
 ---
 name: awesome-claude-skills
-description: "Claude Skills 精选清单（ASH claude-code-skills 榜 #1，travisvn 出品）。分类收录社区 Claude 技能：编码/写作/数据/自动化等，附简介与链接。Leading Words: Claude技能清单, skills大全, awesome list, 技能导航"
+description: "Claude Skills 精选清单。分类收录社区 Claude 技能：编码/写作/数据/自动化等，附简介与链接。Leading Words: Claude技能清单, skills大全, awesome list, 技能导航"
 metadata:
   upstream: "github.com/travisvn/awesome-claude-skills"
 ---

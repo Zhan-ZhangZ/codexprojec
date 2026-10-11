@@ -1,6 +1,6 @@
 ---
 name: humanizer
-description: "英语去 AI 痕迹改写技能（blader 出品 54k★，ASH anti-slop 榜 #2，实测 3/5 事实全保）。重写 AI 腔文本使其像作者本人所写而不改变含义：not-X-but-Y 对比、一行式收尾、套路开场、强制三连、滥用破折号、夸大断言、销售话术等模式目录。Leading Words: 去AI痕迹, 英文人性化改写, AI腔消除, humanizer, blader"
+description: "英语去 AI 痕迹改写技能。重写 AI 腔文本使其像作者本人所写而不改变含义：not-X-but-Y 对比、一行式收尾、套路开场、强制三连、滥用破折号、夸大断言、销售话术等模式目录。Leading Words: 去AI痕迹, 英文人性化改写, AI腔消除, humanizer"
 metadata:
   upstream: "github.com/blader/humanizer"
 ---

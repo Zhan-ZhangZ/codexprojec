@@ -1,6 +1,6 @@
 ---
 name: ccstatusline
-description: "Claude Code 终端状态栏（ASH claude-code-hooks 榜 #3，sirmalloc 出品）。Remotion 渲染 powerline 风状态栏：token 用量/成本/会话/git/模型切换指示，高度可配置模板系统。Leading Words: Claude Code状态栏, powerline, token用量显示, remotion状态栏, ccstatusline"
+description: "Claude Code 终端状态栏。Remotion 渲染 powerline 风状态栏：token 用量/成本/会话/git/模型切换指示，高度可配置模板系统。Leading Words: Claude Code状态栏, powerline, token用量显示, remotion状态栏, ccstatusline"
 metadata:
   upstream: "github.com/sirmalloc/ccstatusline"
 ---
