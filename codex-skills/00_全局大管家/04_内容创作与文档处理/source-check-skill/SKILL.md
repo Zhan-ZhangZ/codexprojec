@@ -1,6 +1,6 @@
 ---
 name: source-check
-description: Verify every external claim in your output via multi-criteria scientific verification routed by claim type. NO skip mechanism (which would constitute Hansson pseudoscience pathology #4 "unwillingness to test" + #6 "built-in subterfuge"). Six claim types — factual-citation / time-sensitive / subjective / future / private / scientific — each route to a type-specific verifier subagent with the criteria appropriate to that claim type per philosophy-of-science consensus (single-criterion demarcation a la Popper alone is known to fail; Hansson SEP 2025, Pigliucci & Boudry 2013). Verifiers MUST use web tools, return verbatim quotes with ≥200 chars surrounding context, perform negative-control searches, make at least one tool call to a domain not appearing in the candidate claim, and produce strict JSON output checkable downstream by substring-match.
+description: "多准则信源核查器。对输出中的每条外部断言按类型路由到专项核查子代理（事实引用/时效/主观/预测/私密/科学六类），强制使用 web 工具、返回带上下文的逐字引文、执行反例检索并输出可机检的 JSON 结论；无跳过机制。Leading Words: 信源核查, 断言验证, 引文溯源, 反例检索, 科学验证"
 ---
 
 # source-check

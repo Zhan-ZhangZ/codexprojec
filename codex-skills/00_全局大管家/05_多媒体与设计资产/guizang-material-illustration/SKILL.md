@@ -1,6 +1,6 @@
 ---
 name: guizang-material-illustration
-description: Generate Guizang-style material illustrations, labeled explanatory visuals, material-styled chart illustrations, and data-first editorial images from articles, notes, product concepts, workplace reports, creator posts, tutorials, school materials, humanities topics, science explanations, screenshots, or chart data. Use when the user asks for 配图, 带字插图, 解释图, 图解插画, 概念拆解图, 图表美化, 数据图美化, 3D 图表, 汇报配图, 内容配图, 小学课文配图, 生物/化学/物理解释图, 人文类配图, process/loop/system diagrams, or wants GPT-Image / image generation to create supporting images that can sit inside social cards, docs, slides, PPTs, or posts.
+description: "Guizang 风格素材插图生成。从文章/笔记/产品概念/报告/教程/科普等内容生成带字解释图、素材风图表插图与数据优先的编辑图，可嵌入社交卡片/文档/幻灯片。适用于配图、带字插图、概念拆解图、图表美化、汇报配图等需求。Leading Words: 素材插图, 带字解释图, 图表美化, 概念拆解, 汇报配图, 3D图表"
 ---
 
 # Guizang Material Illustration

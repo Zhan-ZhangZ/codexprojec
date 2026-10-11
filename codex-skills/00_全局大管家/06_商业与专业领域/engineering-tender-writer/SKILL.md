@@ -1,6 +1,6 @@
 ---
 name: engineering-tender-writer
-description: Draft, restructure, review, and refine Chinese technical tender proposals for engineering and science projects. Use when working on 技术标书、服务方案、研究内容、建设方案、技术路线、模型或算法方案、性能验收、技术参数响应表、点对点响应，or when extracting requirements from DOCX/Markdown tender materials and checking clause coverage, indicator consistency, task boundaries, unsupported commitments, and formal bid-writing style.
+description: "中文工程技术标书撰写器。起草/重构/审查技术标书、服务方案、研究内容、技术路线与参数响应表；从 DOCX/Markdown 标书材料提取需求并检查条款覆盖、指标一致性、任务边界与不当承诺。Leading Words: 技术标书, 服务方案, 技术路线, 参数响应表, 点对点响应, 条款覆盖检查"
 ---
 
 # 理工科技术标书撰写
