@@ -2790,5 +2790,18 @@
     "aliases": [
       "流式MCP模板"
     ]
+  },
+  {
+    "name": "rea",
+    "description": "逆向工程全能 MCP（Reverse Engineer Anything）。跨二进制/应用/运行时行为的统一逆向分析：反编译代码、版本对比、功能解释与重建指引；覆盖 native/.NET/Electron/JavaScript/打包应用/固件/浏览器目标，集成 Ghidra/apktool/adb 等分析器与被动运行时取证；npm 分发（rea-agents）。Leading Words: 逆向工程, 反编译, 二进制分析, 运行时取证, 版本对比, Ghidra, APK逆向, Electron逆向, MCP逆向",
+    "category": "01_代码工程与架构",
+    "folder": "rea",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/rea",
+    "aliases": [
+      "REA",
+      "Reverse Engineer Anything",
+      "逆向工程MCP",
+      "rea-agents"
+    ]
   }
 ]
