@@ -2806,14 +2806,19 @@
   },
   {
     "name": "officecli",
-    "description": "Office 文档全能 CLI（.docx/.xlsx/.pptx）。单二进制零依赖、无需安装 Office：创建/检查/校对/修改三件套，L1 创建阅读 → L2 DOM 操作 → L3 原生 XML 三层操作模型，常驻模式提速；含 11 个子技能——docx/xlsx/pptx 基础、学术论文、数据看板、财务模型、路演 PPT、Word 表单与 Morph 变焦动画（跨页连续动画）。Leading Words: Office文档CLI, docx生成修改, xlsx表格图表, pptx幻灯片, 文档校对格式检查, 单二进制, Morph变焦动画, 论文Word, 财务模型Excel",
+    "description": "办公文档全能 CLI（Word/Excel/PPT 三件套）。单二进制零依赖、无需安装 Office：创建/检查/校对/修改 .docx/.xlsx/.pptx，L1 创建阅读 → L2 DOM 操作 → L3 原生 XML 三层操作模型，常驻模式提速；含 11 个子技能——Word/Excel/PPT 基础、学术论文、数据看板、财务模型、融资路演、Word 表单与 Morph 变焦动画。适合场景：办公文档处理、写报告做文档、做 PPT 做演示、做表格做图表、文档格式检查校对。Leading Words: 办公, 办公文档, 办公三件套, Word文档, Excel表格, PPT幻灯片, 写报告, 做表格, 做PPT, 文档校对格式检查, 论文Word, 财务模型Excel, Morph变焦动画, 单二进制",
     "category": "04_内容创作与文档处理",
     "folder": "officecli",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/officecli",
     "aliases": [
       "OfficeCLI",
       "office cli",
-      "Office文档CLI"
+      "Office文档CLI",
+      "办公",
+      "办公三件套",
+      "做PPT",
+      "做表格",
+      "写报告"
     ]
   }
 ]
