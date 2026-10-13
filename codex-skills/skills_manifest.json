@@ -2803,5 +2803,17 @@
       "逆向工程MCP",
       "rea-agents"
     ]
+  },
+  {
+    "name": "officecli",
+    "description": "Office 文档全能 CLI（.docx/.xlsx/.pptx）。单二进制零依赖、无需安装 Office：创建/检查/校对/修改三件套，L1 创建阅读 → L2 DOM 操作 → L3 原生 XML 三层操作模型，常驻模式提速；含 11 个子技能——docx/xlsx/pptx 基础、学术论文、数据看板、财务模型、路演 PPT、Word 表单与 Morph 变焦动画（跨页连续动画）。Leading Words: Office文档CLI, docx生成修改, xlsx表格图表, pptx幻灯片, 文档校对格式检查, 单二进制, Morph变焦动画, 论文Word, 财务模型Excel",
+    "category": "04_内容创作与文档处理",
+    "folder": "officecli",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/officecli",
+    "aliases": [
+      "OfficeCLI",
+      "office cli",
+      "Office文档CLI"
+    ]
   }
 ]
