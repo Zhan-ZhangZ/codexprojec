@@ -26,6 +26,7 @@ from typing import Any
 LIBRARY = "codex-skills"
 MANIFEST = f"{LIBRARY}/skills_manifest.json"
 MODES = {"100644", "100755", "120000"}
+TREE_CACHE_FILE = ".codex-skills.tree.json"
 SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 
 
@@ -184,6 +185,9 @@ def build_plan(repo: Path) -> BuildPlan:
         while end < len(files) and files[end].path.startswith(prefix):
             end += 1
         skill_files = files[start:end]
+        if any(file.path == prefix + TREE_CACHE_FILE or file.path.startswith(prefix + TREE_CACHE_FILE + "/")
+               for file in skill_files):
+            raise IndexBuildError(f"Skill contains reserved MCP cache path {TREE_CACHE_FILE}: {entry['relative_path']}")
         if not skill_files:
             raise IndexBuildError(f"Skill has no staged files: {entry['relative_path']}")
         if not any(file.path == prefix + "SKILL.md" for file in skill_files):

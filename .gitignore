@@ -13,6 +13,11 @@
 !/scripts/
 /scripts/*
 !/scripts/build_file_indexes.py
+!/scripts/validate_manifest.py
+!/tests/
+/tests/*
+!/tests/test_validate_manifest.py
+!/tests/test_build_file_indexes.py
 !/.github/
 /.github/*
 !/.github/workflows/

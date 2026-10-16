@@ -53,6 +53,8 @@
 
 `codex-skills/.catalog/` 由 `scripts/build_file_indexes.py` 从 Git 索引生成，为 290 个非根入口技能提供不可变文件清单（路径、大小、Git blob SHA 与模式）。`skills_manifest.json` 的 `file_index` 字段指向对应 catalog 及 SHA-256。MCP 优先使用该索引并发拉取文件，无需为冷下载调用 GitHub Tree API；旧清单或索引损坏时自动回退旧链路。详见 `.catalog/README.md`。
 
+暂存技能和清单变更后运行 `python3 scripts/build_file_indexes.py --write`，再暂存生成的 manifest/catalog。提交前运行 `python3 -m unittest discover -s tests -p 'test_*.py'`、`python3 scripts/validate_manifest.py` 和 `python3 scripts/build_file_indexes.py --check`，CI 会重复这些检查。旧 hash catalog 应保留；历史文件恢复仍依赖 Git 对象及分发端可用性。
+
 ## 🤖 Agent 行为引导 (Agentic Guidelines)
 
 ### 1. 动态发现与安装未包含的技能

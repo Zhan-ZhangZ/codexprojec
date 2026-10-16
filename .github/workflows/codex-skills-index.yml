@@ -12,9 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # Validation uses the current index and blobs, not repository history.
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Test metadata and catalog validation
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Validate manifest metadata and catalog integrity
+        run: python3 scripts/validate_manifest.py
       - name: Validate immutable skill catalogs
         run: python3 scripts/build_file_indexes.py --check
