@@ -2820,6 +2820,21 @@
       "做表格",
       "写报告"
     ]
+  },
+  {
+    "name": "chatcut-installer",
+    "description": "ChatCut AI 视频剪辑插件安装引导（本仓库自研）。当用户想做视频剪辑、剪视频、装 ChatCut，或说「阅读 chatcut.io/chatgpt 帮我安装 ChatCut 插件并创建一个新任务」时使用：引导 Codex Agent 完成 ChatCut 插件的安装、登录授权、验证与首个剪辑任务交接。适合场景：剪辑视频、视频剪辑、剪片子、装剪辑插件、AI 剪辑、字幕转场、MG 动画、配音配乐视频制作。Leading Words: 剪辑, 视频剪辑, 剪视频, ChatCut, chatcut安装, 剪辑插件, AI视频编辑, 字幕转场, MG动画, 创建剪辑任务",
+    "category": "05_多媒体与设计资产",
+    "folder": "chatcut-installer",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/chatcut-installer",
+    "aliases": [
+      "ChatCut",
+      "ChatCut安装",
+      "剪辑",
+      "视频剪辑",
+      "剪视频",
+      "剪辑插件安装"
+    ]
   }
 ]
 
