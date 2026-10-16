@@ -1,0 +1,1 @@
+{"version":1,"skill_path":"./00_全局大管家/12_学术论文与科研图表/sympy-solver","files":[{"path":"SKILL.md","size":3543,"sha":"0604b75e17dca42a208c9dd76fee7a7f164597b6","mode":"100644"},{"path":"scripts/solve_math.py","size":10818,"sha":"0556d6b38d4399d6eb4c560a71f49ee0a20458d2","mode":"100755"}]}

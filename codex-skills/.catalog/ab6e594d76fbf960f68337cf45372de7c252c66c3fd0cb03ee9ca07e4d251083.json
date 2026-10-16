@@ -1,0 +1,1 @@
+{"version":1,"skill_path":"./00_全局大管家/12_学术论文与科研图表/arxiv-latex-reader","files":[{"path":"SKILL.md","size":3926,"sha":"c91cdfbd32e54b485bd9859a9755e3d6c3efa759","mode":"100644"},{"path":"scripts/fetch_latex.py","size":11203,"sha":"f2945b0c2e5eb0bf6043c5097fa4702d1fe8e211","mode":"100755"}]}

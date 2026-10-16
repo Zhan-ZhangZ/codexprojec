@@ -10,6 +10,14 @@
 !/codex-skills/
 !/.gitignore
 !/README.md
+!/scripts/
+/scripts/*
+!/scripts/build_file_indexes.py
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/codex-skills-index.yml
 
 # ============================================================
 # 以下是针对 codex-skills/ 内部子文件的通用忽略规则（防止垃圾文件入库）
@@ -17,6 +25,7 @@
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.cache/
 *.py[cod]
 *$py.class
 

@@ -1,0 +1,1 @@
+{"version":1,"skill_path":"./00_全局大管家/02_DevOps与自动化/pr-review-ci-fix","files":[{"path":"SKILL.md","size":5288,"sha":"6be331c51593b81ea9ee059f6cdcdac138333de2","mode":"100644"},{"path":"scripts/review-and-fix.ts","size":521,"sha":"233814d0e9d35ba76bf322a44008226c830d7122","mode":"100644"}]}

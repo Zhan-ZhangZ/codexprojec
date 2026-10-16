@@ -1,0 +1,1 @@
+{"version":1,"skill_path":"./00_全局大管家/01_代码工程与架构/codebase-migrate","files":[{"path":"SKILL.md","size":5775,"sha":"f2a8dfa246489e3bb409581ed24be6707139f1a0","mode":"100644"},{"path":"scripts/migrate-batch.ts","size":589,"sha":"af4e918c85ae129e793254fab50af1cdd8e8b79e","mode":"100644"}]}
