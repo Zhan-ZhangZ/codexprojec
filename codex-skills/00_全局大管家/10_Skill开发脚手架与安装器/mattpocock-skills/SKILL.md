@@ -1,6 +1,6 @@
 ---
 name: mattpocock-skills
-description: Matt Pocock 纯正 Agentic Skills 元级构造套件与生态范本。专注入侵大模型思维的「软件工程心智」：强制应用 TDD 驱动、/grill 需求严苛反问与鲁棒的元技能 (Writing-great-skills) 生成规范。作为终极向导大幅抑制 Agent 鲁莽跳跃。Leading Words: Matt Pocock元技能构造规范, TDD驱动软件工程心智, /grill需求反向严苛拷问, 抑制鲁莽行为预测性护栏
+description: "Matt Pocock 纯正 Agentic Skills 元级构造套件与生态范本。专注入侵大模型思维的「软件工程心智」：强制应用 TDD 驱动、/grill 需求严苛反问与鲁棒的元技能 (Writing-great-skills) 生成规范。作为终极向导大幅抑制 Agent 鲁莽跳跃。Leading Words: Matt Pocock元技能构造规范, TDD驱动软件工程心智, /grill需求反向严苛拷问, 抑制鲁莽行为预测性护栏"
 version: 1.2.3
 metadata:
   upstream: github.com/mattpocock/skills
@@ -34,7 +34,7 @@ metadata:
 
 ## 与上一集成版（1.1.0）的主要差异
 - **改名**：`writing-great-skills` → `writing-for-agents`（无别名）；`wayfinder` 沿用，`to-spec`/`to-tickets` 术语对齐。
-- **清退 6 技能**：`ubiquitous-language`→domain-modeling、`design-an-interface`→codebase-design、`request-refactor-plan`→to-spec/improve-codebase-architecture、`qa` 并入；`edit-article`、`obsidian-vault`（personal 目录）整体移除。
+- **技能重组**：`ubiquitous-language`→domain-modeling、`design-an-interface`→codebase-design、`request-refactor-plan`→to-spec/improve-codebase-architecture，`qa` 的相关流程已并入继任技能。
 - **晋级**：`wizard`、`to-questionnaire` 进入插件；新增 `wait-what`（一字纠偏啰嗦输出）。
-- **双平台**：全部技能新增 Codex 侧 openai.yaml（界面元数据与隐式调用策略），`AGENTS.md` 指向 `CLAUDE.md`。
+- **双平台**：全部技能包含 Codex 侧 `openai.yaml` 与 Claude Code 侧清单。
 - **in-progress 新增**：implement-spec、retro、setup-ts-deep-modules。

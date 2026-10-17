@@ -1,6 +1,6 @@
 ---
 name: cloudbase
-description: 为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、PostgreSQL/MySQL 关系型数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署
+description: "为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、PostgreSQL/MySQL 关系型数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署"
 description_zh: 为你的小程序和 Web/H5 提供一体化运行与部署环境，包括数据库、云函数、云存储、身份权限和静态托管
 description_en: An all-in-one runtime and deployment environment for WeChat Mini Programs and Web/H5 apps, including database, cloud functions, cloud storage, identity and access control, and static hosting.
 version: 2.32.5

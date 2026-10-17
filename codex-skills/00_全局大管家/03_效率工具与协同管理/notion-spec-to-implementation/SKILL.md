@@ -1,6 +1,6 @@
 ---
 name: notion-spec-to-implementation
-description: Notion PRD 规格转换为研发排期执行工具。自动解析 Notion 产品需求文档（PRDs / Feature Specs），并切分为可操作的实施计划、任务拆解大纲，同时同步更新 Notion 任务板进度。Leading Words: Notion PRD拆解, 需求规格转任务, 实施计划生成, 任务跟踪同步
+description: "Notion PRD 规格转换为研发排期执行工具。自动解析 Notion 产品需求文档（PRDs / Feature Specs），并切分为可操作的实施计划、任务拆解大纲，同时同步更新 Notion 任务板进度。Leading Words: Notion PRD拆解, 需求规格转任务, 实施计划生成, 任务跟踪同步"
 metadata:
   short-description: Turn Notion specs into implementation plans, tasks, and progress tracking
 ---

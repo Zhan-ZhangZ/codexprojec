@@ -1,6 +1,6 @@
 ---
 name: scientific-schematics
-description: Nano Banana 引擎驱动的高精学术原理图与信号通路制图矩阵。配合大模型质检进行拓扑纠偏，专注生成满足 CNS 顶刊排版级要求的网络架构、生化通路图及高度复杂的实验范式设计流程图。Leading Words: 高精学术原理通路制图, NanoBanana/CNS顶刊排版级, 复杂生化通路与实验范式, 大模型拓扑纠偏与质检
+description: "Nano Banana 引擎驱动的高精学术原理图与信号通路制图矩阵。配合大模型质检进行拓扑纠偏，专注生成满足 CNS 顶刊排版级要求的网络架构、生化通路图及高度复杂的实验范式设计流程图。Leading Words: 高精学术原理通路制图, NanoBanana/CNS顶刊排版级, 复杂生化通路与实验范式, 大模型拓扑纠偏与质检"
 allowed-tools: Read Write Edit Bash
 license: MIT license
 metadata:

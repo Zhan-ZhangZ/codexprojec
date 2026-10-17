@@ -1,6 +1,6 @@
 ---
 name: codebase-recon
-description: 陌生代码库快速摸底与侦查工具。接手新项目前必用，通过解析 Git 提交历史，秒级生成代码热点地图、高风险变更区域（Risk Areas）、团队开发结构与项目演进动能，从而在未深入阅读源码前建立全局视角与代码健康度认知。Leading Words: 代码库侦查, Git历史分析, 变更热点地图, 项目健康度评估, 陌生代码上手, 依赖拓扑
+description: "陌生代码库快速摸底与侦查工具。接手新项目前必用，通过解析 Git 提交历史，秒级生成代码热点地图、高风险变更区域（Risk Areas）、团队开发结构与项目演进动能，从而在未深入阅读源码前建立全局视角与代码健康度认知。Leading Words: 代码库侦查, Git历史分析, 变更热点地图, 项目健康度评估, 陌生代码上手, 依赖拓扑"
 compatibility: Requires git. Works in any terminal-based coding agent.
 metadata:
   author: yujiachen-y

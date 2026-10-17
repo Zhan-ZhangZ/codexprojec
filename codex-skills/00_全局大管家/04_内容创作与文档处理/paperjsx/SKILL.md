@@ -1,6 +1,6 @@
 ---
 name: paperjsx
-description: PaperJSX 结构化跨格式报表编译发布系统。以 JSON 为统一输入源，通过 JSX 语法模板自动生成高度定制的 PPTX 幻灯片、DOCX 报告、XLSX 数据表及 PDF。一键多端发布输出。Leading Words: PaperJSX渲染引擎, JSON驱动报表生成, 多格式自动化排版, JSX幻灯片编译
+description: "PaperJSX 结构化跨格式报表编译发布系统。以 JSON 为统一输入源，通过 JSX 语法模板自动生成高度定制的 PPTX 幻灯片、DOCX 报告、XLSX 数据表及 PDF。一键多端发布输出。Leading Words: PaperJSX渲染引擎, JSON驱动报表生成, 多格式自动化排版, JSX幻灯片编译"
 ---
 
 # PaperJSX Document Generation

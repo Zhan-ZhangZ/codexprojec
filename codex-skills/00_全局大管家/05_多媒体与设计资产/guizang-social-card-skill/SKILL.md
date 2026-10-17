@@ -1,6 +1,6 @@
 ---
 name: guizang-social-card-skill
-description: Guizang 系社交网络裂变卡片与双封面矩阵生成器。针对小红书图文（3:4）、微信公众号（21:9+1:1 首尾封面），自动将长文文案解构重组为瑞士杂志风格的高格调轮播图集。Leading Words: 小红书高逼格图文卡片, 公众号双封面生成, Swiss Style杂志排版, 社交裂变卡片
+description: "Guizang 系社交网络裂变卡片与双封面矩阵生成器。针对小红书图文（3:4）、微信公众号（21:9+1:1 首尾封面），自动将长文文案解构重组为瑞士杂志风格的高格调轮播图集。Leading Words: 小红书高逼格图文卡片, 公众号双封面生成, Swiss Style杂志排版, 社交裂变卡片"
 ---
 
 # Guizang Social Card Skill

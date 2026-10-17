@@ -9,7 +9,13 @@
 
 import subprocess, json, os, sys, time, tempfile, re
 
-TOKENS_FILE = os.path.expanduser('~/.claude/skills/getnote/tokens.json')
+LEGACY_TOKENS_FILE = os.path.expanduser('~/.claude/skills/getnote/tokens.json')
+DEFAULT_TOKENS_FILE = os.path.expanduser('~/.getnote/tokens.json')
+TOKENS_FILE = (
+    os.path.expanduser(os.environ['GETNOTE_TOKENS_FILE'])
+    if os.environ.get('GETNOTE_TOKENS_FILE')
+    else (LEGACY_TOKENS_FILE if os.path.exists(LEGACY_TOKENS_FILE) else DEFAULT_TOKENS_FILE)
+)
 
 def getnote_request(method, path, body=None):
     api_key = os.environ.get('GETNOTE_API_KEY')
@@ -34,6 +40,7 @@ def load_tokens():
         return json.load(f)
 
 def save_tokens(tokens):
+    os.makedirs(os.path.dirname(TOKENS_FILE), exist_ok=True)
     with open(TOKENS_FILE, 'w') as f:
         json.dump(tokens, f, indent=2)
 

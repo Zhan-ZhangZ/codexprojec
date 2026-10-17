@@ -1,6 +1,6 @@
 ---
 name: paper-search-mcp
-description: 7+ 巨头学术数据库并发洪流搜索与自动降噪收敛引擎 (MCP)。横跨生医 (PubMed/medRxiv)、计算机与数理领域。毫秒级并发查询、智能去重及 LLM 强格式化对齐，输出高度聚合的纯净学术搜索摘要。Leading Words: 7+核心学术库并发搜索, bioRxiv/IACR跨学科收敛, 洪流检索自动去重降噪, LLM强格式化学术摘要
+description: "7+ 巨头学术数据库并发洪流搜索与自动降噪收敛引擎 (MCP)。横跨生医 (PubMed/medRxiv)、计算机与数理领域。毫秒级并发查询、智能去重及 LLM 强格式化对齐，输出高度聚合的纯净学术搜索摘要。Leading Words: 7+核心学术库并发搜索, bioRxiv/IACR跨学科收敛, 洪流检索自动去重降噪, LLM强格式化学术摘要"
 ---
 
 # Paper Search MCP — 多源并发检索与去重

@@ -1,6 +1,6 @@
 ---
 name: sci-hub-mcp
-description: Sci-Hub 闭源文献 PDF 强行破壁与全文接管引擎 (MCP)。依托 DOI 或精准书目元信息，越过出版商付费墙瞬间拉取学术论文原本。解决文献综述阶段「查得到、拿不到」的科研最后一公里痛点。Leading Words: Sci-Hub出版商破壁, 闭源学术PDF强行拉取, DOI精准文献原本接管, 科研综述最后一公里
+description: "Sci-Hub 闭源文献 PDF 强行破壁与全文接管引擎 (MCP)。依托 DOI 或精准书目元信息，越过出版商付费墙瞬间拉取学术论文原本。解决文献综述阶段「查得到、拿不到」的科研最后一公里痛点。Leading Words: Sci-Hub出版商破壁, 闭源学术PDF强行拉取, DOI精准文献原本接管, 科研综述最后一公里"
 ---
 
 # Sci-Hub MCP — 论文全文 PDF 获取

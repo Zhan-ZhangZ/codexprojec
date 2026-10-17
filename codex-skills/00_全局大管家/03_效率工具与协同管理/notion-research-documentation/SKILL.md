@@ -1,6 +1,6 @@
 ---
 name: notion-research-documentation
-description: Notion 跨库文献调研与文档合成器。从多个 Notion 数据库/页面采集信息，提取要点并整合为带有准确引用来源的结构化报告、竞品分析或简报。Leading Words: Notion文献调研, 跨数据库检索, 结构化报告合成, 知识提取引用
+description: "Notion 跨库文献调研与文档合成器。从多个 Notion 数据库/页面采集信息，提取要点并整合为带有准确引用来源的结构化报告、竞品分析或简报。Leading Words: Notion文献调研, 跨数据库检索, 结构化报告合成, 知识提取引用"
 metadata:
   short-description: Research Notion content and produce briefs/reports
 ---

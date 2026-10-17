@@ -1,6 +1,6 @@
 ---
 name: huashu-design
-description: 高维视觉冲击力信息图谱设计室（huashu-design）。通过提炼干瘪的长篇文本逻辑，重新规划为带高阶透视、空间感与复杂版面调配的 infographic，打造一图胜千言的视觉资产。Leading Words: 高维透视信息图谱, 空间感图解渲染, 复杂版面重构, Infographic资产
+description: "高维视觉冲击力信息图谱设计室（huashu-design）。通过提炼干瘪的长篇文本逻辑，重新规划为带高阶透视、空间感与复杂版面调配的 infographic，打造一图胜千言的视觉资产。Leading Words: 高维透视信息图谱, 空间感图解渲染, 复杂版面重构, Infographic资产"
 ---
 
 # 花叔Design · Huashu-Design

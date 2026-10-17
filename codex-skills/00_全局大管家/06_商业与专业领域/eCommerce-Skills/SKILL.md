@@ -1,6 +1,6 @@
 ---
 name: eCommerce-Skills
-description: 跨境电商泛平台 (Amazon/Shopify/TikTok) 全链路运营智囊库。提供 140+ 工业级原生 Prompt 与业务流模板。横扫独立站选品、本土化客服话术、广告投放优化及跨平台财务对账业务。Leading Words: 跨境电商全链路运营, 独立站Shopify选品, TikTok Shop营销话术, 泛平台财务对账
+description: "跨境电商泛平台 (Amazon/Shopify/TikTok) 全链路运营智囊库。提供 140+ 工业级原生 Prompt 与业务流模板。横扫独立站选品、本土化客服话术、广告投放优化及跨平台财务对账业务。Leading Words: 跨境电商全链路运营, 独立站Shopify选品, TikTok Shop营销话术, 泛平台财务对账"
 ---
 
 # eCommerce-Skills
@@ -20,5 +20,3 @@ Nexscope 电商技能合集：**142 个子技能**覆盖 Shopify（建站/主题
 ## 详细指南
 
 - [README.md](README.md) — 上游总说明（技能目录与平台矩阵）
-
-> 上游 `.gitignore`（开发配置）未随库分发。

@@ -1,6 +1,6 @@
 ---
 name: connect
-description: Composio CLI 终端集成矩阵发射器 (Terminal Integration Hub)。打破 IDE 沙盒，通过命令行授权 Agent 调度 Gmail 邮件、Slack 消息投递、GitHub Issue 追踪及 1000+ 第三方 SaaS 的自动化真实写操作。Leading Words: Composio终端CLI集成, IDE沙盒打破与真实写操作, GitHub/Slack/SaaS自动化, 跨平台消息投递引擎
+description: "Composio CLI 终端集成矩阵发射器 (Terminal Integration Hub)。打破 IDE 沙盒，通过命令行授权 Agent 调度 Gmail 邮件、Slack 消息投递、GitHub Issue 追踪及 1000+ 第三方 SaaS 的自动化真实写操作。Leading Words: Composio终端CLI集成, IDE沙盒打破与真实写操作, GitHub/Slack/SaaS自动化, 跨平台消息投递引擎"
 ---
 
 # Connect

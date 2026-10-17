@@ -1,13 +1,13 @@
 ---
 name: canghe-tianyancha
-description: 企业全维背调与商业情报看板生成器。输入公司/行业名，并行抓取并生成单文件 HTML 仪表板（Dashboard），一览无余地呈现工商变更、司法风险、知识产权及在招岗位数据。Leading Words: 天眼查工商背调, 商业情报抓取, 司法风险预警, 单文件HTML看板
+description: "企业全维背调与商业情报看板生成器。输入公司/行业名，并行抓取并生成单文件 HTML 仪表板（Dashboard），一览无余地呈现工商变更、司法风险、知识产权及在招岗位数据。Leading Words: 天眼查工商背调, 商业情报抓取, 司法风险预警, 单文件HTML看板"
 ---
 
 # canghe-tianyancha
 
 天眼查企业洞察看板 Skill —— 输入企业名称，自动生成包含企业概况、在招岗位分析、数据分析、司法风险、融资历史、股东结构、知识产权、对外投资、主要人员的单文件 HTML 看板。
 
-> **导出说明**：本 Skill 已从原 Kimi 环境导出，适配其他 Kimi Work 用户使用。`kimi_search_v2` 和 `PythonRun` 均为 Kimi Work 内置工具，无需修改。
+> **宿主说明**：使用当前宿主提供的联网搜索和本地 Python 执行能力；缺少对应能力时如实报告，不要伪造搜索或运行结果。
 
 ## 触发条件
 
@@ -45,7 +45,7 @@ test -f "$HOME/.canghe-skills/canghe-tianyancha/EXTEND.md" && echo "user"
 | Result | Action |
 |--------|--------|
 | Found | Read, parse, display summary |
-| Not found | Ask user with AskUserQuestion (see references/config/first-time-setup.md) |
+| Not found | Ask the user with a clear set of choices (see references/config/first-time-setup.md) |
 
 **EXTEND.md Supports**: default output directory, recent job analysis window, industry company count, preferred data sources, report language, and whether to include dashboard disclaimers.
 
@@ -58,7 +58,7 @@ Schema: `references/config/preferences-schema.md`
 ### 模式 1 — 单企业查询（输入企业名称）
 
 1. 从用户输入中提取企业名称
-2. 使用 `kimi_search_v2` 并行搜索企业数据：
+2. 使用当前宿主的联网搜索能力并行搜索企业数据：
    - `{企业名} 天眼查 在招岗位 招聘 岗位分析`
    - `{企业名} 天眼查 司法风险 法律诉讼`
    - `{企业名} 天眼查 融资历史 股东信息`
@@ -70,7 +70,7 @@ Schema: `references/config/preferences-schema.md`
 ### 模式 2 — 行业查询（输入行业名称）
 
 1. 从用户输入中提取行业名称（如"AI大模型"、"互联网"、"电商"）
-2. 使用 `kimi_search_v2` 搜索该行业头部企业名单：
+2. 使用当前宿主的联网搜索能力搜索该行业头部企业名单：
    - `{行业名} 头部企业 排名 大厂 天眼查`
    - `{行业名} 公司 融资 在招岗位 天眼查`
 3. 提取 TOP 5-10 家头部企业的核心数据（名称、在招岗位、成立时间、注册资本、融资轮次、参保人数、总部城市、核心产品）
@@ -236,7 +236,7 @@ print(f"所有文件: {result['all_files']}")
 
 ### Stage 3 — 看板生成
 
-使用 `PythonRun` 调用 `generate_dashboard.py` 生成 HTML 看板：
+使用本地 Python 执行 `generate_dashboard.py` 生成 HTML 看板：
 
 ```python
 import sys
@@ -388,7 +388,7 @@ Python 端 `analyze_jobs()` 函数从岗位列表提取以下分析维度：
 - 天眼查 API 单次返回岗位数量有限，通常只返回前 20 条，分析结果基于可用数据
 - 岗位总数 `jobs_total` 与分析样本量可能不一致，已通过数量标签说明
 - 已下线职位仍可能出现在 API 数据中，通过"本季度"默认筛选缓解
-- 天眼查企业数据库无法被代码直接程序化调用，实际通过 `kimi_search_v2` 获取公开数据
+- 天眼查企业数据库无法被代码直接程序化调用，实际通过网络搜索获取公开数据
 - 知识产权和对外投资数据可能不完整，以天眼查公示为准
 - 薪资分布通过解析 `salary` 字符串（如 "25K-40K"）计算平均值后归类，可能存在误差
 - **招聘趋势预测**基于简单线性回归，仅供参考，不构成投资建议

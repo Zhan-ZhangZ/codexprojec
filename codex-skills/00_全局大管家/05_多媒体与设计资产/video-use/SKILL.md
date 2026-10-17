@@ -1,6 +1,6 @@
 ---
 name: video-use
-description: 对话式非线性视频全功能剪辑工作流 (Video-use)。利用自然语言完成极度复杂的音视频任务：包括语音转录对齐、硬核粗剪切、色彩调色（Color Grade）、内嵌字幕烧录以及叠加层渲染。Leading Words: 对话式非线性剪辑, 音视频时间轴粗剪, 色彩校正Color Grade, 烧录内嵌字幕
+description: "对话式非线性视频全功能剪辑工作流 (Video-use)。利用自然语言完成极度复杂的音视频任务：包括语音转录对齐、硬核粗剪切、色彩调色（Color Grade）、内嵌字幕烧录以及叠加层渲染。Leading Words: 对话式非线性剪辑, 音视频时间轴粗剪, 色彩校正Color Grade, 烧录内嵌字幕"
 ---
 
 # Video Use

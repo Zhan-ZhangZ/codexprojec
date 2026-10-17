@@ -1,6 +1,6 @@
 ---
 name: lead-research-assistant
-description: B2B 销售线索（Leads）多维穿透侦查与拓客专家。不仅寻找潜在客户企业，更结合己方产品优势对线索进行评分过滤，构建定制化破冰（Ice-breaker）策略，赋能销售团队缩短成单周期。Leading Words: B2B高质量销售线索, 潜在客户多维评级, 破冰Ice-breaker话术, 拓客转化周期优化
+description: "B2B 销售线索（Leads）多维穿透侦查与拓客专家。不仅寻找潜在客户企业，更结合己方产品优势对线索进行评分过滤，构建定制化破冰（Ice-breaker）策略，赋能销售团队缩短成单周期。Leading Words: B2B高质量销售线索, 潜在客户多维评级, 破冰Ice-breaker话术, 拓客转化周期优化"
 ---
 
 # Lead Research Assistant

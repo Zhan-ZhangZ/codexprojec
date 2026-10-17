@@ -1,6 +1,6 @@
 ---
 name: codex-sms-verification
-description: VirtualSMS 全球虚拟验证码截获与穿透 MCP 插件。赋予无头浏览器 Agent 直连 145+ 国家的实体 SIM 卡网关池能力，瞬间越过 2000+ 平台的手机注册防火墙。支持 StdIO 与云端挂载，自动化填槽短信验证码。Leading Words: 全球短信验证码拦截, 实体SIM网关穿透代理, 无头浏览器免登录绕过, 验证码自动化填槽
+description: "VirtualSMS 全球虚拟验证码截获与穿透 MCP 插件。赋予无头浏览器 Agent 直连 145+ 国家的实体 SIM 卡网关池能力，瞬间越过 2000+ 平台的手机注册防火墙。支持 StdIO 与云端挂载，自动化填槽短信验证码。Leading Words: 全球短信验证码拦截, 实体SIM网关穿透代理, 无头浏览器免登录绕过, 验证码自动化填槽"
 ---
 
 # codex-sms-verification

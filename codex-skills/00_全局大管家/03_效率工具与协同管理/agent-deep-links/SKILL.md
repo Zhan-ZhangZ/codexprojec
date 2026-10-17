@@ -1,6 +1,6 @@
 ---
 name: agent-deep-links
-description: 跨 IDE 协议深层跳转链接 (Deep Links) 构建与强验工具。专用于将晦涩的终端路径转化为能在 Slack / Discord 一键唤醒的超链接URI。支持 Cursor、VS Code 及 Codex 原生协议，并包含协议头可用性兜底诊断。Leading Words: 跨IDE协议Deep Links构建, Slack超链接快速唤醒, Cursor/VSCode协议头, 终端路径状态验证诊断
+description: "跨 IDE 协议深层跳转链接 (Deep Links) 构建与强验工具。专用于将晦涩的终端路径转化为能在 Slack / Discord 一键唤醒的超链接URI。支持 Cursor、VS Code 及 Codex 原生协议，并包含协议头可用性兜底诊断。Leading Words: 跨IDE协议Deep Links构建, Slack超链接快速唤醒, Cursor/VSCode协议头, 终端路径状态验证诊断"
 ---
 
 # Agent Deep Links

@@ -1,6 +1,6 @@
 ---
 name: gc-minimal-zine-poster
-description: 极简纸感诗意 zine 海报生成与分析。大留白 + 小型编辑拼贴/焦点元素 + 实验性排版 + 单一明确色彩点缀；支持主题、句子、文章、情绪、物件、照片、内容简报、参考图或图片文件夹输入，产出最终海报图、可直接投产的生图 prompt、可复用风格规则或同视觉家族的多样版式。Leading Words: 极简zine海报, 纸感海报生成, 诗意海报, 大留白排版, 参考图风格提取, 海报prompt编译
+description: "极简纸感诗意 zine 海报生成与分析。大留白 + 小型编辑拼贴/焦点元素 + 实验性排版 + 单一明确色彩点缀；支持主题、句子、文章、情绪、物件、照片、内容简报、参考图或图片文件夹输入，产出最终海报图、可直接投产的生图 prompt、可复用风格规则或同视觉家族的多样版式。Leading Words: 极简zine海报, 纸感海报生成, 诗意海报, 大留白排版, 参考图风格提取, 海报prompt编译"
 metadata:
   upstream: "github.com/LiamGvchi/gc-minimal-zine-poster"
 ---
@@ -109,7 +109,7 @@ Run the photo workflow:
 ````markdown
 **生成图**
 
-![Minimal Zine Poster v0.3.1](absolute-image-path-or-rendered-image)
+生成图：`<生成文件路径>`
 
 **最终 Prompt**
 

@@ -1,6 +1,6 @@
 ---
 name: browser-use
-description: 基于 Browser-Use 的本地浏览器接管工具。为大语言模型提供通用浏览器控制能力，自动执行网页导航、表单填写和信息抓取等繁琐任务。Leading Words: 浏览器自动化接管, 网页导航控制, 表单自动填写, 通用Web操作
+description: "基于 Browser-Use 的本地浏览器接管工具。为大语言模型提供通用浏览器控制能力，自动执行网页导航、表单填写和信息抓取等繁琐任务。Leading Words: 浏览器自动化接管, 网页导航控制, 表单自动填写, 通用Web操作"
 metadata:
   upstream: "github.com/browser-use/browser-use"
   version: "0.13.8"

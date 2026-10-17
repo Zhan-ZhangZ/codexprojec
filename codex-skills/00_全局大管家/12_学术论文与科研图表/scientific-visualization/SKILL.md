@@ -1,6 +1,6 @@
 ---
 name: scientific-visualization
-description: Matplotlib/Seaborn/Plotly 三引擎驱动的高维数据可视化学术作图器。严格对齐 Nature/Science 严苛的单双栏排版、DPI 及色盲友好 (CVD) 调色规范。具备极差线/显著性标记自动化绘制与矢量图极清输出。Leading Words: Matplotlib/Plotly数据可视化, Nature/Science级图表规范, CVD色盲友好与单双栏排版, 误差显著性标记极清矢量导出
+description: "Matplotlib/Seaborn/Plotly 三引擎驱动的高维数据可视化学术作图器。严格对齐 Nature/Science 严苛的单双栏排版、DPI 及色盲友好 (CVD) 调色规范。具备极差线/显著性标记自动化绘制与矢量图极清输出。Leading Words: Matplotlib/Plotly数据可视化, Nature/Science级图表规范, CVD色盲友好与单双栏排版, 误差显著性标记极清矢量导出"
 license: MIT
 compatibility: Requires Python 3.11+ and uv for pinned examples. Bundled CLIs are network-free and load Matplotlib, Pillow, or pypdf only when needed. Plotly static export with Kaleido v1 requires a compatible Chrome/Chromium installation.
 allowed-tools: Read Write Edit Bash Glob Grep

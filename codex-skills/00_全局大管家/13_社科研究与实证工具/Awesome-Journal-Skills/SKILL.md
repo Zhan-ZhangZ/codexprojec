@@ -1,11 +1,15 @@
 ---
 name: Awesome-Journal-Skills
-description: Top Journals (AER/QJE/Nature 等) 顶刊定制化投稿格式降维重塑器。预置全球顶级期刊极为严苛的排版规则、引用规范及图表阈值，一键接管原稿并暴力转换为可直接 Submission 的终稿。Leading Words: Nature/AER/QJE顶刊投稿降维重塑, 严苛期刊排版引用规范预置, 暴力转换Submission终稿生成, 学术投稿格式强制校验
+description: "期刊与会议投稿技能总库。按目标 venue 查找排版、引用、图表、审稿回复和 camera-ready 工作流，覆盖 744 个期刊与会议、约 4166 个技能。"
+metadata:
+  upstream: github.com/brycewang-stanford/Awesome-Journal-Skills
 ---
 
 # Awesome-Journal-Skills
 
 期刊与会议专用投稿技能总库（Stanford REAP × CoPaper.AI 维护，上游 brycewang-stanford/Awesome-Journal-Skills，2026-08-26 快照）。覆盖 744 个期刊/会议 venue、约 4166 个 Agent Skill、300 个技能包，按 11 个学科板块组织：综合·交叉、经管与商科、社会科学、人文学科、数学与物理科学、生命科学、医学与健康、工程与技术、计算机科学与 AI、农业·环境·地球科学、体育科学。
+
+上游仓库：<https://github.com/brycewang-stanford/Awesome-Journal-Skills>
 
 ## 核心能力
 
@@ -21,7 +25,3 @@ description: Top Journals (AER/QJE/Nature 等) 顶刊定制化投稿格式降维
 2. 进入对应 `*-Skills/` 目录：`skills/` 下是各阶段技能（每个子目录一个 SKILL.md），`resources/` 是模板、范例与官方来源核对表，`code/` 是 Stata/Python 代码骨架。
 3. 将原稿交给目标期刊的 submission 技能，按其 checklist 与 manuscript_template 强制校验排版、引用与图表阈值，产出可直接 Submission 的终稿。
 4. 审稿阶段改用 revision/rebuttal/author-response 技能处理逐条回复与策略取舍。
-
-## 集成说明
-
-本次为覆盖集成（2026-09-03）：新增约 110 个 CS 会议（ICSE/CVPR/ACL/SIGIR 等）与中文期刊技能包，633 个共有文件内容更新，`proghg-*` 技能重构为 `phg-*`。瘦身剔除上游 CI（.github）、tests、散布的 .gitignore 与社媒宣传截图（社媒文件/），保留全部技能资产、期刊清单（CATALOG.md/catalog.json/.maintenance/JOURNAL-MASTER-LIST.md）与 showcase 案例库。

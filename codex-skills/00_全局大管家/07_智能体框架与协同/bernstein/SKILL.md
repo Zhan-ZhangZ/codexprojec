@@ -1,6 +1,6 @@
 ---
 name: bernstein
-description: Bernstein 开源 AI Agent 治理层与确定性编排引擎。协调环内无模型——计划重放即同一任务图，每个编码任务跑在独立 git worktree 并过 lint/类型/测试门；离线可验证运行回执、签名血缘与可选 HMAC 审计链。驱动 Claude Code、Codex、Gemini CLI 等 40+ CLI 代码助手。Leading Words: 确定性Agent编排, CLI多智能体调度, 任务流状态机, Agent治理审计
+description: "Bernstein 开源 AI Agent 治理层与确定性编排引擎。协调环内无模型——计划重放即同一任务图，每个编码任务跑在独立 git worktree 并过 lint/类型/测试门；离线可验证运行回执、签名血缘与可选 HMAC 审计链。驱动 Claude Code、Codex、Gemini CLI 等 40+ CLI 代码助手。Leading Words: 确定性Agent编排, CLI多智能体调度, 任务流状态机, Agent治理审计"
 version: 3.19.0
 ---
 
@@ -42,5 +42,3 @@ AI Agent 的开源治理层（governance layer）：用纯 Python 确定性调�
 - [references/CHANGELOG.md](references/CHANGELOG.md) — 变更史（按版本明细见上游 release-notes）
 - [references/docs/index.md](references/docs/index.md) — 文档站首页
 - [references/LICENSE](references/LICENSE) — 许可证
-
-> 上游运营/部署、多语言站点、博客与历史 release-notes 未随库分发，需要时访问 [上游仓库](https://github.com/sipyourdrink-ltd/bernstein/tree/v3.19.0/docs)。

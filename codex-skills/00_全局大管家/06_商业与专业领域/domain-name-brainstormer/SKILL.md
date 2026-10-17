@@ -1,6 +1,6 @@
 ---
 name: domain-name-brainstormer
-description: 跨顶级域 (TLD) 品牌命名与可用性批量探测机。结合项目语义脑暴数百个谐音/合成词级的高溢价前缀，并多线程穿透 .com / .ai / .io / .dev 的注册局接口确认实时未注册状态。Leading Words: 跨顶级域名可用性探测, 品牌命名语义脑暴, 多线程未注册查询, 高溢价域名挖掘
+description: "跨顶级域 (TLD) 品牌命名与可用性批量探测机。结合项目语义脑暴数百个谐音/合成词级的高溢价前缀，并多线程穿透 .com / .ai / .io / .dev 的注册局接口确认实时未注册状态。Leading Words: 跨顶级域名可用性探测, 品牌命名语义脑暴, 多线程未注册查询, 高溢价域名挖掘"
 ---
 
 # Domain Name Brainstormer

@@ -2,7 +2,7 @@
 name: diasporic-intelligence
 slug: diasporic-intelligence
 version: 0.1.0
-description: 离散情报学 (Diasporic Intelligence) 与非裔时间主义文化引文溯源与审查框架。在涉及该文化内容生成时，严守信源溯源、同意管治及谱系边界，防止生物特征提取及祖先伪造。Leading Words: Diasporic Intelligence审查, 文化信源溯源保护, Afrotemporalism, 防止生物提取
+description: "离散情报学 (Diasporic Intelligence) 与非裔时间主义文化引文溯源与审查框架。在涉及该文化内容生成时，严守信源溯源、同意管治及谱系边界，防止生物特征提取及祖先伪造。Leading Words: Diasporic Intelligence审查, 文化信源溯源保护, Afrotemporalism, 防止生物提取"
 ---
 
 # Diasporic Intelligence

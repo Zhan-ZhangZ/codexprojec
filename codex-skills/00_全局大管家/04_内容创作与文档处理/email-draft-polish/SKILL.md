@@ -1,6 +1,6 @@
 ---
 name: email-draft-polish
-description: 职场与商业级邮件语料润色起草专家。精细调节冷启动触达（Cold Outreach）、项目状态汇报或危机升级（Escalations）类邮件的语气与长短，确保高信噪比与职场专业度。Leading Words: 商业邮件冷触达起草, 职场危机沟通升维, 语气长短调节, 高信噪比汇报
+description: "职场与商业级邮件语料润色起草专家。精细调节冷启动触达（Cold Outreach）、项目状态汇报或危机升级（Escalations）类邮件的语气与长短，确保高信噪比与职场专业度。Leading Words: 商业邮件冷触达起草, 职场危机沟通升维, 语气长短调节, 高信噪比汇报"
 metadata:
   short-description: Draft or polish emails to fit tone/length
 ---

@@ -1,17 +1,42 @@
 ---
 name: cortex
-description: "API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex"
+description: "API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与
+  MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成,
+  API文档交互, cortex"
 metadata:
-  upstream: "github.com/cortex-docs/cortex"
+  upstream: github.com/cortex-docs/cortex
+  entrypoint: managed-v2
+  entrypoint_kind: application
 ---
 
+<!-- codex-skills-managed-entrypoint:v2 -->
 # cortex
 
-**上游仓库**：<https://github.com/cortex-docs/cortex>
+API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。
 
-API 规范 → 类型化 SDK + 交互文档 + MCP 服务器。monorepo 在 [packages/](packages/)，用法见 [README.md](README.md)。
+## 何时使用
 
-## 集成说明（本库维护）
+适用任务：API 规范上下文服务器。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。
+相关检索词：Cortex、API规范SDK。
 
-- 集成日期：2026-10-10；来源：Agent Skills Hub 热门场景榜单（对应场景实测首选）。
-- 瘦身剔除：e2e/、治理与开发配置；保留 packages/ monorepo 与文档。
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
+
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 从包管理文件和入口代码确认安装、构建、启动命令；优先运行仓库自带脚本，不自行替换成相近工具。
+3. 完成任务后运行该仓库提供的测试、校验或最小可观察流程，并报告未满足的环境条件。
+
+## 本地入口
+
+- `README.md`
+- `package.json`
+
+## 上游
+
+- https://github.com/cortex-docs/cortex
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

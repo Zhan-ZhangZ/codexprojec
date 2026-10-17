@@ -1,6 +1,6 @@
 ---
 name: tradingagents
-description: 机构级 AI 金融投研多智能体协同攻防沙盘 (TradingAgents)。以高度模块化架构解构专业基金工作流：基本面定性、技术面量化、情绪面降噪及风控阻断多 Agent 角色博弈，搭建全真环境下的数字投研编队。Leading Words: 多智能体投研协同沙盘, 机构级量化风控博弈, AI金融交易员矩阵, 基本面与情绪面降噪
+description: "机构级 AI 金融投研多智能体协同攻防沙盘 (TradingAgents)。以高度模块化架构解构专业基金工作流：基本面定性、技术面量化、情绪面降噪及风控阻断多 Agent 角色博弈，搭建全真环境下的数字投研编队。Leading Words: 多智能体投研协同沙盘, 机构级量化风控博弈, AI金融交易员矩阵, 基本面与情绪面降噪"
 version: 0.4.0
 upstream: github.com/TauricResearch/TradingAgents
 ---

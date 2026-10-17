@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-description: Linear / Jira 敏捷看板工单分流清道夫。通过 Composio CLI 在后台批量获取缺陷积压（Bug sweeps）、执行去重、重新打标（Relabel）、指派处理人并生成工单分流汇总报告。Leading Words: Jira工单分流, Linear敏捷看板清理, Bug去重分析, Composio任务指派
+description: "Linear / Jira 敏捷看板工单分流清道夫。通过 Composio CLI 在后台批量获取缺陷积压（Bug sweeps）、执行去重、重新打标（Relabel）、指派处理人并生成工单分流汇总报告。Leading Words: Jira工单分流, Linear敏捷看板清理, Bug去重分析, Composio任务指派"
 metadata:
   short-description: Linear/Jira triage + bug sweeps via the Composio CLI
 ---

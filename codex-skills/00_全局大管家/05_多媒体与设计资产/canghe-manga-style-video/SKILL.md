@@ -1,6 +1,6 @@
 ---
 name: canghe-manga-style-video
-description: 多语境漫画风格视频渲染生成引擎。基于火山引擎 Ark API，支持将提示词或原视频渲染为 8 种专业漫画风格（涵盖日漫、国风水墨、美式漫威卡通等）。Leading Words: 漫画风格视频渲染, 火山引擎Ark集成, 国风水墨转换, 动漫视频生成
+description: "多语境漫画风格视频渲染生成引擎。基于火山引擎 Ark API，支持将提示词或原视频渲染为 8 种专业漫画风格（涵盖日漫、国风水墨、美式漫威卡通等）。Leading Words: 漫画风格视频渲染, 火山引擎Ark集成, 国风水墨转换, 动漫视频生成"
 ---
 
 # 漫画风格视频生成器
@@ -62,7 +62,7 @@ export ARK_API_KEY="your-api-key"
 生成日式治愈风格视频：
 
 ```bash
-cd ~/.openclaw/workspace/skills/manga-style-video
+cd "<技能根目录>"
 python3 scripts/manga_style_video.py "女孩在樱花树下读书"
 ```
 
@@ -254,9 +254,8 @@ wait
 
 ### 自定义风格组合
 
-如果想要特定的混合风格，可以直接使用 `seedance-video-generation` 技能，手动编写提示词。
+如果想要特定的混合风格，可以在本工具生成的提示词基础上手工调整；本包不包含其他视频生成技能。
 
 ## 参考文档
 
-- [Seedance 视频生成](../seedance-video-generation-1.0.3/SKILL.md)
 - [火山方舟文档](https://www.volcengine.com/docs/82379)

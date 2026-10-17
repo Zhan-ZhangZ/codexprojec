@@ -1,6 +1,6 @@
 ---
 name: hyperframes
-description: 高阶线框图（Wireframe）与极简视觉框架生成引擎。专为产品早起脑暴与交互探讨而生，以极具克制力的高反差黑白灰和工业感线条，极速出图，直击核心需求逻辑。Leading Words: 工业级高反差线框图, 产品早期交互脑暴, 极简克制风视觉推演
+description: "高阶线框图（Wireframe）与极简视觉框架生成引擎。专为产品早起脑暴与交互探讨而生，以极具克制力的高反差黑白灰和工业感线条，极速出图，直击核心需求逻辑。Leading Words: 工业级高反差线框图, 产品早期交互脑暴, 极简克制风视觉推演"
 metadata:
     upstream: github.com/heygen-com/hyperframes
     version: v0.8.25

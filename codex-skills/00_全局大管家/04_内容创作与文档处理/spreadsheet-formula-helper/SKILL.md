@@ -1,6 +1,6 @@
 ---
 name: spreadsheet-formula-helper
-description: 极客级电子表格函数大师与跨方言调试专家。精通 Excel 与 Google Sheets 之间的公式翻译。自动编写嵌套数组公式、复杂数据透视表规则，并生成带边界用例（Edge-case checks）的数据验证测试台。Leading Words: 嵌套数组公式调试, 复杂数据透视表, Excel与Sheets方言翻译, 表格边界用例测试
+description: "极客级电子表格函数大师与跨方言调试专家。精通 Excel 与 Google Sheets 之间的公式翻译。自动编写嵌套数组公式、复杂数据透视表规则，并生成带边界用例（Edge-case checks）的数据验证测试台。Leading Words: 嵌套数组公式调试, 复杂数据透视表, Excel与Sheets方言翻译, 表格边界用例测试"
 metadata:
   short-description: Build/debug Excel or Sheets formulas
 ---

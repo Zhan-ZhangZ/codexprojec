@@ -1,6 +1,6 @@
 ---
 name: academic-mcp
-description: 19+ 全球顶尖学术论文库统一联邦检索与解析网关 (MCP)。跨越数据库壁垒，一键聚合 arXiv、IEEE Xplore、PubMed 等巨头。支持极速跨源论文搜寻、高维元数据解析及 PDF 强制脱壳阅读，扫平文献综述第一公里。Leading Words: 19+学术库联邦检索, 跨源论文元数据解析, IEEE/PubMed/arXiv聚合, PDF强制脱壳阅读
+description: "19+ 全球顶尖学术论文库统一联邦检索与解析网关 (MCP)。跨越数据库壁垒，一键聚合 arXiv、IEEE Xplore、PubMed 等巨头。支持极速跨源论文搜寻、高维元数据解析及 PDF 强制脱壳阅读，扫平文献综述第一公里。Leading Words: 19+学术库联邦检索, 跨源论文元数据解析, IEEE/PubMed/arXiv聚合, PDF强制脱壳阅读"
 ---
 
 # Academic MCP — 多源学术论文检索/下载/阅读

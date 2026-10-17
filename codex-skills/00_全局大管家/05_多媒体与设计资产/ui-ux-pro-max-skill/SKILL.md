@@ -1,6 +1,6 @@
 ---
 name: ui-ux-pro-max-skill
-description: Pro Max 级现代 UI/UX 工业设计系统与美学法则宪章。内含数百条原子化 (Atomic Design) 交互审查原则，强制规范大模型产出 Tailwind/CSS 时的间距、色彩与排版，并植入用户心智模型与无障碍 (a11y) 规范。Leading Words: UI/UX工业设计系统审查, AtomicDesign美学法则, a11y无障碍交互排版, Tailwind/CSS间距色彩强制规范
+description: "Pro Max 级现代 UI/UX 工业设计系统与美学法则宪章。内含数百条原子化 (Atomic Design) 交互审查原则，强制规范大模型产出 Tailwind/CSS 时的间距、色彩与排版，并植入用户心智模型与无障碍 (a11y) 规范。Leading Words: UI/UX工业设计系统审查, AtomicDesign美学法则, a11y无障碍交互排版, Tailwind/CSS间距色彩强制规范"
 version: 2.13.0
 ---
 
@@ -28,10 +28,9 @@ version: 2.13.0
 - 版本口径：skill.json（技能内容）2.13.0；tag 序列（v2.15.0）跟踪 CLI 发布，两者独立
 - 完整历史见 [README.md](README.md)「What's New」与 [docs/journals/](docs/journals/)
 
-## 参考文档索引
+## 使用参考
 
-- [CLAUDE.md](CLAUDE.md) — 上游开发约定（模块图/数据同步链路）
-- [scripts/](scripts/) — 数据维护脚本（CSV 校验、目录汇总、字体/图标刷新）
-- [screenshots/](screenshots/) — 效果截图；[skill.json](skill.json)、[LICENSE](LICENSE)、[SECURITY.md](SECURITY.md)、[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)、[CONTRIBUTING.md](CONTRIBUTING.md)
-
-> 上游为 npm `ui-ux-pro-max-cli` + 技能包双形态分发；`cli/`（npm 源码，assets 与 src/ 逐字节重复）、`stack/`（Claude Website Design Stack 独立子项目）、`gallery/`（Next.js 演示站）、`projects/`、`preview/` 未随库分发，需要时访问 [上游仓库](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/tree/58c220f)。
+- [README.zh.md](README.zh.md) — 中文安装与用法说明
+- [src/ui-ux-pro-max/](src/ui-ux-pro-max/) — 检索数据、脚本和模板
+- [screenshots/](screenshots/) — 效果截图
+- [skill.json](skill.json) / [LICENSE](LICENSE) — 技能元数据与许可证

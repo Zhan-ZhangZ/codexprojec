@@ -1,6 +1,6 @@
 ---
 name: slack-gif-creator
-description: 面向企业 Slack 团队沟通的企业级表情包与 GIF 动态图生成器。内置严格的体积与尺寸验证器，以代码或文字组合生成搞怪、夸张的动效短片，极大提升团队破冰与沟通乐趣。Leading Words: Slack动图生成, 企业表情包自动化, 搞怪动效渲染
+description: "面向企业 Slack 团队沟通的企业级表情包与 GIF 动态图生成器。内置严格的体积与尺寸验证器，以代码或文字组合生成搞怪、夸张的动效短片，极大提升团队破冰与沟通乐趣。Leading Words: Slack动图生成, 企业表情包自动化, 搞怪动效渲染"
 license: Complete terms in LICENSE.txt
 ---
 

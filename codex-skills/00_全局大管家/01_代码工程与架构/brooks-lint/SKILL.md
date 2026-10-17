@@ -1,6 +1,6 @@
 ---
 name: brooks-lint
-description: 深度的架构与代码防退化审查工具（Linter）。融合六大软件工程经典名著理念，用于发起重量级的 PR 评审（Code Review）、架构坏味道诊断（Architecture Audit）、技术债评估与单元测试质量审查。当需要对关键组件进行严格的重构或质量把控时调用。Leading Words: 深度代码审查, PR Review, 架构退化审计, 技术债评估, 测试用例质量, 软件工程规范
+description: "深度的架构与代码防退化审查工具（Linter）。融合六大软件工程经典名著理念，用于发起重量级的 PR 评审（Code Review）、架构坏味道诊断（Architecture Audit）、技术债评估与单元测试质量审查。当需要对关键组件进行严格的重构或质量把控时调用。Leading Words: 深度代码审查, PR Review, 架构退化审计, 技术债评估, 测试用例质量, 软件工程规范"
 metadata:
   version: "1.5.0"
   upstream: github.com/hyhmrright/brooks-lint

@@ -1,6 +1,6 @@
 ---
 name: notion-knowledge-capture
-description: Notion 会话级知识沉淀器。将零散的聊天记录或头脑风暴草稿，自动转化为具备良好双向链接（Bi-directional linking）、结构清晰的 Notion Wiki 百科词条、SOP 教程或 FAQ。Leading Words: Notion双链Wiki沉淀, 聊天碎片化梳理, SOP流程文档化, 知识库捕获
+description: "Notion 会话级知识沉淀器。将零散的聊天记录或头脑风暴草稿，自动转化为具备良好双向链接（Bi-directional linking）、结构清晰的 Notion Wiki 百科词条、SOP 教程或 FAQ。Leading Words: Notion双链Wiki沉淀, 聊天碎片化梳理, SOP流程文档化, 知识库捕获"
 metadata:
   short-description: Capture conversations into structured Notion pages
 ---

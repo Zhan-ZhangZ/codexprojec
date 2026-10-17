@@ -1,6 +1,6 @@
 ---
 name: developer-growth-analysis
-description: 全天候 IDE 会话数据穿透式开发者成长教练。深度分析你在 Codex 中的历史对话与报错日志，精准定位技术栈短板与思维盲区，跨端爬取 HackerNews 资料库并自动投递至 Slack。Leading Words: 开发者成长图谱分析, 代码报错盲区定位, HackerNews资料爬取, Slack自动化报告
+description: "全天候 IDE 会话数据穿透式开发者成长教练。深度分析你在 Codex 中的历史对话与报错日志，精准定位技术栈短板与思维盲区，跨端爬取 HackerNews 资料库并自动投递至 Slack。Leading Words: 开发者成长图谱分析, 代码报错盲区定位, HackerNews资料爬取, Slack自动化报告"
 ---
 
 # Developer Growth Analysis

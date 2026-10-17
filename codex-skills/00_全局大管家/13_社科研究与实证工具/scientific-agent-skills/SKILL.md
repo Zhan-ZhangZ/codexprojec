@@ -1,11 +1,13 @@
 ---
 name: Scientific Agent Skills
-description: 这是一个极其庞大的开源领域技能库，旨在将通用 AI 助手转变为“AI 科学家”。包含超过 170 个专门针对跨学科科研（生物、化学、医学、物理等）的子技能。
+description: "跨学科科研 Agent Skills 集合，收录 163 个子技能，覆盖生物、化学、医学、物理、地球科学、材料、数据分析和科学绘图。"
 version: 2.65.0
+metadata:
+  upstream: github.com/K-Dense-AI/scientific-agent-skills
 ---
 # Scientific Agent Skills
 
-这是一个专为科学研究领域构建的巨型开源大管家 / 代理工具集，当前收录 **163 个**针对跨学科科研（生物、化学、医学、物理、地球科学、材料等）的子技能。
+这是一套跨学科科研 Agent Skills，当前收录 **163 个**子技能，覆盖生物、化学、医学、物理、地球科学、材料、数据分析和科学绘图。
 
 ## 使用方法
 
@@ -22,7 +24,8 @@ version: 2.65.0
 - [README.md](README.md) — 上游总说明（安装/技能目录）
 - [docs/skills.md](docs/skills.md) — 全部技能清单与说明
 - [docs/examples.md](docs/examples.md) — 用例；[docs/security-report.md](docs/security-report.md) 安全审计
-- [AGENTS.md](AGENTS.md)、[CLAUDE.md](CLAUDE.md) — 上游代理协作约定
-- [plugin.json](plugin.json)、[pyproject.toml](pyproject.toml)、[LICENSE.md](LICENSE.md)、[SECURITY.md](SECURITY.md)、[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [plugin.json](plugin.json)、[pyproject.toml](pyproject.toml)、[LICENSE.md](LICENSE.md) — 技能清单、运行依赖与许可证
 
-> 上游 `docs/images/`（215M 技能截图集）、`tests/`（2.6M）、`.github/` CI 未随库分发（截图走 GitHub 链接，测试引用已改写为 v2.65.0 tag 链接），需要时访问 [上游仓库](https://github.com/K-Dense-AI/scientific-agent-skills/tree/v2.65.0)。
+## 上游
+
+- https://github.com/K-Dense-AI/scientific-agent-skills

@@ -203,7 +203,7 @@ When working on a specific pattern, **read `references/patterns.md` and jump to 
 
 ## Deterministic detection
 
-**Resolve the detector path first** - `scripts/detect.py` is bundled in the skill directory, not the user's project, so a bare relative path will not resolve. Set `DETECT` once: as a plugin, `$CLAUDE_PLUGIN_ROOT/scripts/detect.py`; as a cloned skill, Glob `**/sloptrim/scripts/detect.py` (usually `~/.claude/skills/sloptrim/scripts/detect.py`). Then run it before manual review:
+**Resolve the detector path first** - `scripts/detect.py` is bundled in the skill directory, not the user's project, so a bare relative path will not resolve. Set `DETECT` to the absolute path of this skill's `scripts/detect.py`, then run it before manual review:
 
 ```bash
 python "$DETECT" input.txt        # pass a path (works on all shells)

@@ -1,6 +1,6 @@
 ---
 name: dbskill
-description: 中文自媒体爆款选题与标题诊断剖析专家。专精于小红书标题、商业短图文表达、开篇 Hook 设计及爆款对标拆解。Leading Words: 自媒体爆款拆解, 小红书标题诊断, 商业内容表达, 流量选题剖析
+description: "中文自媒体爆款选题与标题诊断剖析专家。专精于小红书标题、商业短图文表达、开篇 Hook 设计及爆款对标拆解。Leading Words: 自媒体爆款拆解, 小红书标题诊断, 商业内容表达, 流量选题剖析"
 version: 2.18.39
 ---
 
@@ -44,5 +44,3 @@ version: 2.18.39
 - Windows 安装改用目录 Junction，避免多端 Skill 被复制成多个实体目录
 - 自 v2.14.2 以来的主要增量：`dbs-video-extract`（TikHub 数据提取）、`dbs-content-risk-check`（发布前风控）、`dbs-standard-answer`（理论锚点）、`dbs-content-system`（内容资产工程）、知识原子 3,071→4,176、正式 Skill 21→31
 - 完整历史见 [UPDATE.json](UPDATE.json) 与 [GitHub Releases](https://github.com/dontbesilent2025/dbskill/releases)
-
-> 上游按「整仓即插件」分发（`.claude-plugin/` 市场清单）；仓库根的 CI（`.github/`）、构建与测试（`tools/`、`scripts/`）、`site/` 落地页、8.5M 推文集 PDF 未随库分发（PDF 与 Markdown 版内容重复），需要时访问 [上游仓库](https://github.com/dontbesilent2025/dbskill)。

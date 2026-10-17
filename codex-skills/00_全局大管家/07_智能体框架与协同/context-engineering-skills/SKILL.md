@@ -1,6 +1,6 @@
 ---
 name: context-engineering-collection
-description: 工业级上下文工程 (Context Engineering) 与多智能体架构脚手架集。专攻生产环境 Agent 系统的底层通讯建设。提供针对 Context 管理、循环收敛、评测调试以及复杂 Harness 注入的标准范式与工具链。Leading Words: 上下文工程Context优化, 多智能体架构脚手架, 生产级Agent通讯建设, Harness注入测试范式
+description: "工业级上下文工程 (Context Engineering) 与多智能体架构脚手架集。专攻生产环境 Agent 系统的底层通讯建设。提供针对 Context 管理、循环收敛、评测调试以及复杂 Harness 注入的标准范式与工具链。Leading Words: 上下文工程Context优化, 多智能体架构脚手架, 生产级Agent通讯建设, Harness注入测试范式"
 ---
 
 # Agent Skills for Context Engineering（上下文工程技能集）

@@ -1,6 +1,6 @@
 ---
 name: xiaohongshu-mcp
-description: 小红书平台 MCP Server（Go 实现）。通过 go-rod 浏览器自动化提供 18 项 MCP 工具：扫码登录、图文/视频发布（定时/原创声明/可见范围/带货商品）、Feed 推荐流、关键词搜索（排序/类型/时间筛选）、笔记详情与评论抓取、评论/回复发送、点赞/收藏、用户主页获取、通知中心（未读数/列表/回复/点赞）。支持 Docker / 二进制 / 浏览器插件三种部署方式，v2.5.0 起支持 AUTH_TOKEN 访问鉴权。Leading Words: 小红书MCP服务, 图文视频自动发布, Feed搜索与评论抓取, go-rod浏览器自动化
+description: "小红书平台 MCP Server（Go 实现）。通过 go-rod 浏览器自动化提供 18 项 MCP 工具：扫码登录、图文/视频发布（定时/原创声明/可见范围/带货商品）、Feed 推荐流、关键词搜索（排序/类型/时间筛选）、笔记详情与评论抓取、评论/回复发送、点赞/收藏、用户主页获取、通知中心（未读数/列表/回复/点赞）。支持 Docker / 二进制 / 浏览器插件三种部署方式，v2.5.0 起支持 AUTH_TOKEN 访问鉴权。Leading Words: 小红书MCP服务, 图文视频自动发布, Feed搜索与评论抓取, go-rod浏览器自动化"
 version: 2.5.0
 metadata:
     upstream: github.com/xpzouying/xiaohongshu-mcp
@@ -10,7 +10,7 @@ metadata:
 
 小红书平台 MCP Server（Go 实现，上游 v2.5.0）。基于 go-rod 浏览器自动化，为 AI 助手提供直接访问小红书数据和操作的能力。本技能为**文档层**：工具本体通过 Docker 镜像或 GitHub Releases 预编译二进制分发，本地只保留使用文档与部署配置，不含上游 Go 源码。
 
-> **使用前必读**：请先 `view_file` 阅读本项目的 [README.md](README.md)，获取完整的部署方式（Docker / 二进制 / 浏览器插件）和各客户端配置说明。
+> **使用前必读**：请先阅读本项目的 [README.md](README.md)，获取完整的部署方式（Docker / 二进制 / 浏览器插件）和各客户端配置说明。
 
 ## 核心法则
 
@@ -99,7 +99,6 @@ metadata:
 | [deploy/macos/readme.md](deploy/macos/readme.md) | macOS launchd 后台常驻配置 |
 | [skills/post-to-xhs/SKILL.md](skills/post-to-xhs/SKILL.md) | 子技能：本地 CDP 发布管线 |
 
-> 上游演示视频/第三方平台集成教程（n8n、CherryStudio、AnythingLLM 等）未随包分发，需要时到 GitHub 仓库查看（README 内已给出定 tag 链接）。
 
 ## 异常处理
 

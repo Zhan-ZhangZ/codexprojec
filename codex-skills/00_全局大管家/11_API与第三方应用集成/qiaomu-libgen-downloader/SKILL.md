@@ -11,18 +11,18 @@ description: 从 LibGen.li 搜索和下载电子书。Use when user wants to dow
 
 ```bash
 # 搜索并下载（自动选第一个可用结果）
-python3 ~/.claude/skills/qiaomu-libgen-downloader/scripts/download.py "书名 作者" -o ~/Downloads/
+python3 scripts/download.py "书名 作者" -o ~/Downloads/
 
 # 只搜索不下载
-python3 ~/.claude/skills/qiaomu-libgen-downloader/scripts/download.py "书名" --list
+python3 scripts/download.py "书名" --list
 
 # 指定输出目录
-python3 ~/.claude/skills/qiaomu-libgen-downloader/scripts/download.py "Structures J.E. Gordon" -o ~/Books/
+python3 scripts/download.py "Structures J.E. Gordon" -o ~/Books/
 ```
 
 ## 脚本路径
 
-`~/.claude/skills/qiaomu-libgen-downloader/scripts/download.py`
+本技能目录下的 `scripts/download.py`；命令应在技能根目录运行。
 
 ## 工作原理
 

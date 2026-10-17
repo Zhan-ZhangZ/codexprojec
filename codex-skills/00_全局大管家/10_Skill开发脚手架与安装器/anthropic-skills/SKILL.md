@@ -1,6 +1,6 @@
 ---
 name: anthropic-official-skills
-description: Anthropic 官方金牌原厂 Agent Skills 开发骨架模板 (Boilerplate)。全方位剖析官方对于意图解析、安全护栏构建与 LLM 提示词工程的最佳实践 (Best Practices)。供开发者克隆并低成本复刻至个人专属业务流。Leading Words: Anthropic原厂Skills模板, 官方大模型最佳实践开发, 安全护栏与提示词脚手架, 低成本复刻专属业务流
+description: "Anthropic 官方金牌原厂 Agent Skills 开发骨架模板 (Boilerplate)。全方位剖析官方对于意图解析、安全护栏构建与 LLM 提示词工程的最佳实践 (Best Practices)。供开发者克隆并低成本复刻至个人专属业务流。Leading Words: Anthropic原厂Skills模板, 官方大模型最佳实践开发, 安全护栏与提示词脚手架, 低成本复刻专属业务流"
 ---
 
 # Anthropic Official Skills

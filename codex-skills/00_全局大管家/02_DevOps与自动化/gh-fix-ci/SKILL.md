@@ -1,6 +1,6 @@
 ---
 name: gh-fix-ci
-description: 基于 GitHub CLI 的 CI 修复专家。自动拉取失败的 GitHub Actions 运行日志，总结报错上下文，生成修复计划并在授权后直接将修复代码提交至远程 PR。Leading Words: GitHub Actions排错, CI流水线修复, 自动提取错误日志, PR热修复补丁
+description: "基于 GitHub CLI 的 CI 修复专家。自动拉取失败的 GitHub Actions 运行日志，总结报错上下文，生成修复计划并在授权后直接将修复代码提交至远程 PR。Leading Words: GitHub Actions排错, CI流水线修复, 自动提取错误日志, PR热修复补丁"
 metadata:
   short-description: Fix failing Github CI actions
 ---

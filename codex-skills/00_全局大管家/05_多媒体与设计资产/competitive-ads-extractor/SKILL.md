@@ -1,6 +1,6 @@
 ---
 name: competitive-ads-extractor
-description: 竞品投放广告库爬取与转化漏斗分析器。穿透 Facebook / LinkedIn Ad Libraries，自动提炼竞品的营销核心诉求、痛点话术和创意素材模板，用于反向推演并优化己方广告转化（ROAS）。Leading Words: 竞品广告库提取, FB广告投放拆解, 营销转化漏斗分析, 痛点话术提炼
+description: "竞品投放广告库爬取与转化漏斗分析器。穿透 Facebook / LinkedIn Ad Libraries，自动提炼竞品的营销核心诉求、痛点话术和创意素材模板，用于反向推演并优化己方广告转化（ROAS）。Leading Words: 竞品广告库提取, FB广告投放拆解, 营销转化漏斗分析, 痛点话术提炼"
 ---
 
 # Competitive Ads Extractor

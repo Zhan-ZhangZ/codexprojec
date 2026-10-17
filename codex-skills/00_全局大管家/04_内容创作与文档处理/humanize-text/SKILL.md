@@ -1,6 +1,6 @@
 ---
 name: humanize-text
-description: "[已冻结 2026-10-10：需双付费 key 且仅输出英文；新集成 sloptrim/slop-guard/anti-slop 同类技能，该技能效果不佳，冻结后清退；替代 stop-slop/unslop] AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除"
+description: "英文文本改写管线。通过多轮 LLM 重写和多引擎翻译降低模板化结构与生成器指纹，同时保留原文风格；需要 DeepSeek 与 Niutrans 凭据。"
 metadata:
   version: 1.5.2
   upstream: github.com/lynote-ai/humanize-text
@@ -8,7 +8,13 @@ metadata:
 
 # humanize-text
 
-Python 文本去 AI 化管线（v1.5.2，MIT）。执行前**先读 [README.md](README.md)** 获取完整安装与配置说明，配置参考 [docs/configuration.md](docs/configuration.md)，管线原理见 [docs/pipeline.md](docs/pipeline.md)。
+Python 英文文本改写管线（v1.5.2，MIT）。执行前**先读 [README.md](README.md)** 获取完整安装与配置说明，配置参考 [docs/configuration.md](docs/configuration.md)，管线原理见 [docs/pipeline.md](docs/pipeline.md)。
+
+## 使用边界
+
+- 标准管线输入与最终输出以英文为主，需要 DeepSeek 和 Niutrans 的付费凭据。
+- 检测器分数只是概率信号，不保证改写结果被任何第三方系统判定为人工写作。
+- 任务要求中文文本改写时，优先选择本库的 `stop-slop`、`unslop`、`anti-slop` 或 `Humanizer-zh`。
 
 ## 两条能力线
 

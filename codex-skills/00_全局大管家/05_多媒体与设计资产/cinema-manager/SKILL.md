@@ -1,6 +1,6 @@
 ---
 name: cinema-manager
-description: 私人 NAS 影音媒体库刮削整理大管家。全自动排查本地或网盘影视资源，支持根据分辨率/音轨多维筛选、通过夸克网盘转存，并严格按照 Plex/Infuse 媒体库标准执行刮削重命名。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存
+description: "私人 NAS 影音库管理与片源整理工具。从多来源检索影视资源，按分辨率、编码、HDR 和音轨筛选，转存到夸克网盘，并按 Plex/Infuse 规范整理本地媒体库。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存"
 ---
 
 # Cinema Manager 🎬

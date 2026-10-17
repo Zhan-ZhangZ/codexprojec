@@ -1,6 +1,6 @@
 ---
 name: pr-review-ci-fix
-description: 跨平台自动 PR 评审与 CI 修复闭环工具。利用 Composio CLI 兼容 GitHub 与 GitLab。拉取 Diff、捕获失败流水线日志、自动发布 Review 评论，并通过自回归提交（Loop fix commits）直至所有 CI 状态变绿。Leading Words: Github/Gitlab兼容, 自动PR评审, CI失败闭环修复, 自回归代码修复
+description: "跨平台自动 PR 评审与 CI 修复闭环工具。利用 Composio CLI 兼容 GitHub 与 GitLab。拉取 Diff、捕获失败流水线日志、自动发布 Review 评论，并通过自回归提交（Loop fix commits）直至所有 CI 状态变绿。Leading Words: Github/Gitlab兼容, 自动PR评审, CI失败闭环修复, 自回归代码修复"
 metadata:
   short-description: Automated PR review + CI auto-fix across GitHub/GitLab
 ---

@@ -1,6 +1,6 @@
 ---
 name: guizang-ppt-skill
-description: 顶级网页级 HTML 交互幻灯片生成架构师。专精渲染横向滚动、带 WebGL 流体背景的单文件网页 PPT。提供极具视觉冲击力的「电子杂志风」与「瑞士国际主义（Swiss Style）」双主题，彻底颠覆传统 PPT 体验。Leading Words: 单文件网页PPT, WebGL流体背景, Swiss Style瑞士国际风格, 杂志风幻灯片排版
+description: "顶级网页级 HTML 交互幻灯片生成架构师。专精渲染横向滚动、带 WebGL 流体背景的单文件网页 PPT。提供极具视觉冲击力的「电子杂志风」与「瑞士国际主义（Swiss Style）」双主题，彻底颠覆传统 PPT 体验。Leading Words: 单文件网页PPT, WebGL流体背景, Swiss Style瑞士国际风格, 杂志风幻灯片排版"
 ---
 
 # Magazine Web Ppt

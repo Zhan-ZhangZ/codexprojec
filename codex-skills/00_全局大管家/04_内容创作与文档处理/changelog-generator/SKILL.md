@@ -1,6 +1,6 @@
 ---
 name: changelog-generator
-description: 面向用户的 Git 更新日志 (Changelog) 自动化提炼翻译器。分析生硬枯燥的代码 Commit History，按新特性、修复等分类，转化为极具人类可读性、高大上的 Release Notes 发布公告。Leading Words: 自动化Changelog生成, Commit历史翻译, 客户友好型发布公告, Git Release Notes
+description: "面向用户的 Git 更新日志 (Changelog) 自动化提炼翻译器。分析生硬枯燥的代码 Commit History，按新特性、修复等分类，转化为极具人类可读性、高大上的 Release Notes 发布公告。Leading Words: 自动化Changelog生成, Commit历史翻译, 客户友好型发布公告, Git Release Notes"
 ---
 
 # Changelog Generator

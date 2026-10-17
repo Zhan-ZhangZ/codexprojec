@@ -1,6 +1,6 @@
 ---
 name: serenity-skill
-description: Serenity 范式硬核产业链瓶颈与卡脖子节点狩猎器。将投资智能体转化为极度理性的研究员。专攻 A股/港股/美股 AI 及半导体硬科技赛道的价值链图谱拆解。执行基于证据链的深度调研与逻辑压力测试。无交易功能，纯投研支撑。Leading Words: Serenity产业链研究, 半导体卡点瓶颈狩猎, 价值链图谱拆解, 投资逻辑压力测试
+description: "Serenity 范式硬核产业链瓶颈与卡脖子节点狩猎器。将投资智能体转化为极度理性的研究员。专攻 A股/港股/美股 AI 及半导体硬科技赛道的价值链图谱拆解。执行基于证据链的深度调研与逻辑压力测试。无交易功能，纯投研支撑。Leading Words: Serenity产业链研究, 半导体卡点瓶颈狩猎, 价值链图谱拆解, 投资逻辑压力测试"
 license: MIT
 compatibility: Agent Skills-compatible clients. Best with web/search, market-data, filing, browser, and optional python3 access. Bundled scripts are local-only.
 metadata:

@@ -1,13 +1,13 @@
 ---
 name: theme-factory
-description: 全能型 UI 主题与调色板构建工坊。内嵌数十种现代前沿设计风格（如玻璃拟物化、赛博朋克、极简瑞士风），自动为各类报告、HTML 落地页、组件库推演计算出具有高级美感的色阶与排版参数。Leading Words: 现代UI调色板推演, 设计系统主题切换, 玻璃拟物化CSS, 极简高雅配色
+description: "全能型 UI 主题与调色板构建工坊。内嵌数十种现代前沿设计风格（如玻璃拟物化、赛博朋克、极简瑞士风），自动为各类报告、HTML 落地页、组件库推演计算出具有高级美感的色阶与排版参数。Leading Words: 现代UI调色板推演, 设计系统主题切换, 玻璃拟物化CSS, 极简高雅配色"
 license: Complete terms in LICENSE.txt
 ---
 
 
 # Theme Factory Skill
 
-This skill provides a curated collection of professional font and color themes themes, each with carefully selected color palettes and font pairings. Once a theme is chosen, it can be applied to any artifact.
+This skill provides a curated collection of professional font and color themes, each with carefully selected color palettes and font pairings. Once a theme is chosen, it can be applied to any artifact.
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 ---
 name: connect-apps
-description: Composio App 自动化多端执行管家。基于 CLI 后台接口授权模型横向操控超过 1000 款云端应用。专门应对跨应用复杂编排场景（例如：Notion 监控变更 -> GitHub 抛出 Issue -> Slack 警报触达的全链路自动化）。Leading Words: 跨云应用复杂全链路编排, Composio后台授权接入, Notion/GitHub/Slack联动, 多端SaaS事件触发
+description: "Composio App 自动化多端执行管家。基于 CLI 后台接口授权模型横向操控超过 1000 款云端应用。专门应对跨应用复杂编排场景（例如：Notion 监控变更 -> GitHub 抛出 Issue -> Slack 警报触达的全链路自动化）。Leading Words: 跨云应用复杂全链路编排, Composio后台授权接入, Notion/GitHub/Slack联动, 多端SaaS事件触发"
 ---
 
 # Connect Apps

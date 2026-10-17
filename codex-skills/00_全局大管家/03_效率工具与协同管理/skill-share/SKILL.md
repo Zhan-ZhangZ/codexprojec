@@ -1,6 +1,6 @@
 ---
 name: skill-share
-description: Agent 技能创建与 Slack 自动分发广播器。自动将你在本地新编写的 Claude 技能打包，并通过 Rube 协议一键推送到企业 Slack 频道中共享，实现团队协作与技能发现发现。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享
+description: "Agent 技能创建与 Slack 自动分发广播器。把本地新编写的 Claude 技能校验、打包，并通过 Rube 推送到团队 Slack 频道。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享"
 license: Complete terms in LICENSE.txt
 ---
 
@@ -13,8 +13,7 @@ Use this skill when you need to:
 - **Validate skill structure** before sharing
 - **Package and distribute** skills to your team
 
-Also use this skill when:
-- **User says he wants to create/share his skill** 
+Also use this skill when the user wants to create or share a skill with the team.
 
 This skill is ideal for:
 - Creating skills as part of team workflows

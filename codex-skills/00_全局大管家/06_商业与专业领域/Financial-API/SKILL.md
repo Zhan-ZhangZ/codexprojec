@@ -1,6 +1,6 @@
 ---
 name: Financial-API
-description: 同花顺官方 A股金融数据服务，提供股票实时行情、历史行情、财务报表、指数、板块、涨停等数据，支持 API、MCP、CLI 和 Python SDK。适用于 AI Agent、量化研究和应用开发。Leading Words: 同花顺A股数据, 实时行情查询, 财务报表API, MCP金融数据, 量化研究数据源
+description: "同花顺官方 A股金融数据服务，提供股票实时行情、历史行情、财务报表、指数、板块、涨停等数据，支持 API、MCP、CLI 和 Python SDK。适用于 AI Agent、量化研究和应用开发。Leading Words: 同花顺A股数据, 实时行情查询, 财务报表API, MCP金融数据, 量化研究数据源"
 version: 0.1.7
 ---
 

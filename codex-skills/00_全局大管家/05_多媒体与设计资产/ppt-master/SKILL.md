@@ -1,6 +1,6 @@
 ---
 name: ppt-master
-description: 企业级沉浸式商业 PPT 大师。不只做版式堆砌，而是构建以商业画布、SWOT、增长漏斗为底层骨架的重型幻灯片。强视觉冲击与深商业逻辑完美融合。Leading Words: 重型商业PPT构建, 漏斗模型排版可视化, 沉浸式宣发幻灯片
+description: "企业级沉浸式商业 PPT 大师。不只做版式堆砌，而是构建以商业画布、SWOT、增长漏斗为底层骨架的重型幻灯片。强视觉冲击与深商业逻辑完美融合。Leading Words: 重型商业PPT构建, 漏斗模型排版可视化, 沉浸式宣发幻灯片"
 ---
 
 # ppt-master
@@ -21,5 +21,3 @@ description: 企业级沉浸式商业 PPT 大师。不只做版式堆砌，而�
 - [README.md](README.md) — 上游总说明（主题预览、快速开始、导出流程）
 - [skills/dashi-ppt/SKILL.md](skills/dashi-ppt/SKILL.md) — 技能本体（生成原则、风格选择规则、媒体工作流、14 步工作流）
 - 渲染入口 `skills/dashi-ppt/scripts/render_goal_deck.sh`（macOS/Linux）与 `render_goal_deck.ps1`（Windows PowerShell）
-
-> 上游 `npm-dist/`（npm 分发安装脚本）与 `.github/`（issue 模板）未随库分发；`check_latest_version.mjs` 会静默查询 npm registry 提示新版本。当前集成版本 v0.4.11（2026-07-30）。

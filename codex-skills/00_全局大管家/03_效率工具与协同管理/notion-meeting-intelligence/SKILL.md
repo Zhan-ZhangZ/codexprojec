@@ -1,6 +1,6 @@
 ---
 name: notion-meeting-intelligence
-description: Notion 智能会议管家。提取 Notion 上下文并进行前置调研，自动起草会议议程、会前必读材料，并根据参会者量身定制沟通策略。Leading Words: Notion会议助手, 自动起草议程, 会前调研材料, 会议上下文检索
+description: "Notion 智能会议管家。提取 Notion 上下文并进行前置调研，自动起草会议议程、会前必读材料，并根据参会者量身定制沟通策略。Leading Words: Notion会议助手, 自动起草议程, 会前调研材料, 会议上下文检索"
 metadata:
   short-description: Prep meetings with Notion context and tailored agendas
 ---

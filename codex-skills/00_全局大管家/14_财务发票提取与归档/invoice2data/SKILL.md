@@ -1,6 +1,6 @@
 ---
 name: invoice2data
-description: 基于正则模板与高精 OCR 的工业级发票收据提取、分类与归档中枢 (invoice2data)。以轻量化的规则引擎覆盖主流报销单据，实现 PDF/图像层自动化切片提取，提供无缝对接企业 ERP 系统的高效通道。Leading Words: 工业级规则发票提取, 高精OCR报销单据切片, PDF账单自动化归类中枢, 企业ERP无缝对接通道
+description: "基于正则模板与高精 OCR 的工业级发票收据提取、分类与归档中枢 (invoice2data)。以轻量化的规则引擎覆盖主流报销单据，实现 PDF/图像层自动化切片提取，提供无缝对接企业 ERP 系统的高效通道。Leading Words: 工业级规则发票提取, 高精OCR报销单据切片, PDF账单自动化归类中枢, 企业ERP无缝对接通道"
 metadata:
   upstream: github.com/invoice-x/invoice2data
   version: "1.0.1"
@@ -11,7 +11,7 @@ metadata:
 发票 PDF/图片 → 结构化数据（JSON/CSV/XML）的模板驱动提取工具。上游以 PyPI 发行（`pip install invoice2data`），本技能本地只保留**文档层 + 内置发票模板库**；运行时一律通过 pip 安装上游发行版。
 
 ## 1. 核心法则 (Golden Rules)
-- **了解指令**：执行任何提取/归档操作前，先用 `view_file` 阅读本目录 `README.md` 掌握权威用法；CLI 全参数见 `docs/usage.md`。
+- **了解指令**：执行任何提取/归档操作前，先阅读本目录 `README.md` 掌握权威用法；CLI 全参数见 `docs/usage.md`。
 - **不污染原文件**：重命名与归档操作使用 `--copy`（或先复制），确保原始发票可回滚。
 - **模板匹配优先**：优先依赖内置/自定义 YAML 模板匹配；无匹配时先用模板生成器起草（`--new-template`），最后才考虑 AI 回退（`--ai-fallback`）。
 - **本地无源码**：本目录不含 Python 源码（src/tests 已剔除），不要尝试在本目录内直接 `import invoice2data` 运行开发版；先 `pip install invoice2data`。

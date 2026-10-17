@@ -1,6 +1,6 @@
 ---
 name: google-scholar-mcp
-description: Google Scholar 纯净联邦检索引擎与 H-index 学者追踪器 (MCP)。深耕谷歌学术池，精准解析论文引证图谱 (Citation Graph)、作者学术画像及被引爆发趋势。专供高并发学者动态监视与开题定标。Leading Words: GoogleScholar联邦检索, 学者H-index画像追踪, 纯净引证图谱CitationGraph, 学术开题定标与爆发趋势
+description: "Google Scholar 纯净联邦检索引擎与 H-index 学者追踪器 (MCP)。深耕谷歌学术池，精准解析论文引证图谱 (Citation Graph)、作者学术画像及被引爆发趋势。专供高并发学者动态监视与开题定标。Leading Words: GoogleScholar联邦检索, 学者H-index画像追踪, 纯净引证图谱CitationGraph, 学术开题定标与爆发趋势"
 ---
 
 # Google Scholar MCP — Google 学术检索桥接

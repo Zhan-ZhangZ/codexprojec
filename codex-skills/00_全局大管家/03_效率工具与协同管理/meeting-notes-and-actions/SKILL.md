@@ -1,6 +1,6 @@
 ---
 name: meeting-notes-and-actions
-description: 标准化会议纪要与行动项（Action Items）提炼器。将 Zoom/Teams 长语音转文字稿浓缩为结构化的大纲，精准圈出最终决议（Decisions）、风险预警（Risks）及绑定到特定负责人的执行项。Leading Words: 会议纪要浓缩, Action Items提取, 风险决策捕获, 结构化会议提要
+description: "标准化会议纪要与行动项（Action Items）提炼器。将 Zoom/Teams 长语音转文字稿浓缩为结构化的大纲，精准圈出最终决议（Decisions）、风险预警（Risks）及绑定到特定负责人的执行项。Leading Words: 会议纪要浓缩, Action Items提取, 风险决策捕获, 结构化会议提要"
 metadata:
   short-description: Meeting transcript to notes and actions
 ---

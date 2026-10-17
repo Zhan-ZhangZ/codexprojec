@@ -9,7 +9,7 @@ metadata:
 # Z-Library MCP 服务集成指南
 
 **⚠️ 强制前置要求 (Prerequisite)**:
-在执行任何操作前，**必须首先使用 `view_file` 或 `read_url_content` 阅读本目录下的 `README.md`**，以全面掌握 MCP 服务的安装、参数配置、环境变量要求及启动方式。完整参数与 13 个工具的出入参定义见 [docs/api.md](docs/api.md)。
+在执行任何操作前，**必须首先阅读本目录下的 `README.md`**，以全面掌握 MCP 服务的安装、参数配置、环境变量要求及启动方式。完整参数与 13 个工具的出入参定义见 [docs/api.md](docs/api.md)。
 
 > 本技能为 npm 分发形态的文档层：用户经 `npm install -g zlibrary-mcp` 安装服务本体，本目录仅保留官方文档、配置示例与部署文件。源码级细节一律指向 GitHub 定 tag 链接。
 

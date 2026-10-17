@@ -1,6 +1,6 @@
 ---
 name: internal-comms
-description: 内部沟通规范文案撰写器。按照企业既定的格式偏好撰写内部状态报告、高管更新、项目通报及事件复盘（Incident reports）等规范化文档。Leading Words: 内部规范文案撰写, 项目进度状态报告, 结构化Incident报告起草, 团队公文
+description: "内部沟通规范文案撰写器。按照企业既定的格式偏好撰写内部状态报告、高管更新、项目通报及事件复盘（Incident reports）等规范化文档。Leading Words: 内部规范文案撰写, 项目进度状态报告, 结构化Incident报告起草, 团队公文"
 license: Complete terms in LICENSE.txt
 ---
 

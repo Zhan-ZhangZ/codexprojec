@@ -1,6 +1,6 @@
 ---
 name: codebase-migrate
-description: 执行超大规模代码库迁移与多文件批量重构的自动化管家。深度集成 Composio CLI，通过自动化 Issue 追踪、分批次提交 PR 以及 CI 自动化校验，实现在本地安全、稳定地跨越数百个文件执行代码 AST 转换或重构操作。Leading Words: 大规模代码重构, 批量文件迁移, AST转换, Composio CI/CD集成, 自动化PR管理
+description: "执行超大规模代码库迁移与多文件批量重构的自动化管家。深度集成 Composio CLI，通过自动化 Issue 追踪、分批次提交 PR 以及 CI 自动化校验，实现在本地安全、稳定地跨越数百个文件执行代码 AST 转换或重构操作。Leading Words: 大规模代码重构, 批量文件迁移, AST转换, Composio CI/CD集成, 自动化PR管理"
 metadata:
   short-description: Codebase migrations + multi-file refactors
 ---

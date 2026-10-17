@@ -9,7 +9,7 @@ metadata:
 # oh-story-claudecode 网文写作技能套件指南
 
 ## 1. 核心法则 (Golden Rules)
-* **强制前置阅读**：本项目是由 13 个子 skill 组成的多节点网文写作套件（当前 v0.7.9）。执行任何小说创作或逆向任务前，**必须**使用 `view_file` 查阅根目录下的 `README.md`（流程总览 + 各 skill 触发方式），再进入 `skills/<子技能>/SKILL.md` 获取具体作业面。
+* **强制前置阅读**：本项目是由 13 个子 skill 组成的多节点网文写作套件（当前 v0.7.9）。执行任何小说创作或逆向任务前，**必须**读取根目录下的 `README.md`（流程总览 + 各 skill 触发方式），再进入 `skills/<子技能>/SKILL.md` 获取具体作业面。
 * **分阶段执行机制**：网络小说创作绝不能"一步到位"。必须严格按照 环境部署(story-setup) -> 扫榜选材(long/short-scan) -> 拆文学习(long/short-analyze) -> 落笔创作(long/short-write) -> 精修定稿(story-deslop) 的生命周期推进；已有成稿走 story-import 逆向导入后再续写。
 * **套路与边界准则**：重组大纲与写作必须遵守各 skill `references/` 内的题材卡与门禁约束——v0.7.8 起参考资料按消费者拆分，写正文/短篇构思前有会阻断的 Reference Gate；v0.7.9 起细纲的目标情绪与主角关键选择不接受占位符，短篇按场景功能分配篇幅与节奏。
 * **升级即重部署**：hooks / agents / references 由 `story-setup` 部署进写作项目（当前 `agents_version` 29）。套件版本升级后**必须**重跑 `/story-setup` 并新开会话，否则拿到的仍是旧 agent 与旧参考文件。
@@ -18,7 +18,7 @@ metadata:
 当你接收到撰写小说、分析网文榜单或润色章节的任务时，请依循以下状态机推进：
 
 * **[State: 意图定位与环境探针]**
-  * 使用 `view_file` 查阅 `README.md`，确定当前诉求属于哪个阶段（扫榜/拆文/大纲/正文/去AI味/封面），识别长篇（Long）还是短篇（Short）工作流。
+  * 读取 `README.md`，确定当前诉求属于哪个阶段（扫榜/拆文/大纲/正文/去AI味/封面），识别长篇（Long）还是短篇（Short）工作流。
   * 初次启动引导 `story-setup` 部署写作项目：8 个自动化 hooks 与 7 个专业 agent（story-architect / character-designer / narrative-writer / consistency-checker / story-researcher / story-explorer / chapter-extractor）；运行时未暴露 custom agent 时按 skill 内约定降级 solo/direct。
 * **[State: 子技能分发与执行]**
   * 扫榜：`skills/story-long-scan`（起点/番茄/晋江）、`skills/story-short-scan`（知乎盐言/番茄短篇）；抓取风控数据时配合 `skills/browser-cdp` 复用登录态。

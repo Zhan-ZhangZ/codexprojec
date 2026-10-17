@@ -1,6 +1,6 @@
 ---
 name: unslop
-description: 自动化反俗套与去注水内容洗稿引擎。深度检测过度营销、刻意煽情及冗长拖沓的 AI 味文案，精准削去无用长句，还原紧凑扎实的文本信息密度。Leading Words: 去AI味文本清洗, 反冗长注水, 紧凑高信息密度提炼, 洗稿去营销感
+description: "自动化反俗套与去注水内容洗稿引擎。深度检测过度营销、刻意煽情及冗长拖沓的 AI 味文案，精准削去无用长句，还原紧凑扎实的文本信息密度。Leading Words: 去AI味文本清洗, 反冗长注水, 紧凑高信息密度提炼, 洗稿去营销感"
 version: 0.7.0
 ---
 
@@ -40,5 +40,3 @@ version: 0.7.0
 - [references/CHANGELOG.md](references/CHANGELOG.md) — 变更史
 - [references/docs/superpowers/](references/docs/superpowers/) — superpowers 集成计划文档
 - [references/LICENSE](references/LICENSE) — 许可证
-
-> 上游的 benchmarks / evals / tests / hooks / plugins、`unslop/` Python 包与 `docs/research/` 研究语料（80 篇专题备忘 + 16 篇综述）未随库分发，需要时访问 [上游仓库](https://github.com/MohamedAbdallah-14/unslop/tree/v0.7.0)。

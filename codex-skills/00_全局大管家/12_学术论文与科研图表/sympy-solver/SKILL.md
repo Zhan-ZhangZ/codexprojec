@@ -1,6 +1,6 @@
 ---
 name: sympy-solver
-description: 纯本地 Python SymPy 符号代数超算沙盒引擎。通过硬编码数学公理法则处理微积分、拓扑矩阵与高阶极限定理，输出可直接渲染的 LaTeX 证明。物理隔离语言模型的数学幻觉，提供绝对保真的数理推导。Leading Words: 纯本地SymPy符号代数超算, 物理隔离大模型数学幻觉, 高阶极限微积分方程求解, LaTeX证明绝对保真推导
+description: "纯本地 Python SymPy 符号代数超算沙盒引擎。通过硬编码数学公理法则处理微积分、拓扑矩阵与高阶极限定理，输出可直接渲染的 LaTeX 证明。物理隔离语言模型的数学幻觉，提供绝对保真的数理推导。Leading Words: 纯本地SymPy符号代数超算, 物理隔离大模型数学幻觉, 高阶极限微积分方程求解, LaTeX证明绝对保真推导"
 ---
 
 # SymPy 符号代数求解 (sympy-solver)

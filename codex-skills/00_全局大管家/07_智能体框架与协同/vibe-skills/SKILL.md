@@ -1,6 +1,6 @@
 ---
 name: vibe
-description: Vibe Code Orchestrator (VCO) 企业级状态封存与执行时限流器。在修改代码前强制冻结需求池 (Freezes requirements)，执行基于超大模型 (XL-first) 的全局统筹规划，并在周期末尾挂载强制的代码核验与阶段性清理卡点。Leading Words: 状态封存需求冻结器, XL-first全局统筹规划, 周期性代码强制核验, 运行时限流管控VCO
+description: "Vibe Code Orchestrator (VCO) 企业级状态封存与执行时限流器。在修改代码前强制冻结需求池 (Freezes requirements)，执行基于超大模型 (XL-first) 的全局统筹规划，并在周期末尾挂载强制的代码核验与阶段性清理卡点。Leading Words: 状态封存需求冻结器, XL-first全局统筹规划, 周期性代码强制核验, 运行时限流管控VCO"
 version: 4.1.0
 ---
 

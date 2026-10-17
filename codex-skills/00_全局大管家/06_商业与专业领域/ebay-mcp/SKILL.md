@@ -1,12 +1,12 @@
 ---
 name: ebay-mcp
-description: eBay 官方店群自动化运营中枢 (MCP)。深度封装 300+ 个底层 Sell API 端点。能够完全托管 SKU 在线刊登、海外仓发货面单流转、自动打折促销活动 (Promotions) 及全景销量盘点。Leading Words: eBay自动化店群运营, Sell API深度封装, SKU在线刊登流转, 面单打印与促销折扣
+description: "eBay Sell API MCP 服务。提供商品刊登、订单与履约、物流面单、促销、库存和分析等店铺管理工具。Leading Words: eBay自动化店群运营, Sell API封装, SKU在线刊登流转, 面单打印与促销折扣"
 version: 1.15.0
 ---
 
 # ebay-mcp — 跨境电商与店铺管理 MCP 服务
 
-`ebay-mcp`：本地 eBay Sell API MCP 服务器（**299 个工具，100% Sell API 覆盖**），一条命令完成 OAuth 凭据配置。用户要刊登商品、处理订单/面单、设置促销、盘点销量或查询店铺经营数据时触发。
+`ebay-mcp`：本地 eBay Sell API MCP 服务器，当前目录列有 299 个工具，并提供 OAuth 配置向导。用户要刊登商品、处理订单/面单、设置促销、盘点销量或查询店铺经营数据时触发。
 
 ## 安装形态（用户侧）
 
@@ -31,5 +31,3 @@ account / analytics / browse / communication / connector / developer / fulfillme
 - [EBAY_COMPLIANCE.md](EBAY_COMPLIANCE.md) — 合规要点；[SECURITY.md](SECURITY.md)、[LICENSE](LICENSE)
 - [docs/](docs/) — API 状态、ADR、认证、应用设置、故障排查、sell-apps OAS3 规范全集
 - [llms.txt](llms.txt) — Agent 友好摘要
-
-> 上游以 npm `ebay-mcp` 分发；`src/`、`tests/`、`ui/`、构建配置与演示媒体（hero 图/教学视频/图标集，皆装饰性或无引用）未随库分发，走 GitHub tag 链接；安装向导截图 `public/screenshot-guides/` 因属操作指引而保留。需要源码时访问 [上游仓库](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0)。

@@ -1,16 +1,39 @@
 ---
 name: AmazonSeller-mcp-server
-description: 亚马逊官方卖家后台 (Seller Central) 库存与刊登 MCP 桥接器。提供安全接口实现店铺多仓库存盘点、ASIN 刊登自动化流转及跨平台的库存安全警戒水位同步。Leading Words: 亚马逊卖家后台MCP集成, ASIN刊登自动化, FBA多仓库存盘点, 跨境店铺库存对齐
+description: "Amazon Seller Central 库存与刊登 MCP 桥接器。用于查询店铺库存、管理 ASIN 刊登和同步库存警戒水位。"
+metadata:
+  upstream: github.com/mattcoatsworth/AmazonSeller-mcp-server
+  entrypoint: managed-v2
+  entrypoint_kind: mcp
 ---
 
-# AmazonSeller-mcp-server — 跨境电商与店铺管理 MCP 服务
+<!-- codex-skills-managed-entrypoint:v2 -->
+# AmazonSeller-mcp-server
 
-- **项目主页**: https://github.com/mattcoatsworth/AmazonSeller-mcp-server
+通过 Seller Central 接口查询店铺库存、管理 ASIN 刊登，并同步库存警戒水位。
 
-## 功能说明
+## 何时使用
 
-亚马逊卖家中心产品管理与多仓库存同步 MCP。支持管理店铺商品的在线刊登、查询实时库存余量，并支持跨平台的库存信息自动对齐。
+适用任务：查询 Amazon Seller Central 库存、管理 ASIN 刊登或同步库存阈值。
 
-## 安装与快速开始
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
 
-详细配置与用法请参考该技能目录下的 [README.md](./README.md)。
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 按仓库当前文档启动或接入 MCP 服务，核对实际工具名和参数；不要凭项目简介编造工具。
+3. 先用一个只读、最小请求验证连接，再执行用户要求的操作。凭据只从环境或安全配置读取，不写进技能文件。
+
+## 本地入口
+
+- `README.md`
+- `package.json`
+
+## 上游
+
+- https://github.com/mattcoatsworth/AmazonSeller-mcp-server
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

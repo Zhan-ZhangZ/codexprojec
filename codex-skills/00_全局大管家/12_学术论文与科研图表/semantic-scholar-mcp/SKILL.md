@@ -1,6 +1,6 @@
 ---
 name: semantic-scholar-mcp
-description: Semantic Scholar 2亿级语料引文网络神经穿透器 (MCP)。通过智能引文图谱遍历技术追根溯源学术脉络。精准抽取文献影响度、同侪作者网络特征，是深潜科学技术史及前沿爆发预测的神级探测器。Leading Words: SemanticScholar两亿语料穿透, 神经引文图谱遍历溯源, 前沿爆发预测与影响度抽取, 同侪作者网络H-index画像
+description: "Semantic Scholar 2亿级语料引文网络神经穿透器 (MCP)。通过智能引文图谱遍历技术追根溯源学术脉络。精准抽取文献影响度、同侪作者网络特征，是深潜科学技术史及前沿爆发预测的神级探测器。Leading Words: SemanticScholar两亿语料穿透, 神经引文图谱遍历溯源, 前沿爆发预测与影响度抽取, 同侪作者网络H-index画像"
 ---
 
 # Semantic Scholar MCP — 引文网络分析

@@ -1,6 +1,6 @@
 ---
 name: invoice-organizer
-description: 纯 Agent 架构驱动的智能零依赖发票集散整理器。摒弃复杂 Python OCR 库依赖，完全依靠大模型原生视觉能力进行全盘扫描、票面特征挖掘与重命名归档。极速将混乱碎票重构为结构化 CSV 报表与整洁目录。Leading Words: 纯Agent架构零依赖驱动, 大模型原生视觉特征挖掘, 混乱发票重构结构化归档, 自动化CSV报表集散中枢
+description: "纯 Agent 架构驱动的智能零依赖发票集散整理器。摒弃复杂 Python OCR 库依赖，完全依靠大模型原生视觉能力进行全盘扫描、票面特征挖掘与重命名归档。极速将混乱碎票重构为结构化 CSV 报表与整洁目录。Leading Words: 纯Agent架构零依赖驱动, 大模型原生视觉特征挖掘, 混乱发票重构结构化归档, 自动化CSV报表集散中枢"
 ---
 
 # Invoice Organizer

@@ -1,6 +1,6 @@
 ---
 name: arxiv-latex-reader
-description: arXiv 论文 LaTeX 原生源码剥离与精准公式还原器。直接穿透服务端下载、解压多文件包。彻底解决 PDF 复制产生的数学符号乱码及排版塌陷，精准抽取定理段落与公式矩阵，专为强数理学术任务设计。Leading Words: arXiv原生LaTeX剥离, 精准数学公式矩阵还原, PDF乱码与排版塌陷解决, 定理源码级别抽取
+description: "arXiv 论文 LaTeX 原生源码剥离与精准公式还原器。直接穿透服务端下载、解压多文件包。彻底解决 PDF 复制产生的数学符号乱码及排版塌陷，精准抽取定理段落与公式矩阵，专为强数理学术任务设计。Leading Words: arXiv原生LaTeX剥离, 精准数学公式矩阵还原, PDF乱码与排版塌陷解决, 定理源码级别抽取"
 ---
 
 # arXiv LaTeX 源码解析 (arxiv-latex-reader)

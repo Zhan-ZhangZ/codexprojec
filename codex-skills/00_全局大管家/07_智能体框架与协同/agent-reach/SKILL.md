@@ -1,6 +1,6 @@
 ---
 name: agent-reach
-description: 免 API 密钥的 16+ 平台数据抓取与 Exa 搜索工具。支持获取推特、小红书、微博、YouTube等媒体的内容与字幕。Leading Words: 免API密钥数据抓取, Exa平台内容获取, 推特小红书搜索, YouTube字幕提取
+description: "免 API 密钥的 16+ 平台数据抓取与 Exa 搜索工具。支持获取推特、小红书、微博、YouTube等媒体的内容与字幕。Leading Words: 免API密钥数据抓取, Exa平台内容获取, 推特小红书搜索, YouTube字幕提取"
 ---
 
 # Agent-Reach 🌐
@@ -16,7 +16,7 @@ Give AI agents direct, unified access to real-time internet data and 16+ major s
 ## ⚙️ 轨迹驱动执行引擎 (Execution Trajectory)
 
 ### State 1: 知识装载 (Read Docs)
-- 立刻通过 `view_file` 工具完整查阅当前目录下的 `README.md`，理解最新的调用链条。
+- 立刻完整读取当前目录下的 `README.md`，理解最新的调用链条。
 
 ### State 2: 诊断与安装 (Doctor & Install)
 - 对于绝大部分免配置平台（如网页、YouTube、RSS、Exa 全网搜索），直接按照 README 指导，在 Agent 终端调用对应的底层工具命令（例如 `yt-dlp`, `curl`, `feedparser`）。

@@ -1,6 +1,6 @@
 ---
 name: google-drive-mcp
-description: 官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 授权，在本地直接读取、搜索、管理您的谷歌云端硬盘文件，并将 Google Docs/Sheets 自动转换为可供分析的文本格式。Leading Words: 谷歌云盘接入, OAuth授权读取, GoogleDocs转换, 云端硬盘文件管理
+description: "官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 授权，在本地直接读取、搜索、管理您的谷歌云端硬盘文件，并将 Google Docs/Sheets 自动转换为可供分析的文本格式。Leading Words: 谷歌云盘接入, OAuth授权读取, GoogleDocs转换, 云端硬盘文件管理"
 ---
 
 # ☁️ 谷歌云端硬盘助手 (Google Drive MCP)
@@ -10,7 +10,7 @@ description: 官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 
 
 ## ⚠️ 核心法则 (Golden Rules)
 1. **凭证前置**：云端硬盘属于强隐私区域。若当前环境中未检测到 Google OAuth 环境变量，**必须优先**引导用户配置凭证，禁止盲目报错。
-2. **写操作安全锁 (Safety Gate)**：读取和搜索云端文件是安全的，但涉及任何**修改、移动、删除、或对外分享**的操作时，**绝对禁止自动执行**。Agent 必须使用 `ask_question` 工具将操作目标和后果清晰展示给用户，获得显式 `Submit` 确认后才能下发命令。
+2. **写操作安全锁 (Safety Gate)**：读取和搜索云端文件是安全的，但涉及任何**修改、移动、删除、或对外分享**的操作时，**绝对禁止自动执行**。Agent 必须清晰展示操作目标和后果，并获得用户的明确确认后才能下发命令。
 
 ## ⚙️ 环境依赖与配置向导
 该服务通过 npx 免安装调用，但依赖于您的 Google Cloud 项目授权。
@@ -41,7 +41,7 @@ npx -y @modelcontextprotocol/server-gdrive
 
 ### [State: PENDING_CONFIRMATION] -> 安全阻断
 - **动作**: 发现用户意图为修改或删除云盘文件。
-- **阻断**: 调用 `ask_question` 弹出模态框：“您正在请求修改/删除云端文件 [文件名]。此操作不可逆，是否继续？”。
+- **阻断**: 先询问用户：“您正在请求修改/删除云端文件 [文件名]。此操作不可逆，是否继续？”，获得明确确认后才继续。
 - **分支**:
   - `用户批准`: 进入 `[State: EXECUTE_WRITE]`。
   - `用户拒绝/跳过`: 取消该操作，向用户确认安全中止。

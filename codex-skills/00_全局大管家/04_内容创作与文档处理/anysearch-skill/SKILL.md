@@ -1,6 +1,6 @@
 ---
 name: anysearch
-description: 全网聚合检索能力接口。支持多平台文献、百科与开源信息库并发查询，专为需要深度前置调研与多方信源交叉验证的内容创作工作流设计。Leading Words: 全网多态检索, 跨源聚合查询, 前置内容调研
+description: "全网聚合检索能力接口。支持多平台文献、百科与开源信息库并发查询，专为需要深度前置调研与多方信源交叉验证的内容创作工作流设计。Leading Words: 全网多态检索, 跨源聚合查询, 前置内容调研"
 version: 3.1.1
 authors:
   - AnySearch Team

@@ -1,0 +1,1 @@
+{"version":1,"skill_path":"./00_全局大管家/12_学术论文与科研图表/paper-search","files":[{"path":"SKILL.md","size":3267,"sha":"5acffa4543cfe30f8c5519ddca7a93dc75b76254","mode":"100644"},{"path":"scripts/search_papers.py","size":8500,"sha":"c950b5f52922be5c60e1bbe1fe68196827745a47","mode":"100755"}]}

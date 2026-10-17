@@ -1,6 +1,6 @@
 ---
 name: buywhere-mcp
-description: 东南亚本土电商生态 (Shopee/Lazada) 跨平台竞品与定价侦察兵 (MCP)。自动化爬取并横向对比同款 SKU 在全网的阶梯定价、实时库存及买家负面评价，精准辅助爆款选品及卡位定价策略。Leading Words: 东南亚跨境电商选品, Shopee/Lazada竞品监控, SKU全网比价侦察, 爆款卡位定价策略
+description: "东南亚本土电商生态 (Shopee/Lazada) 跨平台竞品与定价侦察兵 (MCP)。自动化爬取并横向对比同款 SKU 在全网的阶梯定价、实时库存及买家负面评价，精准辅助爆款选品及卡位定价策略。Leading Words: 东南亚跨境电商选品, Shopee/Lazada竞品监控, SKU全网比价侦察, 爆款卡位定价策略"
 version: 0.4.0
 ---
 

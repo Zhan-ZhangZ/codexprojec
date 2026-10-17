@@ -1,6 +1,6 @@
 ---
 name: playwright-mcp
-description: 微软官方 Playwright 浏览器自动化操控引擎 (MCP)。赋予智能体开启无头/有头浏览器、执行页面元素审查、点击输入及端到端 UI 测试的能力。作为物理世界的视觉交互之手。Leading Words: Playwright浏览器自动化操控, 微软官方端到端UI测试, 无头浏览器元素审查交互, MCP代理服务页面点击
+description: "微软官方 Playwright 浏览器自动化操控引擎 (MCP)。赋予智能体开启无头/有头浏览器、执行页面元素审查、点击输入及端到端 UI 测试的能力。作为物理世界的视觉交互之手。Leading Words: Playwright浏览器自动化操控, 微软官方端到端UI测试, 无头浏览器元素审查交互, MCP代理服务页面点击"
 version: 0.0.80
 ---
 
@@ -35,5 +35,3 @@ browser_navigate / browser_click / browser_hover / browser_type / browser_fill_f
 - [references/CONTRIBUTING.md](references/CONTRIBUTING.md) — 贡献指南
 - [references/SECURITY.md](references/SECURITY.md) — 安全策略
 - [references/LICENSE](references/LICENSE) — 许可证
-
-> 用户经 npm 安装运行，本库只携文档层；`src/`、`tests/`、`Dockerfile`、入口 JS 未随库分发，需要时访问 [上游仓库](https://github.com/microsoft/playwright-mcp/tree/4c1fb03)。

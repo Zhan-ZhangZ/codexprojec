@@ -1,6 +1,6 @@
 ---
 name: tickdb-unified-realtime-marketdata-api
-description: TickDB AI 原生实时行情数据统一 API，覆盖外汇、贵金属、指数、美股、港股、A 股、加密货币。支持 Skill、CLI、MCP、REST API 和 WebSocket 接入，提供实时行情、K线、订单簿、资金流向等数据。Leading Words: TickDB实时行情API, 全球多市场数据, AI原生金融接口, WebSocket行情流, MCP行情服务
+description: "TickDB AI 原生实时行情数据统一 API，覆盖外汇、贵金属、指数、美股、港股、A 股、加密货币。支持 Skill、CLI、MCP、REST API 和 WebSocket 接入，提供实时行情、K线、订单簿、资金流向等数据。Leading Words: TickDB实时行情API, 全球多市场数据, AI原生金融接口, WebSocket行情流, MCP行情服务"
 ---
 
 # TickDB — 统一实时行情数据 API
@@ -9,7 +9,7 @@ AI 原生实时行情数据 API，通过一次接入覆盖外汇、贵金属、�
 
 ## 前置阅读
 
-> **执行任何操作前，必须先 `view_file` 阅读以下文档：**
+> **执行任何操作前，必须先阅读以下文档：**
 > 1. 项目 README：`README.md`（位于本技能根目录）
 > 2. 内置 Skill 配置：`SKILL/SKILL.md`（AI Agent 详细行为规范与 API 契约）
 > 3. 在线文档：https://docs.tickdb.ai

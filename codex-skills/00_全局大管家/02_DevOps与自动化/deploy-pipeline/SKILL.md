@@ -1,6 +1,6 @@
 ---
 name: deploy-pipeline
-description: 端到端跨平台部署流水线大管家。深度集成 Composio CLI，一键拉起跨 Stripe、Supabase 和 Vercel 的协同发布：同步推送 Stripe 产品配置、执行 Supabase 数据库迁移、发布 Vercel 静态/SSR 资源，并执行自动化部署后校验（Post-deploy checks）。Leading Words: 端到端部署, CI/CD流水线, Stripe配置同步, Supabase数据迁移, Vercel发布
+description: "端到端跨平台部署流水线大管家。深度集成 Composio CLI，一键拉起跨 Stripe、Supabase 和 Vercel 的协同发布：同步推送 Stripe 产品配置、执行 Supabase 数据库迁移、发布 Vercel 静态/SSR 资源，并执行自动化部署后校验（Post-deploy checks）。Leading Words: 端到端部署, CI/CD流水线, Stripe配置同步, Supabase数据迁移, Vercel发布"
 metadata:
   short-description: Stripe/Supabase/Vercel deploy pipelines
 ---

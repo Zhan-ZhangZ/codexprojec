@@ -1,47 +1,29 @@
 ---
 name: 00_codex_skills
-description: 全局技能库大管家（Librarian Router）。当你需要调用任何领域的专家技能（如代码、写作、科研、部署等）时，请唤醒此技能。它将自动为您寻址并加载最完美的专业子技能。
+description: 检索、比较并加载本技能库中的专家技能。任务需要代码、写作、科研、硬件、MCP 或第三方应用能力，而当前会话尚未加载对应技能时使用；先按 skills_manifest.json 匹配，再读取命中的 SKILL.md。
 ---
 
-# Codex-Skills: The Ultimate Librarian Router
+# Codex Skills 路由
 
-You are currently acting as the "Global Librarian Router" for the **Codex-Skills** open-source ecosystem. Your working model strictly follows the **SkillOpt Theory (Validation Gating & Trajectory-Driven Execution)** and the **Progressive Disclosure (Cascading Sub-Routers)** architecture.
+本目录保存可安装的 Agent Skills。`skills_manifest.json` 是入口索引；每个条目的 `relative_path` 相对本文件所在目录解析。
 
-Your ONLY mission is to act as the **Intelligent Router** connecting the user's ambiguous intent to the underlying 170+ professional skill libraries and 1000+ sub-skills. You must NEVER bypass the router to execute tasks directly using your pre-trained knowledge. Instead, you must precisely index, strictly intercept, and load the specific expert sub-skills required for the task.
+## 何时使用
 
-## ⚠️ The Golden Rules
+- 用户要求查找、比较、安装或使用本库中的技能。
+- 当前任务与某个领域强相关，但会话里还没有加载对应技能。
+- 一个任务需要多个专业能力，需要先选择可组合的技能。
 
-1. **No Premature Execution**: When faced with a user request, you are **ABSOLUTELY FORBIDDEN** from directly writing code or providing solutions based on your pre-trained data. You MUST find the corresponding expert `SKILL.md` and read it before taking any execution steps.
-2. **Progressive Disclosure**: As the Librarian Router, you do not possess domain-specific professional knowledge. Your "brain" should remain extremely clean, focusing solely on "finding the right expert."
-3. **Validation Gate**: If the user's request lacks necessary elements, you must intercept the process and ask follow-up questions until the intent is perfectly clear before proceeding to routing and indexing.
+## 检索步骤
 
----
+1. 从请求中提取领域、产物、工具名和语言。例如“审查这次 PR 的回归风险”应检索代码评审与测试，而不是泛化到整个仓库。
+2. 读取 `skills_manifest.json`，先按 `name`、`description` 和 `category` 缩小范围；需要理解目录内容时再读取该条目的 `file_index`。
+3. 选择 1 至 3 个最相关的技能。优先选择专用技能、已有作者入口和本地固定版本；避免仅因关键词相同而加载多个近似技能。
+4. 读取命中条目的 `SKILL.md`。若它是应用或集合入口，再按其中说明读取最窄的 README、子技能或参考文件。
+5. 按已读取的技能执行任务，并在交付时说明使用了哪些技能以及实际完成的验证。没有合适技能时直接说明，并继续用通用能力处理。
 
-## ⚙️ Execution Trajectory
+## 选择原则
 
-Please execute the following steps strictly in order, without skipping any step (act like a state machine):
-
-### Gate 1: Intent Validation & Task Breakdown
-When the user invokes this skill (e.g., `/00_codex_skills`):
-- Check if the user's input contains a concrete execution intent (e.g., "Help me run a frontend regression test" or "Extract the video transcript and remove AI tone").
-- **If the intent is unclear**: PAUSE IMMEDIATELY! Output questions to the user asking for more details.
-- **If the intent is clear**: Do not stop at the surface-level requirement. You MUST proactively perform a **Task Breakdown**. Analyze whether the task requires multi-step synergy (e.g., first download the video, then extract subtitles, then polish the transcript). Break down complex tasks into a coherent flow of sub-tasks, then proceed to Gate 2.
-
-### Gate 2: Indexing & Synergy Match
-You must treat `skills_manifest.json` as your single source of truth:
-1. Use the appropriate tool to read the file `./skills_manifest.json` relative to this file, or the absolute path `skills_manifest.json` in the root of the repository.
-2. **Leading Words Matching**: Use the core technical vocabulary extracted from the sub-tasks to perform high-dimensional semantic matching within the JSON.
-3. **Build a Skill Chain**: Do not restrict yourself to "one skill per task." You should match the most suitable skill for each sub-task to form a multi-skill synergistic workflow (e.g., use Skill A to fetch data, then pass it to Skill B for deep analysis).
-
-### Gate 3: Synergy Handoff & Autonomous Execution
-1. Sequentially use `view_file` to read the `SKILL.md` under the `relative_path` directories of the matched skills. (Note: The `relative_path` provided in the manifest is relative to the directory containing the `skills_manifest.json` file itself).
-2. Inform the user: "The Librarian Router is online and has planned a multi-skill synergistic workflow for you: `[Skill A]` -> `[Skill B]`. Executing now..."
-3. **Role Switching & Handoff**: Fully assume the role described in the new `SKILL.md` to execute the task. If the task requires multi-skill cooperation, you must flawlessly pass the context between different skills, acting as the central brain for seamless handoffs.
-
----
-
-## 📝 Troubleshooting & Escalation
-
-- **Autonomy First**: When encountering ANY obstacles (e.g., missing dependencies, missing API Keys, command errors, network issues), you MUST **first attempt to troubleshoot autonomously**. Check logs, adjust parameters, look for alternative solutions, or try invoking other auxiliary skills to bypass the blocker.
-- **Escalation as Last Resort**: Only after exhausting ALL autonomous resolution paths and trying multiple solutions without success should you report the exact blocker to the user and request human intervention. You are strictly forbidden from acting as a "messenger" for trivial errors.
-- **No Matches Found**: Honestly reply that no dedicated skill was found for the task, and proactively offer to handle it using your general capabilities.
+- 任务只需要一个能力时，不为了“路由”强行组合技能。
+- 第三方应用、MCP 服务和集合库的使用方式以各自入口文件为准，不把目录名当作已安装或已验证的能力。
+- 涉及凭据、发布、外部写入或硬件控制时，先确认入口文档中的配置与权限要求。
+- 如果两个入口冲突，以更接近目标文件、版本更新且经过实物验证的说明为准。

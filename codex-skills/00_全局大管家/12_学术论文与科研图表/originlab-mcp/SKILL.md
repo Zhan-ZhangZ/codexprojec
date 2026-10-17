@@ -1,6 +1,6 @@
 ---
 name: originlab-mcp
-description: OriginLab/OriginPro MCP 服务器。基于 originpro 库和 COM 自动化技术，允许 AI 通过自然语言直接控制 Origin 进行数据导入、工作表操作、高阶数据分析（线性/非线性拟合）及高质量科研图表绘制和导出。当需要操作 Origin 软件自动处理数据和绘图时使用。Leading Words: OriginLab MCP, OriginPro自动化绘图, 科研数据处理拟合, COM接口控制, 论文配图生成
+description: "OriginLab/OriginPro MCP 服务器。基于 originpro 库和 COM 自动化技术，允许 AI 通过自然语言直接控制 Origin 进行数据导入、工作表操作、高阶数据分析（线性/非线性拟合）及高质量科研图表绘制和导出。当需要操作 Origin 软件自动处理数据和绘图时使用。Leading Words: OriginLab MCP, OriginPro自动化绘图, 科研数据处理拟合, COM接口控制, 论文配图生成"
 ---
 
 # OriginLab MCP 技能指南

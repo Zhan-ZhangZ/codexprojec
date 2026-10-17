@@ -1,6 +1,6 @@
 ---
 name: openscad-mcp
-description: OpenSCAD 纯代码驱动参数化 3D 建模与视觉纠错闭环引擎 (MCP)。极大发挥大模型的代码生成优势，通过自动后台编译输出 PNG 预览图，实现生成、渲染、视觉验证及自动纠错迭代的全链路覆盖。Leading Words: OpenSCAD代码3D建模, 纯代码参数化渲染, 视觉验证纠错闭环, PNG预览图生成
+description: "OpenSCAD 纯代码驱动参数化 3D 建模与视觉纠错闭环引擎 (MCP)。极大发挥大模型的代码生成优势，通过自动后台编译输出 PNG 预览图，实现生成、渲染、视觉验证及自动纠错迭代的全链路覆盖。Leading Words: OpenSCAD代码3D建模, 纯代码参数化渲染, 视觉验证纠错闭环, PNG预览图生成"
 metadata:
   version: 0.3.0
   upstream: github.com/quellant/openscad-mcp

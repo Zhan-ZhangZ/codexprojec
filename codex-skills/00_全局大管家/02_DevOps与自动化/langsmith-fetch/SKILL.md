@@ -1,6 +1,6 @@
 ---
 name: langsmith-fetch
-description: LangSmith 智能体执行轨迹抓取与调试分析器。用于诊断 LangChain 或 LangGraph 的内部行为。自动从 LangSmith Studio 抓取执行 Trace、分析工具调用耗时与记忆操作模式。调试 Agent 幻觉或执行链断裂时必用。Leading Words: LangSmith轨迹抓取, LangGraph行为调试, Agent执行Trace分析, 工具调用监控
+description: "LangSmith 智能体执行轨迹抓取与调试分析器。用于诊断 LangChain 或 LangGraph 的内部行为。自动从 LangSmith Studio 抓取执行 Trace、分析工具调用耗时与记忆操作模式。调试 Agent 幻觉或执行链断裂时必用。Leading Words: LangSmith轨迹抓取, LangGraph行为调试, Agent执行Trace分析, 工具调用监控"
 ---
 
 # LangSmith Fetch - Agent Debugging Skill

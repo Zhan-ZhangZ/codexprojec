@@ -1,6 +1,6 @@
 ---
 name: paddleocr-doc-parsing
-description: 基于 PaddleOCR 的全版面复杂文档解构引擎。不仅提取文本，更针对复杂研报与论文进行版面还原：完美识别带行列跨度的 HTML 表格、独立还原数学公式及抽离核心图表排版位置。Leading Words: PaddleOCR版面解构, 复杂研报提取, 跨列表格还原, 数学公式提取
+description: "基于 PaddleOCR 的全版面复杂文档解构引擎。不仅提取文本，更针对复杂研报与论文进行版面还原：完美识别带行列跨度的 HTML 表格、独立还原数学公式及抽离核心图表排版位置。Leading Words: PaddleOCR版面解构, 复杂研报提取, 跨列表格还原, 数学公式提取"
 ---
 
 # PaddleOCR Document Parsing Skill

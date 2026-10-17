@@ -1,6 +1,6 @@
 ---
 name: skill-installer
-description: 全网技能包雷达搜寻与极速部署挂载器 (Skill Installer)。具备兜底安装逻辑：当用户指派的任务或搜索的技能不在本地池时，必须自动触发本工具，从官方精选库或 GitHub远端热拉取解析并安全挂载到本地。Leading Words: 技能雷达搜寻部署, 远端GitHub热拉取挂载, 兜底缺失技能安装, 自动触发池外Skill下载
+description: "全网技能包雷达搜寻与极速部署挂载器 (Skill Installer)。具备兜底安装逻辑：当用户指派的任务或搜索的技能不在本地池时，必须自动触发本工具，从官方精选库或 GitHub远端热拉取解析并安全挂载到本地。Leading Words: 技能雷达搜寻部署, 远端GitHub热拉取挂载, 兜底缺失技能安装, 自动触发池外Skill下载"
 metadata:
   short-description: Install curated skills from openai/skills or other repos
 ---

@@ -1,6 +1,6 @@
 ---
 name: emdash-skills
-description: 包含 14 个分类的自主产品构建 OS：支持 Cloudflare Workers + Hono + Angular + D1 + Stripe。只需一行 Prompt 即可快速部署包含 94 篇参考文档、18 个智能体且原生支持 .agents/skills/ 的 SaaS 应用。Leading Words: SaaS全栈OS脚手架, CloudflareWorkers部署, Hono+Angular架构, 一键Prompt产品构建
+description: "包含 14 个分类的自主产品构建 OS：支持 Cloudflare Workers + Hono + Angular + D1 + Stripe。只需一行 Prompt 即可快速部署包含 94 篇参考文档、18 个智能体且原生支持 .agents/skills/ 的 SaaS 应用。Leading Words: SaaS全栈OS脚手架, CloudflareWorkers部署, Hono+Angular架构, 一键Prompt产品构建"
 ---
 
 # Emdash Skills

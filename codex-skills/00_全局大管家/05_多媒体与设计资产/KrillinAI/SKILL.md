@@ -1,6 +1,6 @@
 ---
 name: KrillinAI
-description: 全链路 AI 视频翻译与配音工具。支持视频下载、ASR 语音识别、LLM 多语种翻译，并提供高保真克隆音色的 TTS 配音及横竖屏自适应剪辑，适用于跨语种视频出海与本地化。Leading Words: AI视频翻译, 视频配音, 语音克隆, KrillinAI
+description: "全链路 AI 视频翻译与配音工具。支持视频下载、ASR 语音识别、LLM 多语种翻译，并提供高保真克隆音色的 TTS 配音及横竖屏自适应剪辑，适用于跨语种视频出海与本地化。Leading Words: AI视频翻译, 视频配音, 语音克隆, KrillinAI"
 ---
 
 # KrillinAI 技能指南

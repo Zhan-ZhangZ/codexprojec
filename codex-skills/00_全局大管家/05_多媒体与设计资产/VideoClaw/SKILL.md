@@ -1,19 +1,19 @@
 ---
 name: VideoClaw
-description: AI全自动化视频生成员工。基于 Chat an Idea, Get a Film 理念，通过自然语言对话一键生成视频短片，内置完整的视频流生成工作流（脚本、配音、画面、剪辑）。Leading Words: AI视频全自动生成, Chat to Film, 视频流工作流, 一键视频生成
+description: "AI全自动化视频生成员工。基于 Chat an Idea, Get a Film 理念，通过自然语言对话一键生成视频短片，内置完整的视频流生成工作流（脚本、配音、画面、剪辑）。Leading Words: AI视频全自动生成, Chat to Film, 视频流工作流, 一键视频生成"
 ---
 
 # VideoClaw 技能指南
 
 ## 1. 核心法则 (Golden Rules)
-* **强制前置阅读**：执行任何视频生成任务前，必须使用 `view_file` 查阅根目录下的 `README.md`，理解具体的安装部署步骤及执行工作流。
+* **强制前置阅读**：执行任何视频生成任务前，必须读取根目录下的 `README.md`，理解具体的安装部署步骤及执行工作流。
 * **环境检测**：在执行自动化脚本前，必须确认用户环境中已正确配置所需的依赖库。
 
 ## 2. 轨迹驱动执行引擎 (Execution Trajectory)
 当你接收到自动化视频生成的任务时，请依循以下状态机推进：
 
 * **[State: 意图定位与资源准备]**
-  * 使用 `view_file` 查阅 `README.md` 或 `README_EN.md` 获取可用命令集。
+  * 读取 `README.md` 或 `README_EN.md` 获取可用命令集。
   * 确认用户提供的原始 idea 或视频脚本大纲。
 * **[State: 脚本执行与流式生成]**
   * 引导用户配置必要的环境变量（如对应的大模型 API Key）。

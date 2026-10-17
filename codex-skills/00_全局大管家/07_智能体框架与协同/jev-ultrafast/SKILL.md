@@ -1,17 +1,43 @@
 ---
 name: jev-ultrafast
-description: "超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe"
+description: "超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev
+  选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev,
+  browser agent, typesafe"
 metadata:
-  upstream: "github.com/browser-use/jev-ultrafast"
+  upstream: github.com/browser-use/jev-ultrafast
+  entrypoint: managed-v2
+  entrypoint_kind: application
 ---
 
+<!-- codex-skills-managed-entrypoint:v2 -->
 # jev-ultrafast
 
-**上游仓库**：<https://github.com/browser-use/jev-ultrafast>
+超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。
 
-超快浏览器智能体（browser-use 出品）。用法与示例见 [README.md](README.md) 与 [docs/](docs/)、[examples/](examples/)；核心包在 [jev_ultrafast/](jev_ultrafast/)。
+## 何时使用
 
-## 集成说明（本库维护）
+适用任务：超快浏览器智能体（browser-use × TypeSafe Jev）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本，全流程秒级完成。
+相关检索词：Jev Ultrafast、超快浏览器智能体。
 
-- 集成日期：2026-10-10；来源：Agent Skills Hub 热门场景榜单（对应场景实测首选）。
-- 瘦身剔除：tests/、uv.lock、AGENTS.md；保留核心包/文档/示例。
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
+
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 从包管理文件和入口代码确认安装、构建、启动命令；优先运行仓库自带脚本，不自行替换成相近工具。
+3. 完成任务后运行该仓库提供的测试、校验或最小可观察流程，并报告未满足的环境条件。
+
+## 本地入口
+
+- `README.md`
+- `pyproject.toml`
+- `docs/`
+
+## 上游
+
+- https://github.com/browser-use/jev-ultrafast
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

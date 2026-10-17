@@ -1,6 +1,6 @@
 ---
 name: stock-data-mcp
-description: 基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器，为 AI Agent 提供统一的股票/加密货币市场数据接口。支持 A 股、港股、美股、加密货币，采用多源数据供应商自动故障转移架构。Leading Words: 股票数据MCP服务, 多市场行情聚合, A股港股美股加密货币, FastMCP数据接口, 多源故障转移
+description: "基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器，为 AI Agent 提供统一的股票/加密货币市场数据接口。支持 A 股、港股、美股、加密货币，采用多源数据供应商自动故障转移架构。Leading Words: 股票数据MCP服务, 多市场行情聚合, A股港股美股加密货币, FastMCP数据接口, 多源故障转移"
 ---
 
 # Stock Data MCP Server
@@ -9,7 +9,7 @@ description: 基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器�
 
 ## 前置阅读
 
-> **执行任何操作前，必须先 `view_file` 阅读 `README.md`**（位于本技能根目录），获取完整的安装、配置与工具列表。
+> **执行任何操作前，必须先阅读 `README.md`**（位于本技能根目录），获取完整的安装、配置与工具列表。
 
 ## 核心能力
 

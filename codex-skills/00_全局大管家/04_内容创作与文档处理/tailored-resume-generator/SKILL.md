@@ -1,6 +1,6 @@
 ---
 name: tailored-resume-generator
-description: 职位描述精准打击型 (JD-Tailored) 简历重塑专家。通过对齐 JD 核心要求，将过往杂乱的经验提炼为量化成就（Achievements）与高匹配度技能点，最大化简历投递过筛率。Leading Words: JD精准打击提炼, 简历经验量化重塑, 高匹配度简历生成, 面试过筛率优化
+description: "职位描述精准打击型 (JD-Tailored) 简历重塑专家。通过对齐 JD 核心要求，将过往杂乱的经验提炼为量化成就（Achievements）与高匹配度技能点，最大化简历投递过筛率。Leading Words: JD精准打击提炼, 简历经验量化重塑, 高匹配度简历生成, 面试过筛率优化"
 ---
 
 # Tailored Resume Generator

@@ -1,6 +1,6 @@
 ---
 name: ha-mcp-python
-description: Home Assistant 极客版智能家居自动化 YAML 注入引擎 (MCP)。赋予大模型接管全局设备的权限。可读取异构传感器状态，全自动编排与调试复杂的智能场景 YAML 剧本。Leading Words: HA智能家居全局接管, 异构传感器状态读取, 自动化YAML剧本编排, 智能场景调试网关
+description: "Home Assistant 极客版智能家居自动化 YAML 注入引擎 (MCP)。赋予大模型接管全局设备的权限。可读取异构传感器状态，全自动编排与调试复杂的智能场景 YAML 剧本。Leading Words: HA智能家居全局接管, 异构传感器状态读取, 自动化YAML剧本编排, 智能场景调试网关"
 version: 8.4.0
 ---
 
@@ -36,5 +36,3 @@ version: 8.4.0
 - [references/docs/superpowers/](references/docs/superpowers/) — 设计规格与实施计划
 - [references/server.json](references/server.json) / [references/fastmcp.json](references/fastmcp.json) 等 — MCP 服务器清单
 - [references/PRIVACY.md](references/PRIVACY.md)、[references/SECURITY.md](references/SECURITY.md)、[references/LICENSE](references/LICENSE)
-
-> 上游为 HA add-on + 自定义组件 + PyPI `ha-mcp` 三形态分发；`src/`、`tests/`、`custom_components/`、add-on 打包与 `site/` 文档站未随库分发（docs/img/demo.webp 5.4M 演示动画亦剔除，走 GitHub 链接），需要时访问 [上游仓库](https://github.com/homeassistant-ai/ha-mcp/tree/v8.4.0)。

@@ -1,6 +1,6 @@
 ---
 name: mcp-builder
-description: 高质量 MCP (Model Context Protocol) 服务构建指南与脚手架。为智能体接入外部 API 或本地系统提供标准化开发路径，全面支持 Python (FastMCP) 及 Node/TypeScript (MCP SDK) 开发环境。Leading Words: 高质量MCP构建指南, 智能体外部API集成, PythonFastMCP开发, NodeTypeScriptSDK
+description: "高质量 MCP (Model Context Protocol) 服务构建指南与脚手架。为智能体接入外部 API 或本地系统提供标准化开发路径，全面支持 Python (FastMCP) 及 Node/TypeScript (MCP SDK) 开发环境。Leading Words: 高质量MCP构建指南, 智能体外部API集成, PythonFastMCP开发, NodeTypeScriptSDK"
 license: Complete terms in LICENSE.txt
 ---
 

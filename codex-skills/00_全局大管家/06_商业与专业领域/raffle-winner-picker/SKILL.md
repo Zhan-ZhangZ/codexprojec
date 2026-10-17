@@ -1,6 +1,6 @@
 ---
 name: raffle-winner-picker
-description: 防作弊跨平台透明抽奖与随机选人器。直接从普通文本列表、Excel 或 Google Sheets 中执行密码学安全的真随机抽取，适用于社群裂变 Giveaway、锦鲤抽奖，确保过程的绝对公正与透明。Leading Words: 透明防作弊抽奖器, GoogleSheets数据抽取, 真随机Giveaway选人, 密码学安全随机
+description: "防作弊跨平台透明抽奖与随机选人器。直接从普通文本列表、Excel 或 Google Sheets 中执行密码学安全的真随机抽取，适用于社群裂变 Giveaway、锦鲤抽奖，确保过程的绝对公正与透明。Leading Words: 透明防作弊抽奖器, GoogleSheets数据抽取, 真随机Giveaway选人, 密码学安全随机"
 ---
 
 # Raffle Winner Picker

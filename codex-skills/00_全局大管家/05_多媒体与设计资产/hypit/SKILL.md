@@ -1,6 +1,6 @@
 ---
 name: hypit
-description: AI 智能体驱动的视频创作发行版（Hypit Distribution）。基于 SVML 标记语言与 SVS/SVRun 工作流，支持从参考视频克隆、脚本/语音/画面/字幕/特效编排到最终渲染的全链路视频生产；组件可插拔、可重用，支持本地 WhisperX 转写与 HypiHub 云端一体化。Leading Words: SVML视频创作, AI视频克隆, SVS语义快照, SVRun可重用工作流, AIGC分镜, B-roll自动生成, 词级字幕, 短视频矩阵量产
+description: "AI 智能体驱动的视频创作发行版（Hypit Distribution）。基于 SVML 标记语言与 SVS/SVRun 工作流，支持从参考视频克隆、脚本/语音/画面/字幕/特效编排到最终渲染的全链路视频生产；组件可插拔、可重用，支持本地 WhisperX 转写与 HypiHub 云端一体化。Leading Words: SVML视频创作, AI视频克隆, SVS语义快照, SVRun可重用工作流, AIGC分镜, B-roll自动生成, 词级字幕, 短视频矩阵量产"
 metadata:
     upstream: github.com/hypit-ai/hypit
     version: v0.1.8
@@ -13,7 +13,6 @@ metadata:
 - **官方安装**：`npx skills add hypit-ai/hypit -g`（用户从 npm 拉取运行时，本仓库保留**技能层与文档层**）
 - **中文 README**：[README.zh-CN.md](./README.zh-CN.md)
 - **项目说明**：[README.md](./README.md)
-- **开发贡献**：[CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 这是什么
 
@@ -74,9 +73,9 @@ hypit --version                      # 校验安装
 
 Agent 在每次接到 `/hypit ...` 任务时应：
 
-1. 先 `view_file skills/hypit/SKILL.md` 读取完整技能正文
+1. 先读取 `skills/hypit/SKILL.md` 获取完整技能正文
 2. 按 SKILL.md 的"环境选择"段检查本机 Profile（[profile.md](./skills/hypit/references/environment/profile.md)）
-3. 按需求依次 `view_file` 读取 [references/](./skills/hypit/references/) 下对应章节
+3. 按需求依次读取 [references/](./skills/hypit/references/) 下对应章节
 
 ## 目录索引
 

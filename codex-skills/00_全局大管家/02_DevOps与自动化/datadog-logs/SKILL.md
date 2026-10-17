@@ -1,6 +1,6 @@
 ---
 name: datadog-logs
-description: Datadog 终端日志分析与检索专家。利用 Composio CLI 穿透系统壳层查询和过滤 Datadog 日志，支持跨服务/环境的范围检索，并将结构化 JSON 导出供下游代理使用，彻底告别在 Datadog UI 中的繁琐点击。Leading Words: Datadog日志查询, Composio集成, 跨环境日志检索, JSON日志导出, 自动化监控追踪
+description: "Datadog 终端日志分析与检索专家。利用 Composio CLI 穿透系统壳层查询和过滤 Datadog 日志，支持跨服务/环境的范围检索，并将结构化 JSON 导出供下游代理使用，彻底告别在 Datadog UI 中的繁琐点击。Leading Words: Datadog日志查询, Composio集成, 跨环境日志检索, JSON日志导出, 自动化监控追踪"
 metadata:
   short-description: Datadog log filtering via the Composio CLI
 ---

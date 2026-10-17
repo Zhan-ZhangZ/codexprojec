@@ -1,6 +1,6 @@
 ---
 name: nuwa-skill
-description: 女娲造人：输入人名/主题/模糊需求，自动深度调研、提炼思维框架，生成可运行的人物数字分身 Skill。Leading Words: 人物思维蒸馏, 认知框架提取, 数字分身造人, 决策顾问Agent
+description: "女娲造人：输入人名/主题/模糊需求，自动深度调研、提炼思维框架，生成可运行的人物数字分身 Skill。Leading Words: 人物思维蒸馏, 认知框架提取, 数字分身造人, 决策顾问Agent"
 ---
 
 # 女娲 · Skill造人术

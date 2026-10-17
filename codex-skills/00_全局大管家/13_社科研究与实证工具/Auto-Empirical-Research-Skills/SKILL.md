@@ -1,7 +1,9 @@
 ---
 name: auto-empirical-research-skills
-description: "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵"
+description: "实证经济学与社会科学 Agent Skills 合集。收录 76 个技能包、1096 个技能，覆盖数据清理、因果推断、稳健性检验、论文写作、复现与投稿工作流。"
 license: CC-BY-SA-4.0
+metadata:
+  upstream: github.com/brycewang-stanford/Auto-Empirical-Research-Skills
 ---
 
 # Auto-Empirical Research Skills 路由器
@@ -9,6 +11,8 @@ license: CC-BY-SA-4.0
 当整个 AERS 仓库作为单个技能文件夹安装时，使用本根技能。把它当作路由器与目录索引，而不是一次性读取全部内嵌子技能的 `SKILL.md`。
 
 目录收录 **76 个内嵌合集、共 1,096 个技能**。绝不整库通读——先路由到其中一个，再只加载该技能的 `SKILL.md`。
+
+上游仓库：<https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills>
 
 ## 工作流程
 

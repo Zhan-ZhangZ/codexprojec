@@ -1,6 +1,6 @@
 ---
 name: qiaomu-anything-to-notebooklm
-description: 万物皆可转存 Google NotebookLM 的知识桥梁。自动捕获任意格式的外部资料库（网页摘要、社群对话流或本地零散文档），并无缝推送为 NotebookLM 可消费的基础源。Leading Words: 万物转NotebookLM, 跨格式私有化注入, 外部资料库无缝推流
+description: "万物皆可转存 Google NotebookLM 的知识桥梁。自动捕获任意格式的外部资料库（网页摘要、社群对话流或本地零散文档），并无缝推送为 NotebookLM 可消费的基础源。Leading Words: 万物转NotebookLM, 跨格式私有化注入, 外部资料库无缝推流"
 user-invocable: true
 homepage: https://github.com/joeseesun/qiaomu-anything-to-notebooklm
 ---
@@ -26,51 +26,51 @@ homepage: https://github.com/joeseesun/qiaomu-anything-to-notebooklm
 ### 5. 付费墙网站自动绕过
 自动检测并绕过 NYT、WSJ、FT、Economist、Bloomberg、Medium 等 300+ 付费网站的付费墙。策略：UA 伪装（Googlebot/Bingbot）→ Referer 伪装（Google/Facebook）→ AMP 页面 → archive.today 存档
 
-### 5. YouTube 视频
+### 6. YouTube 视频
 **直接传递给 NotebookLM！** NotebookLM 原生支持 YouTube 链接，会自动提取视频字幕和元数据，无需手动下载字幕或转写。禁止使用 yt-dlp 或浏览器自动化提取字幕。
 
-### 4. Office 文档
+### 7. Office 文档
 - **Word (DOCX)** - 保留表格和格式
 - **PowerPoint (PPTX)** - 提取幻灯片和备注
 - **Excel (XLSX)** - 表格数据
 
-### 5. 播客/音频平台
+### 8. 播客/音频平台
 - **小宇宙** (xiaoyuzhoufm.com) - 通过 Get笔记 API 获取完整转写
 - **喜马拉雅** (ximalaya.com) - 通过 Get笔记 API 获取完整转写
 - **B站视频** (bilibili.com) - 通过 Get笔记 API 获取完整转写
 - 其他音频链接 - 通过 Get笔记 API 获取转写
 
-### 5. 电子书与文档
+### 9. 电子书与文档
 - **PDF** - 全文提取
 - **EPUB** - 电子书全文提取
 - **Markdown (.md)** - 原生支持
 
-### 6. 图片与扫描件
+### 10. 图片与扫描件
 - **Images** (JPEG, PNG, GIF, WebP) - OCR 识别文字
 - 扫描的 PDF 文档 - OCR 提取文字
 
-### 7. 音频文件
+### 11. 音频文件
 - **Audio** (WAV, MP3) - 语音转文字
 
-### 8. 结构化数据
+### 12. 结构化数据
 - **CSV** - 逗号分隔数据
 - **JSON** - JSON 数据
 - **XML** - XML 文档
 
-### 9. 压缩包
+### 13. 压缩包
 - **ZIP** - 自动解压并处理所有支持的文件
 
-### 10. 纯文本
+### 14. 纯文本
 直接输入或粘贴的文本内容
 
-### 11. 搜索关键词
+### 15. 搜索关键词
 通过 Web Search 搜索关键词，汇总多个来源的信息
 
 ## 前置条件
 
 ### 1. 安装 wexin-read-mcp
 
-MCP 服务器已安装在：`~/.claude/skills/qiaomu-anything-to-notebooklm/wexin-read-mcp/`
+MCP 服务器位于本技能目录的 `wexin-read-mcp/`。
 
 **配置 MCP**（需要手动添加到 Claude 配置文件）：
 
@@ -83,7 +83,7 @@ MCP 服务器已安装在：`~/.claude/skills/qiaomu-anything-to-notebooklm/wexi
     "weixin-reader": {
       "command": "python",
       "args": [
-        "/Users/joe/.claude/skills/qiaomu-anything-to-notebooklm/wexin-read-mcp/src/server.py"
+        "<ABSOLUTE_SKILL_DIR>/wexin-read-mcp/src/server.py"
       ]
     }
   }
@@ -91,6 +91,8 @@ MCP 服务器已安装在：`~/.claude/skills/qiaomu-anything-to-notebooklm/wexi
 ```
 
 **配置后需要重启 Claude Code。**
+
+把 `<ABSOLUTE_SKILL_DIR>` 替换为当前安装目录的绝对路径；不要照抄占位符。
 
 ### 2. notebooklm 认证
 
@@ -208,14 +210,14 @@ Claude 自动识别输入类型：
 
 **播客/视频（小宇宙/喜马拉雅/B站）**：
 - 通过 Get笔记 API 获取完整转写文本
-- 调用 `python3 ~/.claude/skills/qiaomu-anything-to-notebooklm/scripts/get_podcast_transcript.py <URL>`
+- 在本技能根目录调用 `python3 scripts/get_podcast_transcript.py <URL>`
 - 脚本自动执行：创建链接笔记 → 等待转写 → 获取全文 → 保存 TXT
 - 返回 TXT 路径和标题
-- 依赖：Get笔记 API Key（环境变量 `GETNOTE_API_KEY`、`GETNOTE_CLIENT_ID`）+ Web Token（`~/.claude/skills/getnote/tokens.json`）
+- 依赖：Get笔记 API Key（环境变量 `GETNOTE_API_KEY`、`GETNOTE_CLIENT_ID`）+ Web Token（路径由 `GETNOTE_TOKENS_FILE` 指定）
 
 **X/Twitter 帖子**：
 - 通过内置代理级联抓取推文内容（r.jina.ai → defuddle.md → agent-fetch）
-- 调用 `bash ~/.claude/skills/qiaomu-anything-to-notebooklm/scripts/fetch_url.sh "https://x.com/..."` 获取 Markdown 内容
+- 在本技能根目录调用 `bash scripts/fetch_url.sh "https://x.com/..."` 获取 Markdown 内容
 - 自动处理 X 登录墙和错误页面
 - 保存为 TXT 后上传到 NotebookLM
 
@@ -283,11 +285,11 @@ notebooklm source add /tmp/weixin_xxx.txt --title "{title}"  # 上传文件
 
 ```bash
 # 仅深度分析
-python ~/.claude/skills/qiaomu-anything-to-notebooklm/main.py \
+python main.py \
   /path/to/file.epub --deep-analysis
 
 # 深度分析 + 自动创建飞书文档
-python ~/.claude/skills/qiaomu-anything-to-notebooklm/main.py \
+python main.py \
   /path/to/file.epub --deep-analysis --to-feishu
 ```
 
@@ -428,7 +430,7 @@ python ~/.claude/skills/qiaomu-anything-to-notebooklm/main.py \
 把这篇文章、这个视频和这个PDF一起做成PPT：
 - https://example.com/article
 - https://youtube.com/watch?v=xyz
-- /Users/joe/Documents/research.pdf
+- /path/to/research.pdf
 ```
 
 **执行流程**：
@@ -455,7 +457,7 @@ python ~/.claude/skills/qiaomu-anything-to-notebooklm/main.py \
 
 **用户输入**：
 ```
-把这本电子书做成播客 /Users/joe/Books/sapiens.epub
+把这本电子书做成播客 /path/to/sapiens.epub
 ```
 
 **执行流程**：
@@ -483,7 +485,7 @@ python ~/.claude/skills/qiaomu-anything-to-notebooklm/main.py \
 
 **用户输入**：
 ```
-这个Markdown生成Quiz /Users/joe/notes/machine_learning.md
+这个 Markdown 生成 Quiz /path/to/machine_learning.md
 ```
 
 **执行流程**：
@@ -641,7 +643,7 @@ Skill 会将要求作为 instructions 传给 NotebookLM。
     "weixin-reader": {
       "command": "python",
       "args": [
-        "/Users/joe/.claude/skills/qiaomu-anything-to-notebooklm/wexin-read-mcp/src/server.py"
+        "<ABSOLUTE_SKILL_DIR>/wexin-read-mcp/src/server.py"
       ]
     }
   }
@@ -650,16 +652,18 @@ Skill 会将要求作为 instructions 传给 NotebookLM。
 
 **配置后重启 Claude Code！**
 
+把 `<ABSOLUTE_SKILL_DIR>` 替换为当前安装目录的绝对路径；不要照抄占位符。
+
 ## 故障排查
 
 ### 1. MCP 工具未找到
 
 ```bash
 # 测试 MCP 服务器
-python ~/.claude/skills/qiaomu-anything-to-notebooklm/wexin-read-mcp/src/server.py
+python <SKILL_ROOT>/wexin-read-mcp/src/server.py
 
 # 如果报错，检查依赖
-cd ~/.claude/skills/qiaomu-anything-to-notebooklm/wexin-read-mcp
+cd <SKILL_ROOT>/wexin-read-mcp
 pip install -r requirements.txt
 playwright install chromium
 ```

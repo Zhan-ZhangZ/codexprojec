@@ -1,6 +1,6 @@
 ---
 name: text-to-cad
-description: Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染
+description: "Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染"
 metadata:
   version: 0.4.28
   upstream: github.com/earthtojake/text-to-cad

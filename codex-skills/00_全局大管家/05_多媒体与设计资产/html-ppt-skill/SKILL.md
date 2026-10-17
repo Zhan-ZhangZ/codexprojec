@@ -1,6 +1,6 @@
 ---
 name: html-ppt
-description: 纯文本极速渲染 HTML 演示文稿生成器。跳过繁琐的 Office 排版，直接将脑暴思路映射为轻量级、跨终端响应式、支持浏览器一键开启的 HTML 格式 PPT。Leading Words: HTML轻量级PPT, 跨终端响应式演示, 思路直出排版
+description: "纯文本极速渲染 HTML 演示文稿生成器。跳过繁琐的 Office 排版，直接将脑暴思路映射为轻量级、跨终端响应式、支持浏览器一键开启的 HTML 格式 PPT。Leading Words: HTML轻量级PPT, 跨终端响应式演示, 思路直出排版"
 ---
 
 # html-ppt — HTML PPT Studio

@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: 自定义技能向导与极速开发脚手架 (Skill Creator)。详细说明如何为 Codex 定制扩展能力，涵盖专门领域知识与自定义工具链集成的开发规范。Leading Words: 自定义扩展技能定制, 极速开发脚手架范式, 专属工具链集成指导, Codex专属能力外挂
+description: "自定义技能向导与极速开发脚手架 (Skill Creator)。详细说明如何为 Codex 定制扩展能力，涵盖专门领域知识与自定义工具链集成的开发规范。Leading Words: 自定义扩展技能定制, 极速开发脚手架范式, 专属工具链集成指导, Codex专属能力外挂"
 metadata:
   short-description: Create or update a skill
 ---

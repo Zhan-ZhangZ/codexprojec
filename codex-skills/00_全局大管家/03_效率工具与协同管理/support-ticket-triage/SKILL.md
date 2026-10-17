@@ -1,6 +1,6 @@
 ---
 name: support-ticket-triage
-description: 全渠道客服工单智能分类与自动化回复分诊台。处理 Zendesk、Intercom 等导出的原始报文，进行意图分类、定级（Priority），并起草包含复现步骤的标准话术回复。Leading Words: Zendesk工单分诊, 客服报文分类, Intercom优先级定级, 标准化话术起草
+description: "全渠道客服工单智能分类与自动化回复分诊台。处理 Zendesk、Intercom 等导出的原始报文，进行意图分类、定级（Priority），并起草包含复现步骤的标准话术回复。Leading Words: Zendesk工单分诊, 客服报文分类, Intercom优先级定级, 标准化话术起草"
 metadata:
   short-description: Categorize and respond to support tickets
 ---

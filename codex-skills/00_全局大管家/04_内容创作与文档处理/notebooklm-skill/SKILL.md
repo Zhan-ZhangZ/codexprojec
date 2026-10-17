@@ -1,6 +1,6 @@
 ---
 name: notebooklm
-description: Google NotebookLM 跨端检索与反幻觉引用源交互器。在 CLI 端直连 NotebookLM 的底层引擎，仅依赖你的私有语料库进行溯源问答（基于 Gemini），彻底切断外部大模型幻觉，并支持持久化认证与浏览器库管理。Leading Words: NotebookLM穿透查询, 反幻觉溯源问答, 零幻觉私有语料检索, 持久化认证挂载
+description: "Google NotebookLM 跨端检索与反幻觉引用源交互器。在 CLI 端直连 NotebookLM 的底层引擎，仅依赖你的私有语料库进行溯源问答（基于 Gemini），彻底切断外部大模型幻觉，并支持持久化认证与浏览器库管理。Leading Words: NotebookLM穿透查询, 反幻觉溯源问答, 零幻觉私有语料检索, 持久化认证挂载"
 ---
 
 # NotebookLM Research Assistant Skill
@@ -190,7 +190,7 @@ python -m patchright install chromium
 
 ## Data Storage
 
-All data stored in `~/.claude/skills/notebooklm/data/`:
+All data is stored in the installed skill's own `data/` directory:
 - `library.json` - Notebook metadata
 - `auth_info.json` - Authentication status
 - `browser_state/` - Browser cookies and session

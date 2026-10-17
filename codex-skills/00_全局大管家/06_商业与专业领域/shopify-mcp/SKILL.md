@@ -1,16 +1,39 @@
 ---
 name: shopify-mcp
-description: Shopify 独立站 GraphQL 核心数据库级超级管家 (MCP)。彻底穿透官方 Admin API，提供对 Product、Order 及 Customer 的增删改查全生命周期统治。支持扩展字段 (Metafields) 深度注入与全站库存锁定。Leading Words: Shopify独立站后台管理, GraphQL Admin API全封装, Metafields扩展属性, 订单全生命周期统治
+description: "Shopify Admin API MCP 服务。管理商品、变体、客户、订单、库存、Metafields 与标签，支持 GraphQL 分页和筛选。"
+metadata:
+  upstream: github.com/GeLi2001/shopify-mcp
+  entrypoint: managed-v2
+  entrypoint_kind: mcp
 ---
 
-# shopify-mcp — 跨境电商与店铺管理 MCP 服务
+<!-- codex-skills-managed-entrypoint:v2 -->
+# shopify-mcp
 
-- **项目主页**: https://github.com/GeLi2001/shopify-mcp
+这是一个连接 Shopify GraphQL Admin API 的 MCP 服务，可管理商品、客户、订单、库存、Metafields、标签与履约流程。
 
-## 功能说明
+## 何时使用
 
-Shopify 独立站后台全功能管理 MCP。基于 GraphQL Admin API 深度封装，支持产品 (Products)、订单 (Orders) 和客户 (Customers) 的全生命周期管理，支持更新 Metafields 扩展属性及库存修改。
+适用任务：读写 Shopify 商品、客户和订单，管理库存与扩展字段，或执行履约和退款操作。
 
-## 安装与快速开始
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
 
-详细配置与用法请参考该技能目录下的 [README.md](./README.md)。
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 按仓库当前文档启动或接入 MCP 服务，核对实际工具名和参数；不要凭项目简介编造工具。
+3. 先用一个只读、最小请求验证连接，再执行用户要求的操作。凭据只从环境或安全配置读取，不写进技能文件。
+
+## 本地入口
+
+- `README.md`
+- `package.json`
+
+## 上游
+
+- https://github.com/GeLi2001/shopify-mcp
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

@@ -1,6 +1,6 @@
 ---
 name: sentry-triage
-description: Sentry 线上错误实时诊断与修复助手。免去了人工复制堆栈的繁琐，利用 Composio CLI 直连 Sentry 获取异常明细、用户行为面包屑（Breadcrumbs）及嫌疑 Commit，自动将报错调用栈映射到本地源码，并输出热修复（Hotfix）方案。Leading Words: Sentry错误日志分析, 线上异常诊断, 调用栈映射, 自动Hotfix定位, 行为面包屑排查
+description: "Sentry 线上错误实时诊断与修复助手。免去了人工复制堆栈的繁琐，利用 Composio CLI 直连 Sentry 获取异常明细、用户行为面包屑（Breadcrumbs）及嫌疑 Commit，自动将报错调用栈映射到本地源码，并输出热修复（Hotfix）方案。Leading Words: Sentry错误日志分析, 线上异常诊断, 调用栈映射, 自动Hotfix定位, 行为面包屑排查"
 metadata:
   short-description: Sentry error diagnosis via the Composio CLI
 ---

@@ -1,6 +1,6 @@
 ---
 name: wechat-miniprogram-development
-description: 微信小程序 AI 协同开发全链路指南。完整记录了从环境依赖安装、大模型接入配置、具体避坑指南（如 lazyCodeLoading 与 Babel 报错解决）到 CLI 自动化预览和代码上传的实战开发工作流。Leading Words: 微信小程序开发, miniprogram, WXML/WXSS, 微信开发者工具CLI, 小程序提审, CloudBase MCP, hunyuan-v3, lazyCodeLoading
+description: "微信小程序 AI 协同开发全链路指南。完整记录了从环境依赖安装、大模型接入配置、具体避坑指南（如 lazyCodeLoading 与 Babel 报错解决）到 CLI 自动化预览和代码上传的实战开发工作流。Leading Words: 微信小程序开发, miniprogram, WXML/WXSS, 微信开发者工具CLI, 小程序提审, CloudBase MCP, hunyuan-v3, lazyCodeLoading"
 ---
 
 # 微信小程序实战开发全流程指南 (包含排坑记录)

@@ -1,6 +1,6 @@
 ---
 name: paper-search
-description: 轻量级学术文献双源检索引擎。原生接入 arXiv 与 PubMed 两大学术数据库，支持极速反查并提取论文的标题、作者、来源、摘要等核心元数据，并可一键渲染为结构化的 Markdown 参考列表。Leading Words: 轻量学术文献双源检索, arXiv/PubMed元数据提取, Markdown规范参考列表, 快速学术定标器
+description: "轻量级学术文献双源检索引擎。原生接入 arXiv 与 PubMed 两大学术数据库，支持极速反查并提取论文的标题、作者、来源、摘要等核心元数据，并可一键渲染为结构化的 Markdown 参考列表。Leading Words: 轻量学术文献双源检索, arXiv/PubMed元数据提取, Markdown规范参考列表, 快速学术定标器"
 ---
 
 # 文献学术检索 (paper-search)

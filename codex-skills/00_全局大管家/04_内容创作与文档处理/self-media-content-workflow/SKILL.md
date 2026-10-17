@@ -1,12 +1,12 @@
 ---
 name: self-media-content-workflow
-description: 通用自媒体内容生产与经营全流程工作流集成套件。覆盖从需求澄清（创作简报）、账号策略（选题池/内容日历）、热点竞品雷达、多平台原生文案（微信公众号/小红书/X等）、短视频脚本与数字人制片、公众号智能排版草稿发布、数据复盘及交付归档的完整闭环。Leading Words: 自媒体工作流, 爆款文案生成, 多平台改写, 小红书文案, 公众号排版, 短视频脚本分镜, 数字人制片, 热点竞品雷达, 内容数据复盘
+description: "通用自媒体内容生产与经营全流程工作流集成套件。覆盖从需求澄清（创作简报）、账号策略（选题池/内容日历）、热点竞品雷达、多平台原生文案（微信公众号/小红书/X等）、短视频脚本与数字人制片、公众号智能排版草稿发布、数据复盘及交付归档的完整闭环。Leading Words: 自媒体工作流, 爆款文案生成, 多平台改写, 小红书文案, 公众号排版, 短视频脚本分镜, 数字人制片, 热点竞品雷达, 内容数据复盘"
 ---
 
 # Self Media Content Workflow (自媒体内容生产与经营工作流套件)
 
 - **项目主页**: https://github.com/yanhua1010/self-media-content-workflow
-- **文档指南**: 在执行具体任务或了解详细参数配置前，请先使用 `view_file` 阅读本地 [README.md](./README.md) 及 [skills/self-media-content-workflow/SKILL.md](./skills/self-media-content-workflow/SKILL.md)。
+- **文档指南**: 在执行具体任务或了解详细参数配置前，请先阅读本地 [README.md](./README.md) 及 [skills/self-media-content-workflow/SKILL.md](./skills/self-media-content-workflow/SKILL.md)。
 
 ## 🎯 核心法则 (Golden Rules)
 
@@ -54,7 +54,7 @@ graph TD
    - 检查工作区是否存在正在进行中的任务卡（`self-media/`）。
    - 若用户输入为模糊灵感，优先激活 `self-media-content-brief` 引导用户确认受众与核心判断。
 2. **子模块协同调用**：
-   - 根据路由分发至对应子模块，使用 `view_file` 查阅子模块的详细执行规范与模板。
+   - 根据路由分发至对应子模块，读取子模块的详细执行规范与模板。
 3. **确认点拦截与产物交付**：
    - 阶段性成果保存为 Markdown 里程碑文件，报告当前状态（`AWAITING_USER` / `DONE` / `DONE_WITH_CONCERNS`）。
 

@@ -1,11 +1,11 @@
 ---
 name: drawio-scientific-illustrator
-description: 在可见的 draw.io 桌面画布中实时重绘、追踪、修改和导出科学插图与示意图的 Codex 插件。通过 draw.io 自身的图模型 API 逐步驱动绘图，支持 PNG/SVG/PDF 导出，不使用系统鼠标键盘自动化。Leading Words: draw.io科研插图重绘, 实时画布绘图MCP, 可编辑科学示意图, draw.io图元逐步构建
+description: "在可见的 draw.io 桌面画布中实时重绘、追踪、修改和导出科学插图与示意图的 Codex 插件。通过 draw.io 自身的图模型 API 逐步驱动绘图，支持 PNG/SVG/PDF 导出，不使用系统鼠标键盘自动化。Leading Words: draw.io科研插图重绘, 实时画布绘图MCP, 可编辑科学示意图, draw.io图元逐步构建"
 ---
 
 # Draw.io Scientific Illustrator（v1.5.4 集成副本）
 
-> **执行前必读**：使用本技能前，请先用 `view_file` 阅读本目录下的 [`README.md`](./README.md)，获取完整的安装要求、三平台（Microsoft PowerPoint、WPS 演示、draw.io）使用方式、环境变量配置与提示词模板。
+> **执行前必读**：使用本技能前，请先阅读本目录下的 [`README.md`](./README.md)，获取完整的安装要求、三平台（Microsoft PowerPoint、WPS 演示、draw.io）使用方式、环境变量配置与提示词模板。
 
 ## 技能定位
 

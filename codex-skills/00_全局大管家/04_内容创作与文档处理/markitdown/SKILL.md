@@ -1,6 +1,6 @@
 ---
 name: markitdown
-description: 文档与图文跨模态转换至 Markdown 格式的编译神器。可以将任何复杂的 Office 格式文档、带有数学公式的 PDF 及图文混排文章完美清洗并逆向还原为干净、纯粹的 Markdown。Leading Words: Office转Markdown, 复杂图文提取, 文档格式清洗与逆向
+description: "文档与图文跨模态转换至 Markdown 格式的编译神器。可以将任何复杂的 Office 格式文档、带有数学公式的 PDF 及图文混排文章完美清洗并逆向还原为干净、纯粹的 Markdown。Leading Words: Office转Markdown, 复杂图文提取, 文档格式清洗与逆向"
 allowed-tools: Read Write Edit Bash
 license: MIT license
 version: 0.1.7

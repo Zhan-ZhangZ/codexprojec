@@ -1,6 +1,6 @@
 ---
 name: OnlyShot
-description: AI短剧工业化流水线工具。全流程自动化生成（剧本编撰 -> 分镜设计 -> 画面生成 -> 视频生成 -> 后期剪辑），支持即梦、Seedance 等先进模型，专为短剧和视频流工业标准打造。Leading Words: AI短剧, 短剧流水线, 视频生成工作流, OnlyShot
+description: "AI短剧工业化流水线工具。全流程自动化生成（剧本编撰 -> 分镜设计 -> 画面生成 -> 视频生成 -> 后期剪辑），支持即梦、Seedance 等先进模型，专为短剧和视频流工业标准打造。Leading Words: AI短剧, 短剧流水线, 视频生成工作流, OnlyShot"
 ---
 
 # AI 短剧精细化 IP 创作 v0.6.0

@@ -1,6 +1,6 @@
 ---
 name: zotero-connector
-description: 个人私域 Zotero 文献库 (SQLite/Web API) 深层同步与萃取桥梁。赋予 Agent 打穿个人十年学术积淀的能力，极速倒排索引本地论文标签、笔记摘要及引证元数据，实现“第二大脑”科研知识内化调用。Leading Words: 私域Zotero文献库同步萃取, 个人学术第二大脑内化调用, SQLite/Web API穿透倒排索引, 论文标签笔记元数据打穿
+description: "个人私域 Zotero 文献库 (SQLite/Web API) 深层同步与萃取桥梁。赋予 Agent 打穿个人十年学术积淀的能力，极速倒排索引本地论文标签、笔记摘要及引证元数据，实现“第二大脑”科研知识内化调用。Leading Words: 私域Zotero文献库同步萃取, 个人学术第二大脑内化调用, SQLite/Web API穿透倒排索引, 论文标签笔记元数据打穿"
 ---
 
 # Zotero 文献库同步 (zotero-connector)

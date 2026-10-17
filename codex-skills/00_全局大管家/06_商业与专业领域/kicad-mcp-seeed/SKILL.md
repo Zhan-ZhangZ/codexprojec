@@ -1,16 +1,43 @@
 ---
 name: kicad-mcp-seeed
-description: Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。Leading Words: Seeed官方KiCad助手, Netlist信号互连追踪, 底层驱动代码反推, PCB拓扑关系分析
+description: "Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪
+  PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。Leading Words:
+  Seeed官方KiCad助手, Netlist信号互连追踪, 底层驱动代码反推, PCB拓扑关系分析"
+metadata:
+  upstream: github.com/Seeed-Studio/kicad-mcp-server
+  entrypoint: managed-v2
+  entrypoint_kind: mcp
 ---
 
-# kicad-mcp-seeed — 电气与智能化设计 MCP 服务
+<!-- codex-skills-managed-entrypoint:v2 -->
+# kicad-mcp-seeed
 
-- **项目主页**: https://github.com/Seeed-Studio/kicad-mcp-server
+Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。
 
-## 功能说明
+## 何时使用
 
-Seeed Studio 官方开发的 KiCad 智能分析与设计助手 MCP。支持基于 KiCad 9.0+ 的原理图分析、PCB 连接关系追踪、元器件网络检查及生成嵌入式驱动代码。
+适用任务：Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。
 
-## 安装与快速开始
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
 
-详细配置与用法请参考该技能目录下的 [README.md](./README.md)。
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 按仓库当前文档启动或接入 MCP 服务，核对实际工具名和参数；不要凭项目简介编造工具。
+3. 先用一个只读、最小请求验证连接，再执行用户要求的操作。凭据只从环境或安全配置读取，不写进技能文件。
+
+## 本地入口
+
+- `README.md`
+- `pyproject.toml`
+- `requirements.txt`
+- `docs/`
+
+## 上游
+
+- https://github.com/Seeed-Studio/kicad-mcp-server
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

@@ -1,6 +1,6 @@
 ---
 name: freecad-mcp
-description: FreeCAD 3D 机械图纸参数化建模拓扑生成器 (MCP)。完全舍弃 GUI，使用自然语言驱动底层的拓扑特征引擎完成拉伸、布尔打孔、倒角倒圆角操作，并支持无头环境大批量转换 STEP/STL 制造级模型。Leading Words: 3D机械参数化建模, FreeCAD拓扑特征引擎, 自然语言驱动布尔打孔, STEP/STL无头批量生成
+description: "FreeCAD 3D 机械图纸参数化建模拓扑生成器 (MCP)。完全舍弃 GUI，使用自然语言驱动底层的拓扑特征引擎完成拉伸、布尔打孔、倒角倒圆角操作，并支持无头环境大批量转换 STEP/STL 制造级模型。Leading Words: 3D机械参数化建模, FreeCAD拓扑特征引擎, 自然语言驱动布尔打孔, STEP/STL无头批量生成"
 ---
 
 # FreeCAD MCP — 3D 参数化建模与自动化

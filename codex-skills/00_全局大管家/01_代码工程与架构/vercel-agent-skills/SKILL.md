@@ -1,6 +1,6 @@
 ---
 name: vercel-agent-skills
-description: Vercel 官方标准的前端项目质检探针。专门针对 React / Next.js 等 Web 应用进行深度体检，全面覆盖页面性能优化（Web Vitals）、DOM结构合理性、无障碍访问（Accessibility/a11y）以及现代前端工程最佳实践规范。Leading Words: Vercel前端规范, React性能优化, 网页可访问性 a11y, Web Vitals, Next.js最佳实践
+description: "Vercel 官方标准的前端项目质检探针。专门针对 React / Next.js 等 Web 应用进行深度体检，全面覆盖页面性能优化（Web Vitals）、DOM结构合理性、无障碍访问（Accessibility/a11y）以及现代前端工程最佳实践规范。Leading Words: Vercel前端规范, React性能优化, 网页可访问性 a11y, Web Vitals, Next.js最佳实践"
 metadata:
   version: "2026-08-28"
   upstream: github.com/vercel-labs/agent-skills

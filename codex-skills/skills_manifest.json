@@ -1,22 +1,22 @@
 [
   {
     "name": "00_codex_skills",
-    "description": "全局技能库大管家（Librarian Router）。当你需要调用任何领域的专家技能（如代码、写作、科研、部署等）时，请唤醒此技能。它将自动为您寻址并加载最完美的专业子技能。",
+    "description": "检索、比较并加载本技能库中的专家技能。任务需要代码、写作、科研、硬件、MCP 或第三方应用能力，而当前会话尚未加载对应技能时使用；先按 skills_manifest.json 匹配，再读取命中的 SKILL.md。",
     "category": "00_全局大管家",
     "folder": "00_全局大管家",
     "relative_path": "./"
   },
   {
     "name": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
-    "description": "提供陈光剑编写的关于 LLM-based Multi-Agent 系统的理论基础、架构模式与项目实战指南。涵盖大语言模型特性、多智能体协作、Prompt工程，以及架构落地。当需要设计复杂的Agent协同系统或查阅MAS理论时使用。Leading Words: MAS架构设计, 多智能体协同, Prompt工程, LLM基础理论, 系统架构设计",
+    "description": "陈光剑《LLM-based Multi-Agent 系统架构设计与项目代码实践》的中文书目快照。用于查阅多智能体系统的理论基础、架构模式、Agent 协作、评估优化和项目实践。",
     "category": "01_代码工程与架构",
     "folder": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
     "relative_path": "./00_全局大管家/01_代码工程与架构/LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
     "file_index": {
-      "path": ".catalog/9057c2f9d7a37bbaa9a5beebf3821b9821500b143bb381867a6fbcc998c9d5ba.json",
-      "sha256": "9057c2f9d7a37bbaa9a5beebf3821b9821500b143bb381867a6fbcc998c9d5ba",
+      "path": ".catalog/4b811861be370686200ce1d6e215d81d033b7f80d6b78d253457e39ceeaad737.json",
+      "sha256": "4b811861be370686200ce1d6e215d81d033b7f80d6b78d253457e39ceeaad737",
       "file_count": 24,
-      "total_bytes": 1521819
+      "total_bytes": 1522939
     }
   },
   {
@@ -26,10 +26,10 @@
     "folder": "sentry-triage",
     "relative_path": "./00_全局大管家/01_代码工程与架构/sentry-triage",
     "file_index": {
-      "path": ".catalog/eb7c3566bac8e73ec5c56e2b73715383941b211db38f6e2d46ab36ee7c47f7c3.json",
-      "sha256": "eb7c3566bac8e73ec5c56e2b73715383941b211db38f6e2d46ab36ee7c47f7c3",
+      "path": ".catalog/6f71bfac0632018ac7ddb0cb2d265eba3d93843a3bde974b3643ea60b696c1e0.json",
+      "sha256": "6f71bfac0632018ac7ddb0cb2d265eba3d93843a3bde974b3643ea60b696c1e0",
       "file_count": 2,
-      "total_bytes": 5994
+      "total_bytes": 5996
     }
   },
   {
@@ -39,10 +39,10 @@
     "folder": "brooks-lint",
     "relative_path": "./00_全局大管家/01_代码工程与架构/brooks-lint",
     "file_index": {
-      "path": ".catalog/837ef900f0b50967cd3fa9c9fe516fd9fe3b3097367982946ce58f45e292d411.json",
-      "sha256": "837ef900f0b50967cd3fa9c9fe516fd9fe3b3097367982946ce58f45e292d411",
+      "path": ".catalog/a84bf8b47e0086213279f684026ec9bff41b8f0269900b2a45f527e2d7d6279e.json",
+      "sha256": "a84bf8b47e0086213279f684026ec9bff41b8f0269900b2a45f527e2d7d6279e",
       "file_count": 78,
-      "total_bytes": 1484399
+      "total_bytes": 1484401
     }
   },
   {
@@ -52,10 +52,10 @@
     "folder": "codebase-recon",
     "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-recon",
     "file_index": {
-      "path": ".catalog/aee869ddb319e23ba1e9aa26194753f767e3536157a0c5eb963667025605a229.json",
-      "sha256": "aee869ddb319e23ba1e9aa26194753f767e3536157a0c5eb963667025605a229",
+      "path": ".catalog/2bd60a744f3eb00573dbf68dc188589f26f290ed7375d222f6ee097eaec4cf5f.json",
+      "sha256": "2bd60a744f3eb00573dbf68dc188589f26f290ed7375d222f6ee097eaec4cf5f",
       "file_count": 1,
-      "total_bytes": 5898
+      "total_bytes": 5900
     }
   },
   {
@@ -65,23 +65,23 @@
     "folder": "git-workflow-skill",
     "relative_path": "./00_全局大管家/01_代码工程与架构/git-workflow-skill",
     "file_index": {
-      "path": ".catalog/7ad9cdcae8952192fd4b792120c3215b22a1645ac5c5b70608b79cd70426b685.json",
-      "sha256": "7ad9cdcae8952192fd4b792120c3215b22a1645ac5c5b70608b79cd70426b685",
+      "path": ".catalog/8f43ac420b5c51eabc1b92b14d72c542875043d9ab6d6fbf8ca5906b1b7c5f34.json",
+      "sha256": "8f43ac420b5c51eabc1b92b14d72c542875043d9ab6d6fbf8ca5906b1b7c5f34",
       "file_count": 33,
-      "total_bytes": 561402
+      "total_bytes": 561236
     }
   },
   {
     "name": "planning-with-files",
-    "description": "长线任务记忆与文件级进度规划引擎。让 Codex 通过读写本地 Markdown 文件来结构化地记录开发计划、执行进度和上下文状态。专为复杂的大型长期项目设计，彻底解决对话过长导致的“遗忘”和“偏离路线”问题。Leading Words: 文件级进度规划, 长期项目跟踪, Markdown任务记忆, 状态上下文留存, 长线任务执行",
+    "description": "长线任务记忆与文件级进度规划技能。通过本地 Markdown 文件记录开发计划、执行进度和上下文状态，帮助复杂项目在长对话或多会话中保持连续。Leading Words: 文件级进度规划, 长期项目跟踪, Markdown任务记忆, 状态上下文留存, 长线任务执行",
     "category": "01_代码工程与架构",
     "folder": "planning-with-files",
     "relative_path": "./00_全局大管家/01_代码工程与架构/planning-with-files",
     "file_index": {
-      "path": ".catalog/165ffe1c7a0cefef0658130f2e8a5c4f75e096b7eabac5ab09788c974c27770b.json",
-      "sha256": "165ffe1c7a0cefef0658130f2e8a5c4f75e096b7eabac5ab09788c974c27770b",
+      "path": ".catalog/3f3314a398e67aeafd488e3e34a4726b3e0e81f2994921879b43be9fe3bb20a9.json",
+      "sha256": "3f3314a398e67aeafd488e3e34a4726b3e0e81f2994921879b43be9fe3bb20a9",
       "file_count": 382,
-      "total_bytes": 11681769
+      "total_bytes": 11683190
     }
   },
   {
@@ -104,10 +104,10 @@
     "folder": "vercel-agent-skills",
     "relative_path": "./00_全局大管家/01_代码工程与架构/vercel-agent-skills",
     "file_index": {
-      "path": ".catalog/ee66f5efa55491dc894423532a5289109d28f492aa553be29aca4e5e272d3ff4.json",
-      "sha256": "ee66f5efa55491dc894423532a5289109d28f492aa553be29aca4e5e272d3ff4",
+      "path": ".catalog/6511030c7b50d4a23a9ba45137e91112fac38c3eb26dae951cfd6deb0db79da1.json",
+      "sha256": "6511030c7b50d4a23a9ba45137e91112fac38c3eb26dae951cfd6deb0db79da1",
       "file_count": 304,
-      "total_bytes": 1439713
+      "total_bytes": 1439715
     }
   },
   {
@@ -117,10 +117,10 @@
     "folder": "codebase-migrate",
     "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-migrate",
     "file_index": {
-      "path": ".catalog/9f460c88ed08bc1c8a656bd832a4f762ce3a589f77aa5c444c6588ab00d4a36a.json",
-      "sha256": "9f460c88ed08bc1c8a656bd832a4f762ce3a589f77aa5c444c6588ab00d4a36a",
+      "path": ".catalog/49d8bd031d144455dc36b291e8ec2b2e605c27eb65de89b674aea4ff797d9ff3.json",
+      "sha256": "49d8bd031d144455dc36b291e8ec2b2e605c27eb65de89b674aea4ff797d9ff3",
       "file_count": 2,
-      "total_bytes": 6364
+      "total_bytes": 6366
     }
   },
   {
@@ -130,10 +130,10 @@
     "folder": "datadog-logs",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/datadog-logs",
     "file_index": {
-      "path": ".catalog/d31c3bd45fcc8de6fd4f31f4fc9c9a61004fbae10c63d6b8aff00024f573658d.json",
-      "sha256": "d31c3bd45fcc8de6fd4f31f4fc9c9a61004fbae10c63d6b8aff00024f573658d",
+      "path": ".catalog/1333d6f5d6f2d8780f0acb9938896de59fbf34f55e3b4d4828e9852d83ec8ce4.json",
+      "sha256": "1333d6f5d6f2d8780f0acb9938896de59fbf34f55e3b4d4828e9852d83ec8ce4",
       "file_count": 2,
-      "total_bytes": 5748
+      "total_bytes": 5750
     }
   },
   {
@@ -143,10 +143,10 @@
     "folder": "gh-fix-ci",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-fix-ci",
     "file_index": {
-      "path": ".catalog/a550d43b8c116a72230ee12da088a41329ec08d5e163d14a4b9579fc8b6fe15d.json",
-      "sha256": "a550d43b8c116a72230ee12da088a41329ec08d5e163d14a4b9579fc8b6fe15d",
+      "path": ".catalog/c7f01ae187498d76ced9cfc7ffebae56cdad19eaad75abed010896e6e030ba53.json",
+      "sha256": "c7f01ae187498d76ced9cfc7ffebae56cdad19eaad75abed010896e6e030ba53",
       "file_count": 3,
-      "total_bytes": 30280
+      "total_bytes": 30282
     }
   },
   {
@@ -156,10 +156,10 @@
     "folder": "gh-address-comments",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-address-comments",
     "file_index": {
-      "path": ".catalog/0d2326a99c46776d01d7d60212ee7e205c588463323946580d4d8bf4b1f980a5.json",
-      "sha256": "0d2326a99c46776d01d7d60212ee7e205c588463323946580d4d8bf4b1f980a5",
+      "path": ".catalog/230b96af1d01602ad9126ddc2918e9f9b5d8c57b086f103431da47b58cdeeb33.json",
+      "sha256": "230b96af1d01602ad9126ddc2918e9f9b5d8c57b086f103431da47b58cdeeb33",
       "file_count": 3,
-      "total_bytes": 19321
+      "total_bytes": 19323
     }
   },
   {
@@ -169,10 +169,10 @@
     "folder": "langsmith-fetch",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/langsmith-fetch",
     "file_index": {
-      "path": ".catalog/82773c6158a8117b048ce4d7719640b48cbba25fb5bfa8239247b8bf624edbb1.json",
-      "sha256": "82773c6158a8117b048ce4d7719640b48cbba25fb5bfa8239247b8bf624edbb1",
+      "path": ".catalog/a859691a0ce33682cef81de21a5edf69d56c4a6d86747fc38c6fb54d2b7334fc.json",
+      "sha256": "a859691a0ce33682cef81de21a5edf69d56c4a6d86747fc38c6fb54d2b7334fc",
       "file_count": 1,
-      "total_bytes": 10947
+      "total_bytes": 10949
     }
   },
   {
@@ -182,10 +182,10 @@
     "folder": "pr-review-ci-fix",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/pr-review-ci-fix",
     "file_index": {
-      "path": ".catalog/0e9ca07a0f5f51ec6a489e40d62501a5ce6eee1483d99e7323b29eac0150e8f9.json",
-      "sha256": "0e9ca07a0f5f51ec6a489e40d62501a5ce6eee1483d99e7323b29eac0150e8f9",
+      "path": ".catalog/f079263195b05bbbe9685f6782e46409ce0a137747c9dae77aa3468ad3d62cf3.json",
+      "sha256": "f079263195b05bbbe9685f6782e46409ce0a137747c9dae77aa3468ad3d62cf3",
       "file_count": 2,
-      "total_bytes": 5809
+      "total_bytes": 5811
     }
   },
   {
@@ -195,10 +195,10 @@
     "folder": "mcp-github-pr-issue-analyser",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/mcp-github-pr-issue-analyser",
     "file_index": {
-      "path": ".catalog/c11cc6d99f80100bea20236e410af4117358ea8833f6fe1e4e5577c48e84c972.json",
-      "sha256": "c11cc6d99f80100bea20236e410af4117358ea8833f6fe1e4e5577c48e84c972",
+      "path": ".catalog/5a84c3416a59822b05ca738e94fa638b83d2be40fe2102d51078bc2cc779f65f.json",
+      "sha256": "5a84c3416a59822b05ca738e94fa638b83d2be40fe2102d51078bc2cc779f65f",
       "file_count": 16,
-      "total_bytes": 69772
+      "total_bytes": 69774
     }
   },
   {
@@ -208,10 +208,10 @@
     "folder": "webapp-testing",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/webapp-testing",
     "file_index": {
-      "path": ".catalog/2e1f214b83633e8c530849481965f08a034916eb581e14721fbf1f979527453c.json",
-      "sha256": "2e1f214b83633e8c530849481965f08a034916eb581e14721fbf1f979527453c",
+      "path": ".catalog/203d5fa7960330979fb6d21b79c785c283368eb653856c930c0119eb978c3669.json",
+      "sha256": "203d5fa7960330979fb6d21b79c785c283368eb653856c930c0119eb978c3669",
       "file_count": 6,
-      "total_bytes": 22518
+      "total_bytes": 22521
     }
   },
   {
@@ -221,10 +221,10 @@
     "folder": "deploy-pipeline",
     "relative_path": "./00_全局大管家/02_DevOps与自动化/deploy-pipeline",
     "file_index": {
-      "path": ".catalog/318ceb39abd897e2331f89ef296a6ec0dfa55325e761c801a8fbad530a0e5c43.json",
-      "sha256": "318ceb39abd897e2331f89ef296a6ec0dfa55325e761c801a8fbad530a0e5c43",
+      "path": ".catalog/ac41f70a56a0ef5734b06d1fa307734bdfee29c97bbc5b6823f5e780f771108e.json",
+      "sha256": "ac41f70a56a0ef5734b06d1fa307734bdfee29c97bbc5b6823f5e780f771108e",
       "file_count": 2,
-      "total_bytes": 7950
+      "total_bytes": 7952
     }
   },
   {
@@ -234,10 +234,10 @@
     "folder": "File-Organizer-MCP",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/File-Organizer-MCP",
     "file_index": {
-      "path": ".catalog/5da5d8ee4b59dc5f1e7515ea9ac202fe44ec8b19da671d7039e3e3871ba75ddd.json",
-      "sha256": "5da5d8ee4b59dc5f1e7515ea9ac202fe44ec8b19da671d7039e3e3871ba75ddd",
+      "path": ".catalog/18267e282bbd954377408b472a683818a3f2dc002c93a21cbd505268443ed706.json",
+      "sha256": "18267e282bbd954377408b472a683818a3f2dc002c93a21cbd505268443ed706",
       "file_count": 18,
-      "total_bytes": 99941
+      "total_bytes": 99943
     }
   },
   {
@@ -247,10 +247,10 @@
     "folder": "notion-meeting-intelligence",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-meeting-intelligence",
     "file_index": {
-      "path": ".catalog/315a3158115288fd788446f6baa17d070816bd7be313bcf892597af0a6723c7e.json",
-      "sha256": "315a3158115288fd788446f6baa17d070816bd7be313bcf892597af0a6723c7e",
+      "path": ".catalog/9b7af8c83115c75ed6679c8706dd6ccdc1785090dff65f2afe552f66d6df3901.json",
+      "sha256": "9b7af8c83115c75ed6679c8706dd6ccdc1785090dff65f2afe552f66d6df3901",
       "file_count": 30,
-      "total_bytes": 86038
+      "total_bytes": 86040
     }
   },
   {
@@ -260,10 +260,10 @@
     "folder": "notion-research-documentation",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-research-documentation",
     "file_index": {
-      "path": ".catalog/0f5c10ad52ef755013f1200f850c042502a15acc904761c788331f350663d5aa.json",
-      "sha256": "0f5c10ad52ef755013f1200f850c042502a15acc904761c788331f350663d5aa",
+      "path": ".catalog/c0d18cea7db8d8cee6ce8f1c2f912382c22a1a7f3526885066fb59f77d289fd6.json",
+      "sha256": "c0d18cea7db8d8cee6ce8f1c2f912382c22a1a7f3526885066fb59f77d289fd6",
       "file_count": 38,
-      "total_bytes": 100548
+      "total_bytes": 100550
     }
   },
   {
@@ -273,10 +273,10 @@
     "folder": "notion-knowledge-capture",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-knowledge-capture",
     "file_index": {
-      "path": ".catalog/2281d979d312e0125265c48988925ebd911cf2d971211fdec33a9ff98513ddae.json",
-      "sha256": "2281d979d312e0125265c48988925ebd911cf2d971211fdec33a9ff98513ddae",
+      "path": ".catalog/b20bc366bc8e38543f3fce27d6d2065c761e54adb9638847d748cebf29c55b59.json",
+      "sha256": "b20bc366bc8e38543f3fce27d6d2065c761e54adb9638847d748cebf29c55b59",
       "file_count": 28,
-      "total_bytes": 91657
+      "total_bytes": 91659
     }
   },
   {
@@ -286,10 +286,10 @@
     "folder": "notion-spec-to-implementation",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-spec-to-implementation",
     "file_index": {
-      "path": ".catalog/290de83d10d8e0bd96cd9ba09a08382940c572f06c23a61be5ff28eb0ff3f1e9.json",
-      "sha256": "290de83d10d8e0bd96cd9ba09a08382940c572f06c23a61be5ff28eb0ff3f1e9",
+      "path": ".catalog/c7b1c136f47ad4d90fd9d3c2592728a160f4532858627c80cf0cfcc11844f812.json",
+      "sha256": "c7b1c136f47ad4d90fd9d3c2592728a160f4532858627c80cf0cfcc11844f812",
       "file_count": 30,
-      "total_bytes": 117214
+      "total_bytes": 117216
     }
   },
   {
@@ -299,10 +299,10 @@
     "folder": "ai-news-radar",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/ai-news-radar",
     "file_index": {
-      "path": ".catalog/ca4e3ce1a4a6f3d08aaf79e2e867e8451b1a9cf3fcfa3a2374428d9e0292b205.json",
-      "sha256": "ca4e3ce1a4a6f3d08aaf79e2e867e8451b1a9cf3fcfa3a2374428d9e0292b205",
+      "path": ".catalog/7ca78f985d0932cda376d3d59327bad67aae14f59eedbec8b3f2e2e0aef86c80.json",
+      "sha256": "7ca78f985d0932cda376d3d59327bad67aae14f59eedbec8b3f2e2e0aef86c80",
       "file_count": 89,
-      "total_bytes": 83995277
+      "total_bytes": 83997055
     }
   },
   {
@@ -325,23 +325,23 @@
     "folder": "browser-use",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/browser-use",
     "file_index": {
-      "path": ".catalog/e9518c390a28d5219f311d98a16db6855bc635d4f16da725e0f89435801401e1.json",
-      "sha256": "e9518c390a28d5219f311d98a16db6855bc635d4f16da725e0f89435801401e1",
+      "path": ".catalog/d3d109d92ec7e4e966e4b799ceaf5c1bc87567b09a949ac796c269c0488520b1.json",
+      "sha256": "d3d109d92ec7e4e966e4b799ceaf5c1bc87567b09a949ac796c269c0488520b1",
       "file_count": 149,
-      "total_bytes": 806343
+      "total_bytes": 806345
     }
   },
   {
     "name": "hk-finance-mcp-server",
-    "description": "香港金融市场数据中心 MCP 服务器。通过 FastMCP 接口提供实时或历史的 HK 金融衍生品、股票行情及财经指标数据接入。Leading Words: 香港金融数据接口, MCP行情服务器, 港股财经数据抓取, FastMCP挂载",
+    "description": "香港公开财经数据 MCP 服务器。通过 FastMCP 查询商业登记、负资产按揭、信用卡贷款、HIBOR、印花税、银行网点、ATM、按揭与反欺诈告示等 HKMA/IRD 数据。",
     "category": "03_效率工具与协同管理",
     "folder": "hk-finance-mcp-server",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/hk-finance-mcp-server",
     "file_index": {
-      "path": ".catalog/d05bead99f7dba69db0d47716d18156cc9fad440bc6966a1471fd022175fc3d5.json",
-      "sha256": "d05bead99f7dba69db0d47716d18156cc9fad440bc6966a1471fd022175fc3d5",
+      "path": ".catalog/8274ddf45b99e334b9ca0c78fc079e3446cf0e1c92af70f3e86a3135a529a79c.json",
+      "sha256": "8274ddf45b99e334b9ca0c78fc079e3446cf0e1c92af70f3e86a3135a529a79c",
       "file_count": 60,
-      "total_bytes": 249213
+      "total_bytes": 250571
     }
   },
   {
@@ -351,10 +351,10 @@
     "folder": "mcp-linear",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/mcp-linear",
     "file_index": {
-      "path": ".catalog/a1bf5447f2e0d16770a55c336772d480974f50551810a28632fb9a7ec57e8bdc.json",
-      "sha256": "a1bf5447f2e0d16770a55c336772d480974f50551810a28632fb9a7ec57e8bdc",
+      "path": ".catalog/0c9ca7d28e931368a755071e30b4c80782bac046be8483bd894293e732a5429a.json",
+      "sha256": "0c9ca7d28e931368a755071e30b4c80782bac046be8483bd894293e732a5429a",
       "file_count": 6,
-      "total_bytes": 61590
+      "total_bytes": 61385
     }
   },
   {
@@ -364,10 +364,10 @@
     "folder": "obsidian-vault-mcp",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-vault-mcp",
     "file_index": {
-      "path": ".catalog/5b70c34af1296844e30f0365e8858cdea5a877a56c6f4e3d6752864cd66aa616.json",
-      "sha256": "5b70c34af1296844e30f0365e8858cdea5a877a56c6f4e3d6752864cd66aa616",
+      "path": ".catalog/02e26e23a9be93bba9a1fd38ee883ef5d53789e673cd4104490f8c7f3be1bd51.json",
+      "sha256": "02e26e23a9be93bba9a1fd38ee883ef5d53789e673cd4104490f8c7f3be1bd51",
       "file_count": 25,
-      "total_bytes": 192442
+      "total_bytes": 192444
     }
   },
   {
@@ -377,10 +377,10 @@
     "folder": "playwright-mcp",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/playwright-mcp",
     "file_index": {
-      "path": ".catalog/7801d4a04a307bc02ff472d1bfa4a254559c39f969f98fe027df837f8f634d33.json",
-      "sha256": "7801d4a04a307bc02ff472d1bfa4a254559c39f969f98fe027df837f8f634d33",
+      "path": ".catalog/98bee563fbb11d517fc2c0e22b8d97c237209c803c21cba232cfdfd1b1a214e1.json",
+      "sha256": "98bee563fbb11d517fc2c0e22b8d97c237209c803c21cba232cfdfd1b1a214e1",
       "file_count": 6,
-      "total_bytes": 86793
+      "total_bytes": 86584
     }
   },
   {
@@ -390,10 +390,10 @@
     "folder": "meeting-notes-and-actions",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-notes-and-actions",
     "file_index": {
-      "path": ".catalog/eab4e86b9c8776b77f325124081f8b2ee4ee8f54df7a7dc5fbde738a447fbdbd.json",
-      "sha256": "eab4e86b9c8776b77f325124081f8b2ee4ee8f54df7a7dc5fbde738a447fbdbd",
+      "path": ".catalog/f59bc8fd3a048e109547fa13190878c2b440ecb190ac93e227aaae24fcb96b17.json",
+      "sha256": "f59bc8fd3a048e109547fa13190878c2b440ecb190ac93e227aaae24fcb96b17",
       "file_count": 1,
-      "total_bytes": 1544
+      "total_bytes": 1546
     }
   },
   {
@@ -403,10 +403,10 @@
     "folder": "meeting-insights-analyzer",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-insights-analyzer",
     "file_index": {
-      "path": ".catalog/649e65dbff2363ddcc3720f715afd2a678ad3b8e177ec86ff5766447810fc886.json",
-      "sha256": "649e65dbff2363ddcc3720f715afd2a678ad3b8e177ec86ff5766447810fc886",
+      "path": ".catalog/384307f141e3860b3360e6c8a57defdddd1148c54308a0bb731a844d7bd865b3.json",
+      "sha256": "384307f141e3860b3360e6c8a57defdddd1148c54308a0bb731a844d7bd865b3",
       "file_count": 1,
-      "total_bytes": 10159
+      "total_bytes": 10161
     }
   },
   {
@@ -416,10 +416,10 @@
     "folder": "internal-comms",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/internal-comms",
     "file_index": {
-      "path": ".catalog/523928e5150d3784008e9e558825705e0721cb5f6d82d7003d56afcc4e6bdc08.json",
-      "sha256": "523928e5150d3784008e9e558825705e0721cb5f6d82d7003d56afcc4e6bdc08",
+      "path": ".catalog/b67dedceef7ef0b3970469cda447c62497619b9f1f14cb67997ea964c050e06c.json",
+      "sha256": "b67dedceef7ef0b3970469cda447c62497619b9f1f14cb67997ea964c050e06c",
       "file_count": 10,
-      "total_bytes": 31904
+      "total_bytes": 31906
     }
   },
   {
@@ -429,10 +429,10 @@
     "folder": "support-ticket-triage",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/support-ticket-triage",
     "file_index": {
-      "path": ".catalog/7684d61b873e2da48b43db3b82b770e055e277fa043fb8fe0a01cb6370c482a4.json",
-      "sha256": "7684d61b873e2da48b43db3b82b770e055e277fa043fb8fe0a01cb6370c482a4",
+      "path": ".catalog/e0789160e3e2c18d9fc60754b42bb692b0649e3fe71079cf590b33aade15f609.json",
+      "sha256": "e0789160e3e2c18d9fc60754b42bb692b0649e3fe71079cf590b33aade15f609",
       "file_count": 1,
-      "total_bytes": 1574
+      "total_bytes": 1576
     }
   },
   {
@@ -442,23 +442,23 @@
     "folder": "issue-triage",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/issue-triage",
     "file_index": {
-      "path": ".catalog/a0f0cfca0adc0ba20e16b82c38ab03653317928f6bdf2479453c15bac6b055b9.json",
-      "sha256": "a0f0cfca0adc0ba20e16b82c38ab03653317928f6bdf2479453c15bac6b055b9",
+      "path": ".catalog/326a1bba39d0ed0aa8bc9aeb06cf009ec0324822204016a0686e3139bd6ce00b.json",
+      "sha256": "326a1bba39d0ed0aa8bc9aeb06cf009ec0324822204016a0686e3139bd6ce00b",
       "file_count": 2,
-      "total_bytes": 6103
+      "total_bytes": 6105
     }
   },
   {
     "name": "skill-share",
-    "description": "Agent 技能创建与 Slack 自动分发广播器。自动将你在本地新编写的 Claude 技能打包，并通过 Rube 协议一键推送到企业 Slack 频道中共享，实现团队协作与技能发现发现。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享",
+    "description": "Agent 技能创建与 Slack 自动分发广播器。把本地新编写的 Claude 技能校验、打包，并通过 Rube 推送到团队 Slack 频道。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享",
     "category": "03_效率工具与协同管理",
     "folder": "skill-share",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/skill-share",
     "file_index": {
-      "path": ".catalog/f97757e1bdd4a519b8ecc608b87f5a2aec9f83e62b07209b8c4b31726d39745b.json",
-      "sha256": "f97757e1bdd4a519b8ecc608b87f5a2aec9f83e62b07209b8c4b31726d39745b",
+      "path": ".catalog/04b3536c1ace093d40106f7a1fae94f26af2bdd758e6c3c344441d1ed9778112.json",
+      "sha256": "04b3536c1ace093d40106f7a1fae94f26af2bdd758e6c3c344441d1ed9778112",
       "file_count": 1,
-      "total_bytes": 3078
+      "total_bytes": 3018
     }
   },
   {
@@ -468,10 +468,10 @@
     "folder": "agent-deep-links",
     "relative_path": "./00_全局大管家/03_效率工具与协同管理/agent-deep-links",
     "file_index": {
-      "path": ".catalog/e06701c5b7c6c4e0c68d91781ba88fbd52790e645b254640f432b247f275019a.json",
-      "sha256": "e06701c5b7c6c4e0c68d91781ba88fbd52790e645b254640f432b247f275019a",
+      "path": ".catalog/87e3d058f994b01331fc17a2f1abbea124a5ac90aa407afa9faed2f36b672599.json",
+      "sha256": "87e3d058f994b01331fc17a2f1abbea124a5ac90aa407afa9faed2f36b672599",
       "file_count": 5,
-      "total_bytes": 8062
+      "total_bytes": 8064
     }
   },
   {
@@ -481,10 +481,10 @@
     "folder": "paperjsx",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/paperjsx",
     "file_index": {
-      "path": ".catalog/06dfd29840320b69b83ed9ffff446a348eba84d60db24e1f38cfce9fa77ab205.json",
-      "sha256": "06dfd29840320b69b83ed9ffff446a348eba84d60db24e1f38cfce9fa77ab205",
+      "path": ".catalog/9b95c42f656fe2a5f92e9d136a8d42e78fb98b1b88600c02fdbe94eb3764d090.json",
+      "sha256": "9b95c42f656fe2a5f92e9d136a8d42e78fb98b1b88600c02fdbe94eb3764d090",
       "file_count": 4,
-      "total_bytes": 41907
+      "total_bytes": 41909
     }
   },
   {
@@ -494,10 +494,10 @@
     "folder": "anysearch-skill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/anysearch-skill",
     "file_index": {
-      "path": ".catalog/d8b0e53e98c4af42fc128c93be9170e757ed8d1ede41c17cd7b43c88d3cc556c.json",
-      "sha256": "d8b0e53e98c4af42fc128c93be9170e757ed8d1ede41c17cd7b43c88d3cc556c",
+      "path": ".catalog/e1b111b5087ac0030d283e59823f5878f8a251292cba39646ebebae634060919.json",
+      "sha256": "e1b111b5087ac0030d283e59823f5878f8a251292cba39646ebebae634060919",
       "file_count": 16,
-      "total_bytes": 170757
+      "total_bytes": 170759
     }
   },
   {
@@ -507,10 +507,10 @@
     "folder": "canghe-tianyancha",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/canghe-tianyancha",
     "file_index": {
-      "path": ".catalog/be1caafa7ae696fb351590cb2a7654fc448f85ecebea446114722e9424ea6ff2.json",
-      "sha256": "be1caafa7ae696fb351590cb2a7654fc448f85ecebea446114722e9424ea6ff2",
+      "path": ".catalog/0644a5801707e27fb1d486a310878593f12fcd61b012ed0dffd3994e4d4a7c2d.json",
+      "sha256": "0644a5801707e27fb1d486a310878593f12fcd61b012ed0dffd3994e4d4a7c2d",
       "file_count": 5,
-      "total_bytes": 131064
+      "total_bytes": 131087
     }
   },
   {
@@ -520,10 +520,10 @@
     "folder": "dbskill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/dbskill",
     "file_index": {
-      "path": ".catalog/24f6f4ae686dd98945633ac13dfc140cafccea4d8a70ff4c5e5a8a2f277f44fb.json",
-      "sha256": "24f6f4ae686dd98945633ac13dfc140cafccea4d8a70ff4c5e5a8a2f277f44fb",
+      "path": ".catalog/11301f987b4a591e00fccc1b8274f8d6ed2f00866fd9c1a312649c84bb769b9d.json",
+      "sha256": "11301f987b4a591e00fccc1b8274f8d6ed2f00866fd9c1a312649c84bb769b9d",
       "file_count": 161,
-      "total_bytes": 9055015
+      "total_bytes": 9054686
     }
   },
   {
@@ -533,23 +533,23 @@
     "folder": "diasporic-intelligence",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/diasporic-intelligence",
     "file_index": {
-      "path": ".catalog/efa973e2522137b9d0dfc0d055e634f823bb23d6aa557ab2e5c8c14ec6bfdba1.json",
-      "sha256": "efa973e2522137b9d0dfc0d055e634f823bb23d6aa557ab2e5c8c14ec6bfdba1",
+      "path": ".catalog/0d496fdb218dd8c2fc18b47f5b04e7aafd556d1b95f3b3f73b2dd06c796f806c.json",
+      "sha256": "0d496fdb218dd8c2fc18b47f5b04e7aafd556d1b95f3b3f73b2dd06c796f806c",
       "file_count": 23,
-      "total_bytes": 114406
+      "total_bytes": 114408
     }
   },
   {
     "name": "humanize-text",
-    "description": "[已冻结 2026-10-10：需双付费 key 且仅输出英文；新集成 sloptrim/slop-guard/anti-slop 同类技能，该技能效果不佳，冻结后清退；替代 stop-slop/unslop] AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除",
+    "description": "英文文本改写管线。通过多轮 LLM 重写和多引擎翻译降低模板化结构与生成器指纹，同时保留原文风格；需要 DeepSeek 与 Niutrans 凭据。",
     "category": "04_内容创作与文档处理",
     "folder": "humanize-text",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanize-text",
     "file_index": {
-      "path": ".catalog/2eed34ad2b4adc726a8cab8d5f6b1769c02818332f3326011859c2067193a66c.json",
-      "sha256": "2eed34ad2b4adc726a8cab8d5f6b1769c02818332f3326011859c2067193a66c",
+      "path": ".catalog/144915313dd3c6d5c932a31cf57f0ddbdfac0e0a60fca43badb59276b2916f0c.json",
+      "sha256": "144915313dd3c6d5c932a31cf57f0ddbdfac0e0a60fca43badb59276b2916f0c",
       "file_count": 60,
-      "total_bytes": 156434
+      "total_bytes": 156509
     }
   },
   {
@@ -559,10 +559,10 @@
     "folder": "khazix-skills",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/khazix-skills",
     "file_index": {
-      "path": ".catalog/c42b704fd6b76ea47bcb7885956da54f2099d47d98f56b2d1f9c9e7cca73865d.json",
-      "sha256": "c42b704fd6b76ea47bcb7885956da54f2099d47d98f56b2d1f9c9e7cca73865d",
+      "path": ".catalog/6177d900c7b4924647ff1450bc2cb950113f402e5cb25a8e52c3eea43fefddab.json",
+      "sha256": "6177d900c7b4924647ff1450bc2cb950113f402e5cb25a8e52c3eea43fefddab",
       "file_count": 121,
-      "total_bytes": 339091
+      "total_bytes": 341461
     }
   },
   {
@@ -572,10 +572,10 @@
     "folder": "markitdown",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/markitdown",
     "file_index": {
-      "path": ".catalog/e4dc506cf534744bf754bab8838154540fd5341d959e72af203ba083cc92acf9.json",
-      "sha256": "e4dc506cf534744bf754bab8838154540fd5341d959e72af203ba083cc92acf9",
+      "path": ".catalog/8527297f503b8540116c17659cf731b143e79a992c1ecf64c92439e71b9fef4a.json",
+      "sha256": "8527297f503b8540116c17659cf731b143e79a992c1ecf64c92439e71b9fef4a",
       "file_count": 7,
-      "total_bytes": 47078
+      "total_bytes": 47080
     }
   },
   {
@@ -585,10 +585,10 @@
     "folder": "notebooklm-skill",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/notebooklm-skill",
     "file_index": {
-      "path": ".catalog/24e5b6759d035521a6d10c5af780a2294f61c8e9ae681d7429048b90bc227ee9.json",
-      "sha256": "24e5b6759d035521a6d10c5af780a2294f61c8e9ae681d7429048b90bc227ee9",
+      "path": ".catalog/a229256598ddf9c746eda8187a5462ef8841fc94007566d7057f47b8eee02e51.json",
+      "sha256": "a229256598ddf9c746eda8187a5462ef8841fc94007566d7057f47b8eee02e51",
       "file_count": 20,
-      "total_bytes": 267704
+      "total_bytes": 267717
     }
   },
   {
@@ -598,10 +598,10 @@
     "folder": "novel-writing",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/novel-writing",
     "file_index": {
-      "path": ".catalog/c1dedcfed7712033ebecefd73d62f2c235a816a0f1fb10a3dcea7f24de7ce61c.json",
-      "sha256": "c1dedcfed7712033ebecefd73d62f2c235a816a0f1fb10a3dcea7f24de7ce61c",
+      "path": ".catalog/23f9c8929a4f5e1bd15d90b9333db99f3d0339cd8b6f850adf991c3bba822da8.json",
+      "sha256": "23f9c8929a4f5e1bd15d90b9333db99f3d0339cd8b6f850adf991c3bba822da8",
       "file_count": 17,
-      "total_bytes": 170747
+      "total_bytes": 170749
     }
   },
   {
@@ -611,10 +611,10 @@
     "folder": "paddleocr-doc-parsing",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/paddleocr-doc-parsing",
     "file_index": {
-      "path": ".catalog/34b11689bc08b7c73f3fdf5fd9d02f74c7164bce31930ec7e4274a6145ff1178.json",
-      "sha256": "34b11689bc08b7c73f3fdf5fd9d02f74c7164bce31930ec7e4274a6145ff1178",
+      "path": ".catalog/bfa39b9a0c8a648e3798d77c090d24972d56a3a8eb09fdf9d6688f9c26e9037f.json",
+      "sha256": "bfa39b9a0c8a648e3798d77c090d24972d56a3a8eb09fdf9d6688f9c26e9037f",
       "file_count": 11,
-      "total_bytes": 54613
+      "total_bytes": 54615
     }
   },
   {
@@ -624,10 +624,10 @@
     "folder": "qiaomu-anything-to-notebooklm",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/qiaomu-anything-to-notebooklm",
     "file_index": {
-      "path": ".catalog/238297a102b386fdd534e5c1da094a03d3ba6bfc385e5409a46283dd1569ee2a.json",
-      "sha256": "238297a102b386fdd534e5c1da094a03d3ba6bfc385e5409a46283dd1569ee2a",
+      "path": ".catalog/c4a7f4682db2ac522e5b88037ed571c6144f4147ed7e9a4c6b70fae29c0a5d9c.json",
+      "sha256": "c4a7f4682db2ac522e5b88037ed571c6144f4147ed7e9a4c6b70fae29c0a5d9c",
       "file_count": 19,
-      "total_bytes": 145463
+      "total_bytes": 145671
     }
   },
   {
@@ -650,10 +650,10 @@
     "folder": "unslop",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/unslop",
     "file_index": {
-      "path": ".catalog/d2b527185473bf5398c28d751e3858ab72cc1ebf19f339e0038144fc53932589.json",
-      "sha256": "d2b527185473bf5398c28d751e3858ab72cc1ebf19f339e0038144fc53932589",
+      "path": ".catalog/aa917894372b00a19e287dcc5a845ae092e5ae2b4f520e1799eb490e3f20a032.json",
+      "sha256": "aa917894372b00a19e287dcc5a845ae092e5ae2b4f520e1799eb490e3f20a032",
       "file_count": 33,
-      "total_bytes": 446469
+      "total_bytes": 446209
     }
   },
   {
@@ -663,10 +663,10 @@
     "folder": "tailored-resume-generator",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/tailored-resume-generator",
     "file_index": {
-      "path": ".catalog/eaf1ee16e21e2427f3eb85016b07933dddc51bf9f941c262ae017764d5acdee7.json",
-      "sha256": "eaf1ee16e21e2427f3eb85016b07933dddc51bf9f941c262ae017764d5acdee7",
+      "path": ".catalog/8ab757aceca047ac966be383fdcfa4b77876d3df5fdc1872beb7715aea37512e.json",
+      "sha256": "8ab757aceca047ac966be383fdcfa4b77876d3df5fdc1872beb7715aea37512e",
       "file_count": 1,
-      "total_bytes": 12588
+      "total_bytes": 12590
     }
   },
   {
@@ -676,10 +676,10 @@
     "folder": "changelog-generator",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/changelog-generator",
     "file_index": {
-      "path": ".catalog/e99c781e1490223d914fb4e18200f1bc2154e79882fbd98c2dc1bb843890aca6.json",
-      "sha256": "e99c781e1490223d914fb4e18200f1bc2154e79882fbd98c2dc1bb843890aca6",
+      "path": ".catalog/5703f782a269fe0405d63b5da6534b49a958e762ef0a8613679eb8d17d2f3259.json",
+      "sha256": "5703f782a269fe0405d63b5da6534b49a958e762ef0a8613679eb8d17d2f3259",
       "file_count": 1,
-      "total_bytes": 3158
+      "total_bytes": 3160
     }
   },
   {
@@ -719,10 +719,10 @@
     "folder": "spreadsheet-formula-helper",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/spreadsheet-formula-helper",
     "file_index": {
-      "path": ".catalog/9b068e908b9bd51347edaba85fe05bc187086cebb4695b08feb7b786515e4264.json",
-      "sha256": "9b068e908b9bd51347edaba85fe05bc187086cebb4695b08feb7b786515e4264",
+      "path": ".catalog/591101e577b645e961f4fea4cdbcbe19805ac41ba70b0850f4193ed277d235ab.json",
+      "sha256": "591101e577b645e961f4fea4cdbcbe19805ac41ba70b0850f4193ed277d235ab",
       "file_count": 1,
-      "total_bytes": 1486
+      "total_bytes": 1488
     }
   },
   {
@@ -732,10 +732,10 @@
     "folder": "email-draft-polish",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/email-draft-polish",
     "file_index": {
-      "path": ".catalog/c7c304dcd0ed5b4552c48a601fd929b7541afbc17e027b67fd4642b8ccb9e7fd.json",
-      "sha256": "c7c304dcd0ed5b4552c48a601fd929b7541afbc17e027b67fd4642b8ccb9e7fd",
+      "path": ".catalog/cb53758a4fd40368bc196c6c262e8f98b6f11566cf7f3c8d8c6d15121eb6ecd2.json",
+      "sha256": "cb53758a4fd40368bc196c6c262e8f98b6f11566cf7f3c8d8c6d15121eb6ecd2",
       "file_count": 1,
-      "total_bytes": 1378
+      "total_bytes": 1380
     }
   },
   {
@@ -745,10 +745,10 @@
     "folder": "MediaCrawler",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/MediaCrawler",
     "file_index": {
-      "path": ".catalog/9fa00318f98dcc30414334ad1a45d62d6112d8d0e968507ba3b4349ae8b7561a.json",
-      "sha256": "9fa00318f98dcc30414334ad1a45d62d6112d8d0e968507ba3b4349ae8b7561a",
+      "path": ".catalog/3c28664a826929a79ee1e4ffc806f357f17e0717f3d80c4a8f32c46c8cdb3200.json",
+      "sha256": "3c28664a826929a79ee1e4ffc806f357f17e0717f3d80c4a8f32c46c8cdb3200",
       "file_count": 255,
-      "total_bytes": 25325191
+      "total_bytes": 25325105
     }
   },
   {
@@ -758,10 +758,10 @@
     "folder": "slack-gif-creator",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/slack-gif-creator",
     "file_index": {
-      "path": ".catalog/aec5e33ac085f2fe1f4350fa78a09c024c2e34cc6016703ae7a66bdbb6b84ea1.json",
-      "sha256": "aec5e33ac085f2fe1f4350fa78a09c024c2e34cc6016703ae7a66bdbb6b84ea1",
+      "path": ".catalog/89ff4ae721a6bf88e5458387f313c01263c17c4ebcff53e876cc6026b81932de.json",
+      "sha256": "89ff4ae721a6bf88e5458387f313c01263c17c4ebcff53e876cc6026b81932de",
       "file_count": 7,
-      "total_bytes": 43776
+      "total_bytes": 43778
     }
   },
   {
@@ -771,23 +771,23 @@
     "folder": "theme-factory",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/theme-factory",
     "file_index": {
-      "path": ".catalog/82c034f6f6a3bd947decafe98d1bb3c340a1ad42a3ed9e225629ff2f4570ef79.json",
-      "sha256": "82c034f6f6a3bd947decafe98d1bb3c340a1ad42a3ed9e225629ff2f4570ef79",
+      "path": ".catalog/6f9e28ccec478b8967ed0c27723ed21a49fff0bea7c321175014dba518a7e1d4.json",
+      "sha256": "6f9e28ccec478b8967ed0c27723ed21a49fff0bea7c321175014dba518a7e1d4",
       "file_count": 24,
-      "total_bytes": 156898
+      "total_bytes": 156893
     }
   },
   {
     "name": "baoyu-skills",
-    "description": "自媒体高保真知识图解与全能视觉资产包装车间。专注公众号长图、封面图及逻辑结构可视化。将抽象观点与长文提炼为精美的信息图（Infographics）和图解，极致增强中文内容传播力。Leading Words: 高保真图解可视化, 抽象逻辑制图, 公众号视觉资产包装, 信息图Infographics生成",
+    "description": "宝玉 Agent Skills 合集。按任务提供文章配图、知识漫画、信息图、封面、长图卡片、演示文稿、PDF/DOCX/XLSX、Markdown 转换与社媒发布等 20 个工作流。",
     "category": "05_多媒体与设计资产",
     "folder": "baoyu-skills",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/baoyu-skills",
     "file_index": {
-      "path": ".catalog/60541b6f996b0a213ba9683d1233b022c16158bea06e8f263d5ee06cf61aa1ef.json",
-      "sha256": "60541b6f996b0a213ba9683d1233b022c16158bea06e8f263d5ee06cf61aa1ef",
+      "path": ".catalog/43d60a30face6be99e5b491638f2504092158ff6ccab26beb983fadb6acffd80.json",
+      "sha256": "43d60a30face6be99e5b491638f2504092158ff6ccab26beb983fadb6acffd80",
       "file_count": 913,
-      "total_bytes": 32644710
+      "total_bytes": 32651871
     }
   },
   {
@@ -797,10 +797,10 @@
     "folder": "canghe-douyin-downloader",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-douyin-downloader",
     "file_index": {
-      "path": ".catalog/0fc0f6cdaf5b34d1b6196661d47f6351a0526f52e00528646d2187d08072cc68.json",
-      "sha256": "0fc0f6cdaf5b34d1b6196661d47f6351a0526f52e00528646d2187d08072cc68",
+      "path": ".catalog/3af8178f55df8dbdf0fd35c88fb56de249ae0de76448426e74e575ddc9db35d1.json",
+      "sha256": "3af8178f55df8dbdf0fd35c88fb56de249ae0de76448426e74e575ddc9db35d1",
       "file_count": 3,
-      "total_bytes": 16229
+      "total_bytes": 15933
     }
   },
   {
@@ -810,23 +810,23 @@
     "folder": "canghe-manga-style-video",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-manga-style-video",
     "file_index": {
-      "path": ".catalog/82f2f6623202624cb20fe3a9954e0d0fcba79bbcd464882cdfa24d58b530ee46.json",
-      "sha256": "82f2f6623202624cb20fe3a9954e0d0fcba79bbcd464882cdfa24d58b530ee46",
+      "path": ".catalog/07e2961860d5bcebafe68406b571e912080ec395c9b528571306c54cbbec2ac0.json",
+      "sha256": "07e2961860d5bcebafe68406b571e912080ec395c9b528571306c54cbbec2ac0",
       "file_count": 2,
-      "total_bytes": 17090
+      "total_bytes": 17016
     }
   },
   {
     "name": "cinema-manager",
-    "description": "私人 NAS 影音媒体库刮削整理大管家。全自动排查本地或网盘影视资源，支持根据分辨率/音轨多维筛选、通过夸克网盘转存，并严格按照 Plex/Infuse 媒体库标准执行刮削重命名。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存",
+    "description": "私人 NAS 影音库管理与片源整理工具。从多来源检索影视资源，按分辨率、编码、HDR 和音轨筛选，转存到夸克网盘，并按 Plex/Infuse 规范整理本地媒体库。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存",
     "category": "05_多媒体与设计资产",
     "folder": "cinema-manager",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/cinema-manager",
     "file_index": {
-      "path": ".catalog/45dce90b94389053116aad776affac73d016e5fc92d63f797c3a391622247f7d.json",
-      "sha256": "45dce90b94389053116aad776affac73d016e5fc92d63f797c3a391622247f7d",
+      "path": ".catalog/4c97befd4dd71ac69de844b01a4a58f27fac5ad63ec0ac8ad8fe9dbba177885e.json",
+      "sha256": "4c97befd4dd71ac69de844b01a4a58f27fac5ad63ec0ac8ad8fe9dbba177885e",
       "file_count": 12,
-      "total_bytes": 58312
+      "total_bytes": 58284
     }
   },
   {
@@ -862,10 +862,10 @@
     "folder": "generative-media-skills",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/generative-media-skills",
     "file_index": {
-      "path": ".catalog/91cf66149d0baaf431b5391ae0ecf3e6f66e947a191d588a435d486cb2437493.json",
-      "sha256": "91cf66149d0baaf431b5391ae0ecf3e6f66e947a191d588a435d486cb2437493",
+      "path": ".catalog/8b24aed35e2eea374e54895688ac36fcf3fabe8636d36df88d3b09aec8c7537c.json",
+      "sha256": "8b24aed35e2eea374e54895688ac36fcf3fabe8636d36df88d3b09aec8c7537c",
       "file_count": 92,
-      "total_bytes": 2614658
+      "total_bytes": 2616088
     }
   },
   {
@@ -875,10 +875,10 @@
     "folder": "guizang-ppt-skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-ppt-skill",
     "file_index": {
-      "path": ".catalog/e395e6d4fb11a7e22d5d602cce4ac637bb8dd8a9bdb425c1fac74926f3a4eb3f.json",
-      "sha256": "e395e6d4fb11a7e22d5d602cce4ac637bb8dd8a9bdb425c1fac74926f3a4eb3f",
+      "path": ".catalog/4c1fedb24bf42d52324717f339d3e0e07d41f2118890adf22c59bef6b0745d0e.json",
+      "sha256": "4c1fedb24bf42d52324717f339d3e0e07d41f2118890adf22c59bef6b0745d0e",
       "file_count": 33,
-      "total_bytes": 6083909
+      "total_bytes": 6083911
     }
   },
   {
@@ -888,10 +888,10 @@
     "folder": "guizang-social-card-skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-social-card-skill",
     "file_index": {
-      "path": ".catalog/a6dba8f27abe74e2f7dbe067ad03d89e3a832af52f5bff7d30eb2d37113add29.json",
-      "sha256": "a6dba8f27abe74e2f7dbe067ad03d89e3a832af52f5bff7d30eb2d37113add29",
+      "path": ".catalog/8f72b1ce326af624e3a80668c285720188bc9f7f51758c8fe417468a4c114126.json",
+      "sha256": "8f72b1ce326af624e3a80668c285720188bc9f7f51758c8fe417468a4c114126",
       "file_count": 37,
-      "total_bytes": 2194609
+      "total_bytes": 2194611
     }
   },
   {
@@ -901,10 +901,10 @@
     "folder": "html-anything",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-anything",
     "file_index": {
-      "path": ".catalog/7df568f59e4d43066f8c994acd2ac8afdc6700a0583b2c1bd21469d4e5294b51.json",
-      "sha256": "7df568f59e4d43066f8c994acd2ac8afdc6700a0583b2c1bd21469d4e5294b51",
+      "path": ".catalog/5aa7fdd328253e6acea729fa207f99de25d8e11c38ebf5679dd7dec077356bed.json",
+      "sha256": "5aa7fdd328253e6acea729fa207f99de25d8e11c38ebf5679dd7dec077356bed",
       "file_count": 374,
-      "total_bytes": 17557948
+      "total_bytes": 17558088
     }
   },
   {
@@ -914,10 +914,10 @@
     "folder": "html-ppt-skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-ppt-skill",
     "file_index": {
-      "path": ".catalog/e2ed4b3142c2e3577f920b6eeec9ab89cd340a84cd6fc30c1e27e32343952402.json",
-      "sha256": "e2ed4b3142c2e3577f920b6eeec9ab89cd340a84cd6fc30c1e27e32343952402",
+      "path": ".catalog/9d490f68c52705c887e503dd3a1aae9811a8c04094f1bf207d0199b861570976.json",
+      "sha256": "9d490f68c52705c887e503dd3a1aae9811a8c04094f1bf207d0199b861570976",
       "file_count": 225,
-      "total_bytes": 10863303
+      "total_bytes": 10863305
     }
   },
   {
@@ -927,10 +927,10 @@
     "folder": "huashu-design",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/huashu-design",
     "file_index": {
-      "path": ".catalog/e6b8563f5c8d24be6d9e59cc0b333be78caf9d1134fdaf57e7735e70a4a1a5a1.json",
-      "sha256": "e6b8563f5c8d24be6d9e59cc0b333be78caf9d1134fdaf57e7735e70a4a1a5a1",
+      "path": ".catalog/f08a07c408819beb9690120bcd616491e25bba2c8b00bf9b93e54d04ac06f8b0.json",
+      "sha256": "f08a07c408819beb9690120bcd616491e25bba2c8b00bf9b93e54d04ac06f8b0",
       "file_count": 188,
-      "total_bytes": 33193525
+      "total_bytes": 33193527
     }
   },
   {
@@ -940,10 +940,10 @@
     "folder": "hyperframes",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/hyperframes",
     "file_index": {
-      "path": ".catalog/807a1b44772d0801e69d259857c4b3e0cbf05524aee5af9729fdcbbfced480ec.json",
-      "sha256": "807a1b44772d0801e69d259857c4b3e0cbf05524aee5af9729fdcbbfced480ec",
+      "path": ".catalog/10b9ba715961c2d51363441d6bc21ba7ea2a35edcf39860df997ef2625908379.json",
+      "sha256": "10b9ba715961c2d51363441d6bc21ba7ea2a35edcf39860df997ef2625908379",
       "file_count": 1100,
-      "total_bytes": 19017696
+      "total_bytes": 19017698
     }
   },
   {
@@ -983,10 +983,10 @@
       "WhisperX"
     ],
     "file_index": {
-      "path": ".catalog/c08d5591de74c5ec98106a0881899a699f337de167ede16909d368d75ed334a4.json",
-      "sha256": "c08d5591de74c5ec98106a0881899a699f337de167ede16909d368d75ed334a4",
+      "path": ".catalog/372232e76e35f26a04c5a15f9df8a50706ff7881c5a4c23358b5a1fcc7b2b87b.json",
+      "sha256": "372232e76e35f26a04c5a15f9df8a50706ff7881c5a4c23358b5a1fcc7b2b87b",
       "file_count": 491,
-      "total_bytes": 15012877
+      "total_bytes": 15012805
     }
   },
   {
@@ -996,10 +996,10 @@
     "folder": "lottie",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/lottie",
     "file_index": {
-      "path": ".catalog/4afea3f095f47dfa68833058a49827563d9df961907fea03220c4c711f994381.json",
-      "sha256": "4afea3f095f47dfa68833058a49827563d9df961907fea03220c4c711f994381",
+      "path": ".catalog/804953d382c7b61d295c4cf2a0e3c4e28c13e7b202899f6f2e212b0a409efed5.json",
+      "sha256": "804953d382c7b61d295c4cf2a0e3c4e28c13e7b202899f6f2e212b0a409efed5",
       "file_count": 35,
-      "total_bytes": 4385221
+      "total_bytes": 4386696
     }
   },
   {
@@ -1009,10 +1009,10 @@
     "folder": "ppt-master",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-master",
     "file_index": {
-      "path": ".catalog/217602f72d9f4f9cb5f53470c6359e7de4e5f58f1fb56a9715ee78aedb26d08b.json",
-      "sha256": "217602f72d9f4f9cb5f53470c6359e7de4e5f58f1fb56a9715ee78aedb26d08b",
+      "path": ".catalog/8c3934c11569248e31cf0a433a6531de06ddbdd5f9ae3049248e55f0951c4f43.json",
+      "sha256": "8c3934c11569248e31cf0a433a6531de06ddbdd5f9ae3049248e55f0951c4f43",
       "file_count": 367,
-      "total_bytes": 39405320
+      "total_bytes": 39405103
     }
   },
   {
@@ -1022,10 +1022,10 @@
     "folder": "remotion-skills",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/remotion-skills",
     "file_index": {
-      "path": ".catalog/63c6235576fc37378d6f9feb932fb9a34cec890db34f6f4fd191917981351688.json",
-      "sha256": "63c6235576fc37378d6f9feb932fb9a34cec890db34f6f4fd191917981351688",
+      "path": ".catalog/0fcc9f9af30e5807d7784df16a732ef3b85be2f826cab0ef780c68936b2940e0.json",
+      "sha256": "0fcc9f9af30e5807d7784df16a732ef3b85be2f826cab0ef780c68936b2940e0",
       "file_count": 275,
-      "total_bytes": 2263131
+      "total_bytes": 2262908
     }
   },
   {
@@ -1035,10 +1035,10 @@
     "folder": "ui-ux-pro-max-skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ui-ux-pro-max-skill",
     "file_index": {
-      "path": ".catalog/4978d526a3a0e339506d4b2e31e6af224ace43bb436c175444495afa11102c0d.json",
-      "sha256": "4978d526a3a0e339506d4b2e31e6af224ace43bb436c175444495afa11102c0d",
+      "path": ".catalog/81a065ce4eac8592b4810068c164ae55def2c5bf8304b13bf7a365a9ad713878.json",
+      "sha256": "81a065ce4eac8592b4810068c164ae55def2c5bf8304b13bf7a365a9ad713878",
       "file_count": 118,
-      "total_bytes": 5023891
+      "total_bytes": 5023402
     }
   },
   {
@@ -1048,10 +1048,10 @@
     "folder": "video-use",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/video-use",
     "file_index": {
-      "path": ".catalog/2627a024c9d7d48d6beea27b6be9386497ac574ebc2c6aecfa09765e30ea7714.json",
-      "sha256": "2627a024c9d7d48d6beea27b6be9386497ac574ebc2c6aecfa09765e30ea7714",
+      "path": ".catalog/0aa0f73d35ef6e427274cf3db43d1d463d61021a7afcd6935fa772664f172191.json",
+      "sha256": "0aa0f73d35ef6e427274cf3db43d1d463d61021a7afcd6935fa772664f172191",
       "file_count": 32,
-      "total_bytes": 756802
+      "total_bytes": 756804
     }
   },
   {
@@ -1061,10 +1061,10 @@
     "folder": "videocut-skills",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/videocut-skills",
     "file_index": {
-      "path": ".catalog/53f82ebff3394c0ef3cc3743f741b3996b7f6acf2b7f20fac19844f5619d7906.json",
-      "sha256": "53f82ebff3394c0ef3cc3743f741b3996b7f6acf2b7f20fac19844f5619d7906",
+      "path": ".catalog/50bb330f3aabe9c1156970f0d7987abe072efabb5837b7c132df219f3b6076e6.json",
+      "sha256": "50bb330f3aabe9c1156970f0d7987abe072efabb5837b7c132df219f3b6076e6",
       "file_count": 88,
-      "total_bytes": 2007897
+      "total_bytes": 2007657
     }
   },
   {
@@ -1074,10 +1074,10 @@
     "folder": "xiaohongshu-mcp",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/xiaohongshu-mcp",
     "file_index": {
-      "path": ".catalog/2f9b12328e3240975347006a87e3f54cbaa0973951834d279d3fc38a72b49cf7.json",
-      "sha256": "2f9b12328e3240975347006a87e3f54cbaa0973951834d279d3fc38a72b49cf7",
+      "path": ".catalog/c065caf653627352b9c1bef69803d474b67406f589738af57c845de411594289.json",
+      "sha256": "c065caf653627352b9c1bef69803d474b67406f589738af57c845de411594289",
       "file_count": 29,
-      "total_bytes": 2678048
+      "total_bytes": 2677854
     }
   },
   {
@@ -1087,10 +1087,10 @@
     "folder": "competitive-ads-extractor",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/competitive-ads-extractor",
     "file_index": {
-      "path": ".catalog/1bdb378e90d04fbf9292e0e06583112831736d6b036dc5648558f947e74febef.json",
-      "sha256": "1bdb378e90d04fbf9292e0e06583112831736d6b036dc5648558f947e74febef",
+      "path": ".catalog/ccf734e9680dd5c37b2d6c532a23495a538f046a6854b05b106cf90b0be4869d.json",
+      "sha256": "ccf734e9680dd5c37b2d6c532a23495a538f046a6854b05b106cf90b0be4869d",
       "file_count": 1,
-      "total_bytes": 8039
+      "total_bytes": 8041
     }
   },
   {
@@ -1100,23 +1100,23 @@
     "folder": "Amazon-Skills",
     "relative_path": "./00_全局大管家/06_商业与专业领域/Amazon-Skills",
     "file_index": {
-      "path": ".catalog/55e42ef60485527272c6465e94559772651300edaba87f5f73100d11478ab98f.json",
-      "sha256": "55e42ef60485527272c6465e94559772651300edaba87f5f73100d11478ab98f",
+      "path": ".catalog/26b4d31bc7fd5af4ddc6c65b135eeaf5198d83286cb71eaf0ca6aef5f6b915de.json",
+      "sha256": "26b4d31bc7fd5af4ddc6c65b135eeaf5198d83286cb71eaf0ca6aef5f6b915de",
       "file_count": 67,
-      "total_bytes": 1495834
+      "total_bytes": 1496315
     }
   },
   {
     "name": "AmazonSeller-mcp-server",
-    "description": "亚马逊官方卖家后台 (Seller Central) 库存与刊登 MCP 桥接器。提供安全接口实现店铺多仓库存盘点、ASIN 刊登自动化流转及跨平台的库存安全警戒水位同步。Leading Words: 亚马逊卖家后台MCP集成, ASIN刊登自动化, FBA多仓库存盘点, 跨境店铺库存对齐",
+    "description": "Amazon Seller Central 库存与刊登 MCP 桥接器。用于查询店铺库存、管理 ASIN 刊登和同步库存警戒水位。",
     "category": "06_商业与专业领域",
     "folder": "AmazonSeller-mcp-server",
     "relative_path": "./00_全局大管家/06_商业与专业领域/AmazonSeller-mcp-server",
     "file_index": {
-      "path": ".catalog/74168e5cc9c6924102d97210687278cd20d655d0a5f1db98d92ad79bfbf6794c.json",
-      "sha256": "74168e5cc9c6924102d97210687278cd20d655d0a5f1db98d92ad79bfbf6794c",
+      "path": ".catalog/1b95b45796ebe58349ac66aa0a79ca07f4cacf9ef620b97223529137d5187104.json",
+      "sha256": "1b95b45796ebe58349ac66aa0a79ca07f4cacf9ef620b97223529137d5187104",
       "file_count": 21,
-      "total_bytes": 112935
+      "total_bytes": 113595
     }
   },
   {
@@ -1170,10 +1170,10 @@
     "folder": "LexParse-MCP",
     "relative_path": "./00_全局大管家/06_商业与专业领域/LexParse-MCP",
     "file_index": {
-      "path": ".catalog/604775d94dde10519a2b9243790697596c1a6b93ba27627b3f31e819695297be.json",
-      "sha256": "604775d94dde10519a2b9243790697596c1a6b93ba27627b3f31e819695297be",
+      "path": ".catalog/c26768383325a5bd421e3ed3c0ceef267069241411af38ea40c6437296e9b68c.json",
+      "sha256": "c26768383325a5bd421e3ed3c0ceef267069241411af38ea40c6437296e9b68c",
       "file_count": 23,
-      "total_bytes": 86871
+      "total_bytes": 88004
     }
   },
   {
@@ -1183,10 +1183,10 @@
     "folder": "MODBUS-MCP",
     "relative_path": "./00_全局大管家/06_商业与专业领域/MODBUS-MCP",
     "file_index": {
-      "path": ".catalog/397bb2062298da76633f68651f268ded4858d1c70765d6c8c1d7516681f30b99.json",
-      "sha256": "397bb2062298da76633f68651f268ded4858d1c70765d6c8c1d7516681f30b99",
+      "path": ".catalog/663913134810e08c81177dab43adf4dcf1a54db91ddbf616b9e3c0796fee7935.json",
+      "sha256": "663913134810e08c81177dab43adf4dcf1a54db91ddbf616b9e3c0796fee7935",
       "file_count": 18,
-      "total_bytes": 213944
+      "total_bytes": 214973
     }
   },
   {
@@ -1196,10 +1196,10 @@
     "folder": "OPCUA-MCP",
     "relative_path": "./00_全局大管家/06_商业与专业领域/OPCUA-MCP",
     "file_index": {
-      "path": ".catalog/a590afd39414217ce46fdbc097d29ed4c60d8a82c9dfa3bb3b36bdcfa80b6ffc.json",
-      "sha256": "a590afd39414217ce46fdbc097d29ed4c60d8a82c9dfa3bb3b36bdcfa80b6ffc",
+      "path": ".catalog/0ee688efc29a14ec8589ec04638d19f5a5caeb3e03fad1d1ae9f58bd69921d07.json",
+      "sha256": "0ee688efc29a14ec8589ec04638d19f5a5caeb3e03fad1d1ae9f58bd69921d07",
       "file_count": 36,
-      "total_bytes": 660404
+      "total_bytes": 661450
     }
   },
   {
@@ -1209,10 +1209,10 @@
     "folder": "Vibe-Lawyering",
     "relative_path": "./00_全局大管家/06_商业与专业领域/Vibe-Lawyering",
     "file_index": {
-      "path": ".catalog/3d00b66e9cccdb3230892d26892c7be127e3718f2e01e8dead8e8598561e4295.json",
-      "sha256": "3d00b66e9cccdb3230892d26892c7be127e3718f2e01e8dead8e8598561e4295",
+      "path": ".catalog/72c1930cce610331356a333e6d7272c81d524c3a4df5b306ff49ec5bd133d5f7.json",
+      "sha256": "72c1930cce610331356a333e6d7272c81d524c3a4df5b306ff49ec5bd133d5f7",
       "file_count": 160,
-      "total_bytes": 2912499
+      "total_bytes": 2918370
     }
   },
   {
@@ -1248,23 +1248,23 @@
     "folder": "amazon_sp_mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/amazon_sp_mcp",
     "file_index": {
-      "path": ".catalog/5d904c72b55848743e2179b9f21fd150e0db4cb4c73014123c11210d89d1e9f5.json",
-      "sha256": "5d904c72b55848743e2179b9f21fd150e0db4cb4c73014123c11210d89d1e9f5",
+      "path": ".catalog/e3664fb0a4aa6b98602708f6f3aa414c98fbe370d84df12f114e2393349ece1f.json",
+      "sha256": "e3664fb0a4aa6b98602708f6f3aa414c98fbe370d84df12f114e2393349ece1f",
       "file_count": 36,
-      "total_bytes": 203598
+      "total_bytes": 204657
     }
   },
   {
     "name": "arduino-cli-mcp",
-    "description": "Arduino CLI 官方硬件级嵌入式编译与烧录网关 (MCP)。支持解析并编译本地工程、管理第三方开发板包与库依赖，可自动化完成固件（ESP8266/ESP32/Arduino）烧录及串口通信调试。Leading Words: 嵌入式固件编译烧录, Arduino CLI集成MCP, ESP32开发板调试, 硬件串口通信",
+    "description": "Arduino CLI 的 MCP 集成。用于编译本地工程、管理开发板与库依赖，并完成 ESP8266、ESP32 或 Arduino 固件烧录和串口调试。",
     "category": "06_商业与专业领域",
     "folder": "arduino-cli-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/arduino-cli-mcp",
     "file_index": {
-      "path": ".catalog/149eb94fedb37d21907e41bd43f3c9b8edf242ebd4dd2053083c72db258d2ed8.json",
-      "sha256": "149eb94fedb37d21907e41bd43f3c9b8edf242ebd4dd2053083c72db258d2ed8",
+      "path": ".catalog/a68e06d8abe65aae3a23a07bd32d7ade6825312412775212792430a4518e3d62.json",
+      "sha256": "a68e06d8abe65aae3a23a07bd32d7ade6825312412775212792430a4518e3d62",
       "file_count": 15,
-      "total_bytes": 139385
+      "total_bytes": 140146
     }
   },
   {
@@ -1274,10 +1274,10 @@
     "folder": "buywhere-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/buywhere-mcp",
     "file_index": {
-      "path": ".catalog/3fdc81fc9a8cf365e8e2cb762c10d209232e17e183e5baed07e510410f92e4c4.json",
-      "sha256": "3fdc81fc9a8cf365e8e2cb762c10d209232e17e183e5baed07e510410f92e4c4",
+      "path": ".catalog/a5d4c624c8bc1662fe6c376ca0623f5e92c304b2c03f80e7d9127ff4beab7401.json",
+      "sha256": "a5d4c624c8bc1662fe6c376ca0623f5e92c304b2c03f80e7d9127ff4beab7401",
       "file_count": 7,
-      "total_bytes": 27765
+      "total_bytes": 27767
     }
   },
   {
@@ -1287,10 +1287,10 @@
     "folder": "china-law",
     "relative_path": "./00_全局大管家/06_商业与专业领域/china-law",
     "file_index": {
-      "path": ".catalog/fc197aba0fe3b784d19016f2b7a70f98504d832843a517349f217604252bc02c.json",
-      "sha256": "fc197aba0fe3b784d19016f2b7a70f98504d832843a517349f217604252bc02c",
+      "path": ".catalog/5eb20c6e4842c618e8d5d464f56f1536abef2b79f3576ed39ff2adbb1b54d75d.json",
+      "sha256": "5eb20c6e4842c618e8d5d464f56f1536abef2b79f3576ed39ff2adbb1b54d75d",
       "file_count": 58,
-      "total_bytes": 47045204
+      "total_bytes": 47046689
     }
   },
   {
@@ -1300,10 +1300,10 @@
     "folder": "digikey_mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/digikey_mcp",
     "file_index": {
-      "path": ".catalog/459e40c2af629dea07dbf386b419d103b16d041cd88195dfcd0cea89e4be41da.json",
-      "sha256": "459e40c2af629dea07dbf386b419d103b16d041cd88195dfcd0cea89e4be41da",
+      "path": ".catalog/b2b368057facd74086d2d5da3e88a926bc707ddba2f1891af41113aeb632f51e.json",
+      "sha256": "b2b368057facd74086d2d5da3e88a926bc707ddba2f1891af41113aeb632f51e",
       "file_count": 14,
-      "total_bytes": 1379938
+      "total_bytes": 1381003
     }
   },
   {
@@ -1313,23 +1313,23 @@
     "folder": "eCommerce-Skills",
     "relative_path": "./00_全局大管家/06_商业与专业领域/eCommerce-Skills",
     "file_index": {
-      "path": ".catalog/d7f97e55dbc566dbeda312123f1c78aed9ec8d180163a8fc97e476758681ae86.json",
-      "sha256": "d7f97e55dbc566dbeda312123f1c78aed9ec8d180163a8fc97e476758681ae86",
+      "path": ".catalog/66353c0f7a1587ea8763f1822ee817320cb75808b824e78ca662a21833635f25.json",
+      "sha256": "66353c0f7a1587ea8763f1822ee817320cb75808b824e78ca662a21833635f25",
       "file_count": 212,
-      "total_bytes": 2279741
+      "total_bytes": 2279684
     }
   },
   {
     "name": "ebay-mcp",
-    "description": "eBay 官方店群自动化运营中枢 (MCP)。深度封装 300+ 个底层 Sell API 端点。能够完全托管 SKU 在线刊登、海外仓发货面单流转、自动打折促销活动 (Promotions) 及全景销量盘点。Leading Words: eBay自动化店群运营, Sell API深度封装, SKU在线刊登流转, 面单打印与促销折扣",
+    "description": "eBay Sell API MCP 服务。提供商品刊登、订单与履约、物流面单、促销、库存和分析等店铺管理工具。Leading Words: eBay自动化店群运营, Sell API封装, SKU在线刊登流转, 面单打印与促销折扣",
     "category": "06_商业与专业领域",
     "folder": "ebay-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/ebay-mcp",
     "file_index": {
-      "path": ".catalog/39721adff0ffaa62ebcfeef7a7b3aee1871f12aa0eccb442e683acfe284b4fab.json",
-      "sha256": "39721adff0ffaa62ebcfeef7a7b3aee1871f12aa0eccb442e683acfe284b4fab",
+      "path": ".catalog/bdc242f37b0ff53aa5eb897d0b2ac29ac9f37f52e9d7e6f9d498507a1ec0acee.json",
+      "sha256": "bdc242f37b0ff53aa5eb897d0b2ac29ac9f37f52e9d7e6f9d498507a1ec0acee",
       "file_count": 75,
-      "total_bytes": 8106881
+      "total_bytes": 8106395
     }
   },
   {
@@ -1339,10 +1339,10 @@
     "folder": "embedded-debugger-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/embedded-debugger-mcp",
     "file_index": {
-      "path": ".catalog/87e82925493e31b1166f19e2cbfaec23423b6c8fce9541ede5c8cc52be32bab9.json",
-      "sha256": "87e82925493e31b1166f19e2cbfaec23423b6c8fce9541ede5c8cc52be32bab9",
+      "path": ".catalog/39377052113626a04f70048260e9848f11daf817ad38727f85d1cbcf05ea16fc.json",
+      "sha256": "39377052113626a04f70048260e9848f11daf817ad38727f85d1cbcf05ea16fc",
       "file_count": 35,
-      "total_bytes": 3463503
+      "total_bytes": 3464635
     }
   },
   {
@@ -1352,10 +1352,10 @@
     "folder": "freecad-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/freecad-mcp",
     "file_index": {
-      "path": ".catalog/d4d3238b59fc3584230c6db84eee56d67cc42c418c73c6003fb69c9a6fe0cbe2.json",
-      "sha256": "d4d3238b59fc3584230c6db84eee56d67cc42c418c73c6003fb69c9a6fe0cbe2",
+      "path": ".catalog/491966278b27fe4fe494ee8d042b3039b9b67fca37a8245ac7ae0a0cc803dcdb.json",
+      "sha256": "491966278b27fe4fe494ee8d042b3039b9b67fca37a8245ac7ae0a0cc803dcdb",
       "file_count": 45,
-      "total_bytes": 377540
+      "total_bytes": 377542
     }
   },
   {
@@ -1365,23 +1365,23 @@
     "folder": "ha-mcp-python",
     "relative_path": "./00_全局大管家/06_商业与专业领域/ha-mcp-python",
     "file_index": {
-      "path": ".catalog/5386f1d6ccaeaa6a30c9b6fb01a01f571aac108958b59c953bcd839f64a2de8a.json",
-      "sha256": "5386f1d6ccaeaa6a30c9b6fb01a01f571aac108958b59c953bcd839f64a2de8a",
+      "path": ".catalog/7000cc1d0895cc2634304cb1f67e8c42775f7e5b5a906a12ff41c4a083e61fe0.json",
+      "sha256": "7000cc1d0895cc2634304cb1f67e8c42775f7e5b5a906a12ff41c4a083e61fe0",
       "file_count": 24,
-      "total_bytes": 1642339
+      "total_bytes": 1642010
     }
   },
   {
     "name": "home-assistant-mcp",
-    "description": "Home Assistant 官方原生 IoT 硬件反向代理控制面板 (MCP)。支持基于 stdio 或高并发 SSE 连接，用自然语言下发指令至局域网开关、恒温器，快速验证硬件状态与自动化规则的触发点。Leading Words: HA官方IoT硬件控制, SSE远程状态代理, 自然语言执行家居指令, 自动化规则触发验证",
+    "description": "Home Assistant MCP 服务。通过 stdio 或 SSE 连接，让智能体查询和控制系统中的实体、服务、历史与自动化。",
     "category": "06_商业与专业领域",
     "folder": "home-assistant-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/home-assistant-mcp",
     "file_index": {
-      "path": ".catalog/fd7982962afa894463f4bd65ee80a172736492693919a89a0cb9be9eb262ead9.json",
-      "sha256": "fd7982962afa894463f4bd65ee80a172736492693919a89a0cb9be9eb262ead9",
+      "path": ".catalog/67a3017931ad5c74c200c4505c5bac4083d4d756a3ef14c00370a410cb2f60f1.json",
+      "sha256": "67a3017931ad5c74c200c4505c5bac4083d4d756a3ef14c00370a410cb2f60f1",
       "file_count": 168,
-      "total_bytes": 5607675
+      "total_bytes": 5608425
     }
   },
   {
@@ -1391,23 +1391,23 @@
     "folder": "jlcpcb-parts-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/jlcpcb-parts-mcp",
     "file_index": {
-      "path": ".catalog/be1f8483eb9261062a2b42370da224da20e173b1fa2d7ac0ea1f4c790c1d7174.json",
-      "sha256": "be1f8483eb9261062a2b42370da224da20e173b1fa2d7ac0ea1f4c790c1d7174",
+      "path": ".catalog/cfec919b441720331d9cc345792f6f2d042ee85931f0e4a61fe00f0fa2120e76.json",
+      "sha256": "cfec919b441720331d9cc345792f6f2d042ee85931f0e4a61fe00f0fa2120e76",
       "file_count": 6,
-      "total_bytes": 201992
+      "total_bytes": 203131
     }
   },
   {
     "name": "kicad-mcp-automation",
-    "description": "KiCad 工业级硬件工程全生命周期流水线管控台 (MCP)。无需开启 IDE 即可基于 CLI 运行高强度的 ERC / DRC 刚性规则拦截。全自动组装标准 BMO 表单并无损导出合规的 Gerber 制造文件投板。Leading Words: KiCad硬件工程自动化, ERC/DRC刚性拦截, 制造级Gerber导出, BOM表单自动生成",
+    "description": "KiCad MCP 自动化服务。通过自然语言或 CLI 管理工程、运行 ERC/DRC、维护元器件，并导出 BOM、Gerber、钻孔文件和 3D 模型。",
     "category": "06_商业与专业领域",
     "folder": "kicad-mcp-automation",
     "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-automation",
     "file_index": {
-      "path": ".catalog/df10b971738e929ed67c0e3fa5be6625ac028973e826c4c23c55529cd1f24ec2.json",
-      "sha256": "df10b971738e929ed67c0e3fa5be6625ac028973e826c4c23c55529cd1f24ec2",
+      "path": ".catalog/c0283837830bb38db5c936552c851834f97d8f22b28ec97aed9a55e84ea83e1e.json",
+      "sha256": "c0283837830bb38db5c936552c851834f97d8f22b28ec97aed9a55e84ea83e1e",
       "file_count": 63,
-      "total_bytes": 441460
+      "total_bytes": 442185
     }
   },
   {
@@ -1417,10 +1417,10 @@
     "folder": "kicad-mcp-seeed",
     "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-seeed",
     "file_index": {
-      "path": ".catalog/31435d7e91b17d92f7d0df9c2d897871b3bc1cc9f44f927c328c199965f27b0c.json",
-      "sha256": "31435d7e91b17d92f7d0df9c2d897871b3bc1cc9f44f927c328c199965f27b0c",
+      "path": ".catalog/99770456baa5cdd7fd9590fe5b5799a8be3b318f6ca6de4ef47777b34f5aa450.json",
+      "sha256": "99770456baa5cdd7fd9590fe5b5799a8be3b318f6ca6de4ef47777b34f5aa450",
       "file_count": 69,
-      "total_bytes": 458362
+      "total_bytes": 459526
     }
   },
   {
@@ -1430,10 +1430,10 @@
     "folder": "mcp2serial",
     "relative_path": "./00_全局大管家/06_商业与专业领域/mcp2serial",
     "file_index": {
-      "path": ".catalog/c7ad66fc44498c0b327a67e5f3089d7ff82dbf1cdbe53761110e7be025cddc2f.json",
-      "sha256": "c7ad66fc44498c0b327a67e5f3089d7ff82dbf1cdbe53761110e7be025cddc2f",
+      "path": ".catalog/18d6e8b50ac383e96bd0d9893ba1eda8b6f1a2b3680c1ccdffd4863ef0273f2a.json",
+      "sha256": "18d6e8b50ac383e96bd0d9893ba1eda8b6f1a2b3680c1ccdffd4863ef0273f2a",
       "file_count": 37,
-      "total_bytes": 5645142
+      "total_bytes": 5646312
     }
   },
   {
@@ -1443,10 +1443,10 @@
     "folder": "mqtt-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/mqtt-mcp",
     "file_index": {
-      "path": ".catalog/9c988c5113e4cb33532195c2684bfa4105d6aba89ac4421f97e1bc872fc3e2aa.json",
-      "sha256": "9c988c5113e4cb33532195c2684bfa4105d6aba89ac4421f97e1bc872fc3e2aa",
+      "path": ".catalog/0e2e97c4dc303c8f9b6219bf3f7d6c9da9f27f09ae1d296c0623a87c97840051.json",
+      "sha256": "0e2e97c4dc303c8f9b6219bf3f7d6c9da9f27f09ae1d296c0623a87c97840051",
       "file_count": 47,
-      "total_bytes": 860172
+      "total_bytes": 861289
     }
   },
   {
@@ -1456,10 +1456,10 @@
     "folder": "nexar-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/nexar-mcp",
     "file_index": {
-      "path": ".catalog/de17b3c8dec9f48ab45368f057723565e06b109cf6297014c22efd5db168ec8c.json",
-      "sha256": "de17b3c8dec9f48ab45368f057723565e06b109cf6297014c22efd5db168ec8c",
+      "path": ".catalog/4af456de3dc93f037901d7486dfec9b88f538a74eb5543e1704af5aea35a0e8b.json",
+      "sha256": "4af456de3dc93f037901d7486dfec9b88f538a74eb5543e1704af5aea35a0e8b",
       "file_count": 7,
-      "total_bytes": 97171
+      "total_bytes": 98275
     }
   },
   {
@@ -1469,10 +1469,10 @@
     "folder": "openscad-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/openscad-mcp",
     "file_index": {
-      "path": ".catalog/5cf62a906b7965a3afd9faa0c47ac0dabcc4c7dd18b8bda90fa45e93197c55f0.json",
-      "sha256": "5cf62a906b7965a3afd9faa0c47ac0dabcc4c7dd18b8bda90fa45e93197c55f0",
+      "path": ".catalog/75c3292f92815287ad8a86c06561bef37063573a83cf6c3abb72d605205f3a38.json",
+      "sha256": "75c3292f92815287ad8a86c06561bef37063573a83cf6c3abb72d605205f3a38",
       "file_count": 6,
-      "total_bytes": 43703
+      "total_bytes": 43705
     }
   },
   {
@@ -1482,10 +1482,10 @@
     "folder": "pcbparts-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/pcbparts-mcp",
     "file_index": {
-      "path": ".catalog/aa7c4f03985ffe6e50b26731da7e58fc5f4c7cca09dd4587eec3dc2b94f83599.json",
-      "sha256": "aa7c4f03985ffe6e50b26731da7e58fc5f4c7cca09dd4587eec3dc2b94f83599",
+      "path": ".catalog/b8b255eb704c3ff391528ec16fb5bdfc7ffc33e6133ce1defca2e4642c981973.json",
+      "sha256": "b8b255eb704c3ff391528ec16fb5bdfc7ffc33e6133ce1defca2e4642c981973",
       "file_count": 909,
-      "total_bytes": 54069412
+      "total_bytes": 54070524
     }
   },
   {
@@ -1495,10 +1495,10 @@
     "folder": "quant-dinger",
     "relative_path": "./00_全局大管家/06_商业与专业领域/quant-dinger",
     "file_index": {
-      "path": ".catalog/e0b807d5eec89ae6d5cdc4d5b99bf27587dbf6159edc738acb95703a423be9aa.json",
-      "sha256": "e0b807d5eec89ae6d5cdc4d5b99bf27587dbf6159edc738acb95703a423be9aa",
+      "path": ".catalog/6f9320ab03ac2e6695add73470ffc874523bb5c26414c6ce8cc0c117e53e9d5f.json",
+      "sha256": "6f9320ab03ac2e6695add73470ffc874523bb5c26414c6ce8cc0c117e53e9d5f",
       "file_count": 73,
-      "total_bytes": 761479
+      "total_bytes": 761481
     }
   },
   {
@@ -1508,10 +1508,10 @@
     "folder": "rigol-dho824-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/rigol-dho824-mcp",
     "file_index": {
-      "path": ".catalog/c4cd8fb0f2d3b074a3e8966fca36f078b27ec480c0708bba8fc64d677d49e20d.json",
-      "sha256": "c4cd8fb0f2d3b074a3e8966fca36f078b27ec480c0708bba8fc64d677d49e20d",
+      "path": ".catalog/4cbbf88c22d6d3a5bf01d7f90b21347f2a5ae56240414c67057418d17ece7ff2.json",
+      "sha256": "4cbbf88c22d6d3a5bf01d7f90b21347f2a5ae56240414c67057418d17ece7ff2",
       "file_count": 38,
-      "total_bytes": 3206011
+      "total_bytes": 3207191
     }
   },
   {
@@ -1521,23 +1521,23 @@
     "folder": "serenity-skill",
     "relative_path": "./00_全局大管家/06_商业与专业领域/serenity-skill",
     "file_index": {
-      "path": ".catalog/46ef62fe1659d04c5bf2fc4b52bb0863d468949d9d6ca2df84d5db279fcd4141.json",
-      "sha256": "46ef62fe1659d04c5bf2fc4b52bb0863d468949d9d6ca2df84d5db279fcd4141",
+      "path": ".catalog/33e1f07a69d9005bf5c7e86e0fd0181611c0cb4c8e34f008ea89de70c8494932.json",
+      "sha256": "33e1f07a69d9005bf5c7e86e0fd0181611c0cb4c8e34f008ea89de70c8494932",
       "file_count": 27,
-      "total_bytes": 93425
+      "total_bytes": 93427
     }
   },
   {
     "name": "shopify-mcp",
-    "description": "Shopify 独立站 GraphQL 核心数据库级超级管家 (MCP)。彻底穿透官方 Admin API，提供对 Product、Order 及 Customer 的增删改查全生命周期统治。支持扩展字段 (Metafields) 深度注入与全站库存锁定。Leading Words: Shopify独立站后台管理, GraphQL Admin API全封装, Metafields扩展属性, 订单全生命周期统治",
+    "description": "Shopify Admin API MCP 服务。管理商品、变体、客户、订单、库存、Metafields 与标签，支持 GraphQL 分页和筛选。",
     "category": "06_商业与专业领域",
     "folder": "shopify-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/shopify-mcp",
     "file_index": {
-      "path": ".catalog/0fef6cc191590c39e3459507c06f94face029476b75fa59cf0322da998d6bcb4.json",
-      "sha256": "0fef6cc191590c39e3459507c06f94face029476b75fa59cf0322da998d6bcb4",
+      "path": ".catalog/56f573e53c50f312a01ea3f5148fc8d598316419cec40ac0d27b3e3a0076cf16.json",
+      "sha256": "56f573e53c50f312a01ea3f5148fc8d598316419cec40ac0d27b3e3a0076cf16",
       "file_count": 59,
-      "total_bytes": 544865
+      "total_bytes": 545484
     }
   },
   {
@@ -1547,10 +1547,10 @@
     "folder": "spicebridge",
     "relative_path": "./00_全局大管家/06_商业与专业领域/spicebridge",
     "file_index": {
-      "path": ".catalog/fc2b470996df45ec516fb5ace77c3709e6eed8a10ab9e42f5bf6a8e3441309cf.json",
-      "sha256": "fc2b470996df45ec516fb5ace77c3709e6eed8a10ab9e42f5bf6a8e3441309cf",
+      "path": ".catalog/58b7f1e99f031eade4d0a6c0f251c3966452021e5f80778dc25970e2784822fb.json",
+      "sha256": "58b7f1e99f031eade4d0a6c0f251c3966452021e5f80778dc25970e2784822fb",
       "file_count": 133,
-      "total_bytes": 873401
+      "total_bytes": 874927
     }
   },
   {
@@ -1560,10 +1560,10 @@
     "folder": "text-to-cad",
     "relative_path": "./00_全局大管家/06_商业与专业领域/text-to-cad",
     "file_index": {
-      "path": ".catalog/9860f61ce2135d0c1355490e45cd15b4367639bbf44f638d6b285772516cce08.json",
-      "sha256": "9860f61ce2135d0c1355490e45cd15b4367639bbf44f638d6b285772516cce08",
+      "path": ".catalog/251ac1b507cf222af9d75872a2d6bb0aaaed651aa64d2e2266177a03c92fe4cb.json",
+      "sha256": "251ac1b507cf222af9d75872a2d6bb0aaaed651aa64d2e2266177a03c92fe4cb",
       "file_count": 983,
-      "total_bytes": 23359260
+      "total_bytes": 23359262
     }
   },
   {
@@ -1573,10 +1573,10 @@
     "folder": "trading-agents",
     "relative_path": "./00_全局大管家/06_商业与专业领域/trading-agents",
     "file_index": {
-      "path": ".catalog/1cb1a5521a8dbfd2a2dbdba73108ff90d1ef94b25032804155964272d32c1794.json",
-      "sha256": "1cb1a5521a8dbfd2a2dbdba73108ff90d1ef94b25032804155964272d32c1794",
+      "path": ".catalog/4dc052942910c89741536c0fa8fb0fc5173bd6a32b4001eeea18edbc530b78ec.json",
+      "sha256": "4dc052942910c89741536c0fa8fb0fc5173bd6a32b4001eeea18edbc530b78ec",
       "file_count": 12,
-      "total_bytes": 1177320
+      "total_bytes": 1177322
     }
   },
   {
@@ -1586,23 +1586,23 @@
     "folder": "uzi-skill",
     "relative_path": "./00_全局大管家/06_商业与专业领域/uzi-skill",
     "file_index": {
-      "path": ".catalog/d0ded79676ad8fe1f947416d959884dff82cfe40d14ec2867373855b21ebde11.json",
-      "sha256": "d0ded79676ad8fe1f947416d959884dff82cfe40d14ec2867373855b21ebde11",
+      "path": ".catalog/51543936a43d152f42ead972e7ceefda228308284c6ca6125a02f77dda97f3ac.json",
+      "sha256": "51543936a43d152f42ead972e7ceefda228308284c6ca6125a02f77dda97f3ac",
       "file_count": 443,
-      "total_bytes": 11472028
+      "total_bytes": 11472050
     }
   },
   {
     "name": "yuandian-mcp-server",
-    "description": "华宇元典官方泛法律与政企信用数据合规网关 (MCP)。赋予智能体直连国内最高级别法条库、裁判文书网与企业工商征信信息的能力。作为权威的司法数据检索引擎，保障商业背调与合规审核的法理强健性。Leading Words: 华宇元典权威法律网关, 裁判文书政企信用背调, 企业工商信息获取, 泛法律合规数据检索引擎",
+    "description": "华宇元典法律数据 MCP 服务。用于检索法律法规、裁判文书与企业工商信用信息，辅助法律检索、商业背调和合规审查。",
     "category": "06_商业与专业领域",
     "folder": "yuandian-mcp-server",
     "relative_path": "./00_全局大管家/06_商业与专业领域/yuandian-mcp-server",
     "file_index": {
-      "path": ".catalog/3de343e5fb1bd6f6e5be58eada604a534556fe6d83d57f2f3e7a91a25b7cfab7.json",
-      "sha256": "3de343e5fb1bd6f6e5be58eada604a534556fe6d83d57f2f3e7a91a25b7cfab7",
+      "path": ".catalog/6a05e36bb221071f9ddfa4c29551ed3d466ef91664fcb6f746e2a7a521ec4584.json",
+      "sha256": "6a05e36bb221071f9ddfa4c29551ed3d466ef91664fcb6f746e2a7a521ec4584",
       "file_count": 7,
-      "total_bytes": 33069
+      "total_bytes": 33722
     }
   },
   {
@@ -1612,10 +1612,10 @@
     "folder": "domain-name-brainstormer",
     "relative_path": "./00_全局大管家/06_商业与专业领域/domain-name-brainstormer",
     "file_index": {
-      "path": ".catalog/3bda9ae38368013ad94f044f169e62114db1af0f5e677f12dc8027bcc5a95037.json",
-      "sha256": "3bda9ae38368013ad94f044f169e62114db1af0f5e677f12dc8027bcc5a95037",
+      "path": ".catalog/aade5d53c06aba7a69e57c539fe7c92852891934b9b56f65a9ad3412eeb1bd70.json",
+      "sha256": "aade5d53c06aba7a69e57c539fe7c92852891934b9b56f65a9ad3412eeb1bd70",
       "file_count": 1,
-      "total_bytes": 5863
+      "total_bytes": 5865
     }
   },
   {
@@ -1625,10 +1625,10 @@
     "folder": "developer-growth-analysis",
     "relative_path": "./00_全局大管家/06_商业与专业领域/developer-growth-analysis",
     "file_index": {
-      "path": ".catalog/a9c05c097211ba4344406b3fadd0e631d37c2dfd07241a2844dce5bf5a7760bb.json",
-      "sha256": "a9c05c097211ba4344406b3fadd0e631d37c2dfd07241a2844dce5bf5a7760bb",
+      "path": ".catalog/594d58a04faea4f9b8bfa6a58af052b82bd6779ad280b2352eee41c70d5a6f2f.json",
+      "sha256": "594d58a04faea4f9b8bfa6a58af052b82bd6779ad280b2352eee41c70d5a6f2f",
       "file_count": 1,
-      "total_bytes": 15843
+      "total_bytes": 15845
     }
   },
   {
@@ -1638,10 +1638,10 @@
     "folder": "raffle-winner-picker",
     "relative_path": "./00_全局大管家/06_商业与专业领域/raffle-winner-picker",
     "file_index": {
-      "path": ".catalog/fb7ed64d35b64b6ebaeeffc16c34de89e5290636e4fab69145f959ed2e822970.json",
-      "sha256": "fb7ed64d35b64b6ebaeeffc16c34de89e5290636e4fab69145f959ed2e822970",
+      "path": ".catalog/5e0a804f79d5c24053d8462360e22a400adc53091b220f4c8b65b54af14f9426.json",
+      "sha256": "5e0a804f79d5c24053d8462360e22a400adc53091b220f4c8b65b54af14f9426",
       "file_count": 1,
-      "total_bytes": 3993
+      "total_bytes": 3995
     }
   },
   {
@@ -1651,10 +1651,10 @@
     "folder": "lead-research-assistant",
     "relative_path": "./00_全局大管家/06_商业与专业领域/lead-research-assistant",
     "file_index": {
-      "path": ".catalog/f522ba83820a18624c97a4df311b979958a432042da450f8198c84be0bf6a53c.json",
-      "sha256": "f522ba83820a18624c97a4df311b979958a432042da450f8198c84be0bf6a53c",
+      "path": ".catalog/0ed82a6a9526a4345c972088e5e810ac13dc7390fa294c276d694880de3fb245.json",
+      "sha256": "0ed82a6a9526a4345c972088e5e810ac13dc7390fa294c276d694880de3fb245",
       "file_count": 1,
-      "total_bytes": 6710
+      "total_bytes": 6712
     }
   },
   {
@@ -1664,10 +1664,10 @@
     "folder": "agent-reach",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/agent-reach",
     "file_index": {
-      "path": ".catalog/8915cfc56fd95848990b30c99a845e7da7c5401adba8b57c13bcb655b16afc94.json",
-      "sha256": "8915cfc56fd95848990b30c99a845e7da7c5401adba8b57c13bcb655b16afc94",
+      "path": ".catalog/829b4a36fef866cd526c6516ead226fb07b21e208c9ef4e272c015ed3ecba7ee.json",
+      "sha256": "829b4a36fef866cd526c6516ead226fb07b21e208c9ef4e272c015ed3ecba7ee",
       "file_count": 111,
-      "total_bytes": 1042591
+      "total_bytes": 1042568
     }
   },
   {
@@ -1677,10 +1677,10 @@
     "folder": "aurakit",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/aurakit",
     "file_index": {
-      "path": ".catalog/63c60448ae9484d63bac7befa561c92623fd734499a067bd809eb67de6069c82.json",
-      "sha256": "63c60448ae9484d63bac7befa561c92623fd734499a067bd809eb67de6069c82",
+      "path": ".catalog/6260f9402267b0d18e1c9f42fa4491a8a3a542d561b2bdca094fcdfab7bdd65f.json",
+      "sha256": "6260f9402267b0d18e1c9f42fa4491a8a3a542d561b2bdca094fcdfab7bdd65f",
       "file_count": 191,
-      "total_bytes": 4308937
+      "total_bytes": 4310122
     }
   },
   {
@@ -1690,10 +1690,10 @@
     "folder": "bernstein",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/bernstein",
     "file_index": {
-      "path": ".catalog/c71f79f447da07ac8f46e1475fe964778bc8a5068e6ae91b3bd585e2be2afdeb.json",
-      "sha256": "c71f79f447da07ac8f46e1475fe964778bc8a5068e6ae91b3bd585e2be2afdeb",
+      "path": ".catalog/17d04cea2d6ab77afa385c6cbfa70de82b90dd26ccf73d1b8fdcfbd6cbd668c2.json",
+      "sha256": "17d04cea2d6ab77afa385c6cbfa70de82b90dd26ccf73d1b8fdcfbd6cbd668c2",
       "file_count": 242,
-      "total_bytes": 2728890
+      "total_bytes": 2728702
     }
   },
   {
@@ -1703,10 +1703,10 @@
     "folder": "context-engineering-skills",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/context-engineering-skills",
     "file_index": {
-      "path": ".catalog/e6e9403c7ad7821333031be9bec8a3c3a3d50f81e28adb5f1c42457f544a6632.json",
-      "sha256": "e6e9403c7ad7821333031be9bec8a3c3a3d50f81e28adb5f1c42457f544a6632",
+      "path": ".catalog/ab2e1c534dc63a8e6b6879f64a07caa2bd93906cd344e19dd765fdc7d34f84a1.json",
+      "sha256": "ab2e1c534dc63a8e6b6879f64a07caa2bd93906cd344e19dd765fdc7d34f84a1",
       "file_count": 489,
-      "total_bytes": 11519622
+      "total_bytes": 11519624
     }
   },
   {
@@ -1716,23 +1716,23 @@
     "folder": "emdash-skills",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/emdash-skills",
     "file_index": {
-      "path": ".catalog/40154d554a08d56b4b1240dceb83e10736131043eafc7c0197aa2f54c07c2e75.json",
-      "sha256": "40154d554a08d56b4b1240dceb83e10736131043eafc7c0197aa2f54c07c2e75",
+      "path": ".catalog/3a10d7f46bc446f257b33e320d1bf847654a8b2167d958d8d8971aeb16eb49bd.json",
+      "sha256": "3a10d7f46bc446f257b33e320d1bf847654a8b2167d958d8d8971aeb16eb49bd",
       "file_count": 914,
-      "total_bytes": 16401890
+      "total_bytes": 16401892
     }
   },
   {
     "name": "polywave",
-    "description": "Polywave 多线程波浪式 (Wave-flows) 并发任务调度与状态机协调器。强制执行「斥候侦测 (Scout) -> 实施蓝图制定 (IMPL) -> 带边界防护的波浪执行」三段式安全开发范式，彻底杜绝单节点越权修改代码。Leading Words: 波浪式并发任务调度, 斥候侦测安全开发范式, 带边界防护的执行引擎, IMPL实施蓝图制定",
+    "description": "Polywave 多阶段编码编排器。用于把大型改动拆成侦察、实施蓝图、波浪执行与集成验证，并通过 polywave-tools 检查阶段边界和完成条件。",
     "category": "07_智能体框架与协同",
     "folder": "polywave",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/polywave",
     "file_index": {
-      "path": ".catalog/7388339256973e8ceaca9da1b96876ac56dfdb364880386b1bf11698b78bd3f4.json",
-      "sha256": "7388339256973e8ceaca9da1b96876ac56dfdb364880386b1bf11698b78bd3f4",
+      "path": ".catalog/b06ab911718d5f773b72ac862c3942bd56e7d8a09c4dadb94b8f0915ded3e7e0.json",
+      "sha256": "b06ab911718d5f773b72ac862c3942bd56e7d8a09c4dadb94b8f0915ded3e7e0",
       "file_count": 64,
-      "total_bytes": 1792551
+      "total_bytes": 1785580
     }
   },
   {
@@ -1742,10 +1742,10 @@
     "folder": "superclaude-framework",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/superclaude-framework",
     "file_index": {
-      "path": ".catalog/cf27298577e9339414b8d5831aa75d4f1b81406eab8d0f49277a8d9cf9a495f5.json",
-      "sha256": "cf27298577e9339414b8d5831aa75d4f1b81406eab8d0f49277a8d9cf9a495f5",
+      "path": ".catalog/581ce209169888ee8b869e12c18712f00c393b42863c246b17c3c9e19c68a0f0.json",
+      "sha256": "581ce209169888ee8b869e12c18712f00c393b42863c246b17c3c9e19c68a0f0",
       "file_count": 401,
-      "total_bytes": 2851667
+      "total_bytes": 2854677
     }
   },
   {
@@ -1755,10 +1755,10 @@
     "folder": "vibe-skills",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-skills",
     "file_index": {
-      "path": ".catalog/65935581d3c63e69e2b06b4fe22c13b6933ce7168765e07b7ebf5c4e14fa482a.json",
-      "sha256": "65935581d3c63e69e2b06b4fe22c13b6933ce7168765e07b7ebf5c4e14fa482a",
+      "path": ".catalog/b51956386a354ef30234c5f29b041f18b278a236f973633b69e0e5a1be0de35b.json",
+      "sha256": "b51956386a354ef30234c5f29b041f18b278a236f973633b69e0e5a1be0de35b",
       "file_count": 2542,
-      "total_bytes": 26943466
+      "total_bytes": 26943468
     }
   },
   {
@@ -1768,10 +1768,10 @@
     "folder": "GoogleDrive-MCP",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/GoogleDrive-MCP",
     "file_index": {
-      "path": ".catalog/c47e99a93c7c28127b3a621ab21c3d4d1f22c3dd1a16ecc5d5c2b319acdb6c93.json",
-      "sha256": "c47e99a93c7c28127b3a621ab21c3d4d1f22c3dd1a16ecc5d5c2b319acdb6c93",
+      "path": ".catalog/e709aa13f6e1a83e9e4507eaa6f643b09272f1323113b4b7d1c0abab3c0e6f0f.json",
+      "sha256": "e709aa13f6e1a83e9e4507eaa6f643b09272f1323113b4b7d1c0abab3c0e6f0f",
       "file_count": 4,
-      "total_bytes": 68499
+      "total_bytes": 68474
     }
   },
   {
@@ -1781,10 +1781,10 @@
     "folder": "mcp-builder",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-builder",
     "file_index": {
-      "path": ".catalog/f620c49a215a4540329ee7fae794f6eb928a742e0aefc5f1abd727b85128ef89.json",
-      "sha256": "f620c49a215a4540329ee7fae794f6eb928a742e0aefc5f1abd727b85128ef89",
+      "path": ".catalog/462014b79d02e1a3094e6c719d2e49dad0b0846ea84d7bab776ef11da136bcee.json",
+      "sha256": "462014b79d02e1a3094e6c719d2e49dad0b0846ea84d7bab776ef11da136bcee",
       "file_count": 10,
-      "total_bytes": 121805
+      "total_bytes": 121807
     }
   },
   {
@@ -1794,10 +1794,10 @@
     "folder": "Telegram-MCP",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/Telegram-MCP",
     "file_index": {
-      "path": ".catalog/4c413c8181ba82650e795ebee5e0ce0c9e216f646da34b5eeaf7259e73e8c709.json",
-      "sha256": "4c413c8181ba82650e795ebee5e0ce0c9e216f646da34b5eeaf7259e73e8c709",
+      "path": ".catalog/931a38eabc4acc34aa810ed23387804e042643088198f5c9d19ce35ab411e896.json",
+      "sha256": "931a38eabc4acc34aa810ed23387804e042643088198f5c9d19ce35ab411e896",
       "file_count": 32,
-      "total_bytes": 274537
+      "total_bytes": 274495
     }
   },
   {
@@ -1807,10 +1807,10 @@
     "folder": "connect",
     "relative_path": "./00_全局大管家/09_Composio集成服务/connect",
     "file_index": {
-      "path": ".catalog/45d7ff31b633e5777c65174041c41b60075eccd61a9f0d3a54cddd0bfef30d72.json",
-      "sha256": "45d7ff31b633e5777c65174041c41b60075eccd61a9f0d3a54cddd0bfef30d72",
+      "path": ".catalog/9210028dd91bbbdb32ac2b98ff481528aec381fe0a6c626af856ab936f8c5f4f.json",
+      "sha256": "9210028dd91bbbdb32ac2b98ff481528aec381fe0a6c626af856ab936f8c5f4f",
       "file_count": 1,
-      "total_bytes": 6674
+      "total_bytes": 6676
     }
   },
   {
@@ -1820,10 +1820,10 @@
     "folder": "connect-apps",
     "relative_path": "./00_全局大管家/09_Composio集成服务/connect-apps",
     "file_index": {
-      "path": ".catalog/6dfe8392165cdd4697035ac51e2b6d7c4bcc33b33cea570d5194d6bd8776f3b2.json",
-      "sha256": "6dfe8392165cdd4697035ac51e2b6d7c4bcc33b33cea570d5194d6bd8776f3b2",
+      "path": ".catalog/0a9ef44720cee53a4991f1fa088c433c5a747679c67654741e9a1dab0d1fc95e.json",
+      "sha256": "0a9ef44720cee53a4991f1fa088c433c5a747679c67654741e9a1dab0d1fc95e",
       "file_count": 1,
-      "total_bytes": 5021
+      "total_bytes": 5023
     }
   },
   {
@@ -1833,10 +1833,10 @@
     "folder": "antfu-skills",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/antfu-skills",
     "file_index": {
-      "path": ".catalog/c726300e4d2bb1a78248d02d468ca5f9532fd9241549dea83056241f4f27df10.json",
-      "sha256": "c726300e4d2bb1a78248d02d468ca5f9532fd9241549dea83056241f4f27df10",
+      "path": ".catalog/52cb237cc058ec5798018bfbbd275b3da10a991f44fbb0594212bc7c0cce8b50.json",
+      "sha256": "52cb237cc058ec5798018bfbbd275b3da10a991f44fbb0594212bc7c0cce8b50",
       "file_count": 591,
-      "total_bytes": 1817861
+      "total_bytes": 1823199
     }
   },
   {
@@ -1846,10 +1846,10 @@
     "folder": "anthropic-skills",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/anthropic-skills",
     "file_index": {
-      "path": ".catalog/14939e754a41a3af0c1423e5af1b2390acd36e9bd8f1d0cd82aed2244009c9af.json",
-      "sha256": "14939e754a41a3af0c1423e5af1b2390acd36e9bd8f1d0cd82aed2244009c9af",
+      "path": ".catalog/c2a43c2ded86cf772f696cfda5a26d2bf54df4caa4e37cad15395ae60b0d5166.json",
+      "sha256": "c2a43c2ded86cf772f696cfda5a26d2bf54df4caa4e37cad15395ae60b0d5166",
       "file_count": 419,
-      "total_bytes": 10977633
+      "total_bytes": 10977635
     }
   },
   {
@@ -1859,10 +1859,10 @@
     "folder": "google-skills",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/google-skills",
     "file_index": {
-      "path": ".catalog/d9666974b18259a902cb36270e09f3414d99f9c607f87d8c1c66a3ad459b592c.json",
-      "sha256": "d9666974b18259a902cb36270e09f3414d99f9c607f87d8c1c66a3ad459b592c",
+      "path": ".catalog/6506fbdbf0136d330af4083aa1620e2b7fbac1270bda25457c41b1019eda7fb0.json",
+      "sha256": "6506fbdbf0136d330af4083aa1620e2b7fbac1270bda25457c41b1019eda7fb0",
       "file_count": 722,
-      "total_bytes": 4449863
+      "total_bytes": 4449713
     }
   },
   {
@@ -1872,10 +1872,10 @@
     "folder": "mattpocock-skills",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/mattpocock-skills",
     "file_index": {
-      "path": ".catalog/dae3d512ec58ebf10c0ea6b421d85f5919706ddcf462ab05c711111dc4802fa3.json",
-      "sha256": "dae3d512ec58ebf10c0ea6b421d85f5919706ddcf462ab05c711111dc4802fa3",
+      "path": ".catalog/7d9192b6b94f0b536c3d4854179a72e620d35a313716571e01b90e261c5551f9.json",
+      "sha256": "7d9192b6b94f0b536c3d4854179a72e620d35a313716571e01b90e261c5551f9",
       "file_count": 151,
-      "total_bytes": 617361
+      "total_bytes": 617274
     }
   },
   {
@@ -1885,10 +1885,10 @@
     "folder": "minimax-skills",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/minimax-skills",
     "file_index": {
-      "path": ".catalog/5d6916faf2896d68449ed9e5304d43d56f9a768015ceae763a8c064e322e56db.json",
-      "sha256": "5d6916faf2896d68449ed9e5304d43d56f9a768015ceae763a8c064e322e56db",
+      "path": ".catalog/c05705f9c62c4e7e9e59054a2ebf6c748f95ab641c9c7ef4ae6281c5228e6fcd.json",
+      "sha256": "c05705f9c62c4e7e9e59054a2ebf6c748f95ab641c9c7ef4ae6281c5228e6fcd",
       "file_count": 392,
-      "total_bytes": 13911209
+      "total_bytes": 13918908
     }
   },
   {
@@ -1898,10 +1898,10 @@
     "folder": "skill-creator",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-creator",
     "file_index": {
-      "path": ".catalog/84b8a4fa905a5dc5d00fcc8371de1fe571bf9fa562b177237e580e1b6c305e3d.json",
-      "sha256": "84b8a4fa905a5dc5d00fcc8371de1fe571bf9fa562b177237e580e1b6c305e3d",
+      "path": ".catalog/fcd5405e02ff8791e69a8f3ea211e721b451169b181a316da56429416d74ef67.json",
+      "sha256": "fcd5405e02ff8791e69a8f3ea211e721b451169b181a316da56429416d74ef67",
       "file_count": 18,
-      "total_bytes": 225036
+      "total_bytes": 225038
     }
   },
   {
@@ -1911,10 +1911,10 @@
     "folder": "skill-installer",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-installer",
     "file_index": {
-      "path": ".catalog/1adc476ff99ee1dfffc20a99e47580d3e97cb4344a56f960f4ee5cd390cca375.json",
-      "sha256": "1adc476ff99ee1dfffc20a99e47580d3e97cb4344a56f960f4ee5cd390cca375",
+      "path": ".catalog/32b867bbbfccaf9adfcf760f293d6b7bd4286240789c7f0650ddf0e2e72fbfd9.json",
+      "sha256": "32b867bbbfccaf9adfcf760f293d6b7bd4286240789c7f0650ddf0e2e72fbfd9",
       "file_count": 5,
-      "total_bytes": 28852
+      "total_bytes": 28854
     }
   },
   {
@@ -1924,10 +1924,10 @@
     "folder": "composio-generated-skills",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/composio-generated-skills",
     "file_index": {
-      "path": ".catalog/df73521193a93a77996e0aaeb0dbec55e8b82d82c6a3c8f3eab03f8a1ebc571b.json",
-      "sha256": "df73521193a93a77996e0aaeb0dbec55e8b82d82c6a3c8f3eab03f8a1ebc571b",
+      "path": ".catalog/4e5b8a095a8cb814ea45cd3e43b7fb9248ac287bc3a6ff2ffb6e19c7835788f7.json",
+      "sha256": "4e5b8a095a8cb814ea45cd3e43b7fb9248ac287bc3a6ff2ffb6e19c7835788f7",
       "file_count": 834,
-      "total_bytes": 2747676
+      "total_bytes": 2749578
     }
   },
   {
@@ -1937,10 +1937,10 @@
     "folder": "cloudbase",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/cloudbase",
     "file_index": {
-      "path": ".catalog/6a6dc27214c41d5b5c3fab195c33e40064ed598a3454e55483b733ed82979030.json",
-      "sha256": "6a6dc27214c41d5b5c3fab195c33e40064ed598a3454e55483b733ed82979030",
+      "path": ".catalog/38b15b7a783a8c310b831705d3e65da6df4980002d7a1898bd7b27689a3d48ba.json",
+      "sha256": "38b15b7a783a8c310b831705d3e65da6df4980002d7a1898bd7b27689a3d48ba",
       "file_count": 134,
-      "total_bytes": 1153127
+      "total_bytes": 1153129
     }
   },
   {
@@ -1950,10 +1950,10 @@
     "folder": "codex-sms-verification",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/codex-sms-verification",
     "file_index": {
-      "path": ".catalog/f6b5d1981eeaa04371a3b1bc748bfce3ef48917da074d27099d91520b4fb957a.json",
-      "sha256": "f6b5d1981eeaa04371a3b1bc748bfce3ef48917da074d27099d91520b4fb957a",
+      "path": ".catalog/ff52f18cd6cd0ffb32f158d447f6caa3a2cc8045d175762675bc6d8263d87fc7.json",
+      "sha256": "ff52f18cd6cd0ffb32f158d447f6caa3a2cc8045d175762675bc6d8263d87fc7",
       "file_count": 4,
-      "total_bytes": 12171
+      "total_bytes": 12173
     }
   },
   {
@@ -1963,10 +1963,10 @@
     "folder": "wechat-miniprogram-development",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/wechat-miniprogram-development",
     "file_index": {
-      "path": ".catalog/93a40c4e89a51c67240d633ae08246a319db9409ba43f4e8205900e07b9bf773.json",
-      "sha256": "93a40c4e89a51c67240d633ae08246a319db9409ba43f4e8205900e07b9bf773",
+      "path": ".catalog/bf41129b465c9c493d8b922dc29301ead39365e0f848a524d092ffde122333cf.json",
+      "sha256": "bf41129b465c9c493d8b922dc29301ead39365e0f848a524d092ffde122333cf",
       "file_count": 1,
-      "total_bytes": 4225
+      "total_bytes": 4227
     }
   },
   {
@@ -1990,10 +1990,10 @@
       "学术数据库"
     ],
     "file_index": {
-      "path": ".catalog/15bb17dabaca831536395cc824a7e72e9f152b77a0a83d2a1dd90d47f8a385b7.json",
-      "sha256": "15bb17dabaca831536395cc824a7e72e9f152b77a0a83d2a1dd90d47f8a385b7",
+      "path": ".catalog/67426318eaea03254352bf20907b08147ab0612f12d903aac487a65c6de749b3.json",
+      "sha256": "67426318eaea03254352bf20907b08147ab0612f12d903aac487a65c6de749b3",
       "file_count": 54,
-      "total_bytes": 546448
+      "total_bytes": 546450
     }
   },
   {
@@ -2018,10 +2018,10 @@
       "论文阅读"
     ],
     "file_index": {
-      "path": ".catalog/ab6e594d76fbf960f68337cf45372de7c252c66c3fd0cb03ee9ca07e4d251083.json",
-      "sha256": "ab6e594d76fbf960f68337cf45372de7c252c66c3fd0cb03ee9ca07e4d251083",
+      "path": ".catalog/1d9fb842c0e0e756163444dbff1c3b94ffd2e3a51186a9b08865c0afdd0dc3fc.json",
+      "sha256": "1d9fb842c0e0e756163444dbff1c3b94ffd2e3a51186a9b08865c0afdd0dc3fc",
       "file_count": 2,
-      "total_bytes": 15129
+      "total_bytes": 15131
     }
   },
   {
@@ -2045,10 +2045,10 @@
       "学术检索"
     ],
     "file_index": {
-      "path": ".catalog/a7ed28424c3c811a760521d9846834113c55690557113070a372972cbb2a13c9.json",
-      "sha256": "a7ed28424c3c811a760521d9846834113c55690557113070a372972cbb2a13c9",
+      "path": ".catalog/79261674cde0a161f5df59169921ccfbc0f5de45e72d54de0c80f5b65f94cfac.json",
+      "sha256": "79261674cde0a161f5df59169921ccfbc0f5de45e72d54de0c80f5b65f94cfac",
       "file_count": 7,
-      "total_bytes": 18363
+      "total_bytes": 18365
     }
   },
   {
@@ -2072,10 +2072,10 @@
       "学术Agent"
     ],
     "file_index": {
-      "path": ".catalog/385b5a90c16dbb039dae84d850a590c57ee1ad37ee94019c1bbd21a602324d56.json",
-      "sha256": "385b5a90c16dbb039dae84d850a590c57ee1ad37ee94019c1bbd21a602324d56",
+      "path": ".catalog/603f0b15cd527140d74f78f61c12b0895affac2a8e03bd61ee7cbede4a71c1ca.json",
+      "sha256": "603f0b15cd527140d74f78f61c12b0895affac2a8e03bd61ee7cbede4a71c1ca",
       "file_count": 753,
-      "total_bytes": 38438464
+      "total_bytes": 38438422
     }
   },
   {
@@ -2099,10 +2099,10 @@
       "文献综述"
     ],
     "file_index": {
-      "path": ".catalog/43e632a2d7032b7e706e3c0c61678296f448f92c71515df4e748528e43d0c4e4.json",
-      "sha256": "43e632a2d7032b7e706e3c0c61678296f448f92c71515df4e748528e43d0c4e4",
+      "path": ".catalog/54f5e95f9f7a5d845e23ab0d85581e2f6973218a1192110080c90e6383a434f9.json",
+      "sha256": "54f5e95f9f7a5d845e23ab0d85581e2f6973218a1192110080c90e6383a434f9",
       "file_count": 2,
-      "total_bytes": 11765
+      "total_bytes": 11767
     }
   },
   {
@@ -2126,10 +2126,10 @@
       "免费数据源"
     ],
     "file_index": {
-      "path": ".catalog/e3ac18f7d391e61c8adf28b12c1eb512263a155dbad0280830d6924119f51858.json",
-      "sha256": "e3ac18f7d391e61c8adf28b12c1eb512263a155dbad0280830d6924119f51858",
+      "path": ".catalog/5d30b09bcc8c87785101c87e6327f0bb097eba20d94920105030891bd3e1bc3a.json",
+      "sha256": "5d30b09bcc8c87785101c87e6327f0bb097eba20d94920105030891bd3e1bc3a",
       "file_count": 71,
-      "total_bytes": 1068901
+      "total_bytes": 1068903
     }
   },
   {
@@ -2154,10 +2154,10 @@
       "学术文献"
     ],
     "file_index": {
-      "path": ".catalog/57e9ac59bf2423277c2dd7d1b897977779f03ac45d1d2a8f3de6f2bb654ac8ef.json",
-      "sha256": "57e9ac59bf2423277c2dd7d1b897977779f03ac45d1d2a8f3de6f2bb654ac8ef",
+      "path": ".catalog/2e73fdb24aa735461e674fe1e193a8d1effdf757a5730e792ecf7f96d67114c7.json",
+      "sha256": "2e73fdb24aa735461e674fe1e193a8d1effdf757a5730e792ecf7f96d67114c7",
       "file_count": 6,
-      "total_bytes": 17083
+      "total_bytes": 17085
     }
   },
   {
@@ -2182,10 +2182,10 @@
       "CNS顶刊"
     ],
     "file_index": {
-      "path": ".catalog/95f326f4a1d3f586d34fa16bb6cffa97f76c7eacedf248982857772ef5eb25e4.json",
-      "sha256": "95f326f4a1d3f586d34fa16bb6cffa97f76c7eacedf248982857772ef5eb25e4",
+      "path": ".catalog/f639a81772497f1984d727dbd94e1de3475f175343632c5f0a20e28cdc53b435.json",
+      "sha256": "f639a81772497f1984d727dbd94e1de3475f175343632c5f0a20e28cdc53b435",
       "file_count": 6,
-      "total_bytes": 93836
+      "total_bytes": 93838
     }
   },
   {
@@ -2210,10 +2210,10 @@
       "矢量图"
     ],
     "file_index": {
-      "path": ".catalog/13777ddeb01327e4c81b4f49db36dc4ae623970ae9c8af410156d444a3eaa159.json",
-      "sha256": "13777ddeb01327e4c81b4f49db36dc4ae623970ae9c8af410156d444a3eaa159",
+      "path": ".catalog/c00e683c33db9bf1ed600455d275efe323605e7db79c3ef10c8bbf20e1cc4880.json",
+      "sha256": "c00e683c33db9bf1ed600455d275efe323605e7db79c3ef10c8bbf20e1cc4880",
       "file_count": 18,
-      "total_bytes": 190247
+      "total_bytes": 190249
     }
   },
   {
@@ -2238,10 +2238,10 @@
       "Open Access"
     ],
     "file_index": {
-      "path": ".catalog/7d210f690c981fc00e3428f20184c26f73ef35c79a4f3863dd8285527b9cc73c.json",
-      "sha256": "7d210f690c981fc00e3428f20184c26f73ef35c79a4f3863dd8285527b9cc73c",
+      "path": ".catalog/9279adcbc08d68dba34e843eb9bdd19164c7ab2b96c865e26c427ecd3f1154ad.json",
+      "sha256": "9279adcbc08d68dba34e843eb9bdd19164c7ab2b96c865e26c427ecd3f1154ad",
       "file_count": 7,
-      "total_bytes": 21903
+      "total_bytes": 21905
     }
   },
   {
@@ -2266,10 +2266,10 @@
       "数学验证"
     ],
     "file_index": {
-      "path": ".catalog/721f200ff9f1a380a97ecbd7b2a53bef1f7b5ee2bb3aedb2a89e2205e6de3409.json",
-      "sha256": "721f200ff9f1a380a97ecbd7b2a53bef1f7b5ee2bb3aedb2a89e2205e6de3409",
+      "path": ".catalog/cc5fa61a320793c0d1a48e86ceb51d89067967d883a46bb4c88e18af0792ebac.json",
+      "sha256": "cc5fa61a320793c0d1a48e86ceb51d89067967d883a46bb4c88e18af0792ebac",
       "file_count": 2,
-      "total_bytes": 14361
+      "total_bytes": 14363
     }
   },
   {
@@ -2294,62 +2294,62 @@
       "BibTeX"
     ],
     "file_index": {
-      "path": ".catalog/3fac9a2252f28a83bfde7c53e679ca86366a60d7782519da8e0fc5320a660be7.json",
-      "sha256": "3fac9a2252f28a83bfde7c53e679ca86366a60d7782519da8e0fc5320a660be7",
+      "path": ".catalog/2d08c7dec7dded5fb4f7b645621581e6dfe8ad96289bff68c0780075df653837.json",
+      "sha256": "2d08c7dec7dded5fb4f7b645621581e6dfe8ad96289bff68c0780075df653837",
       "file_count": 2,
-      "total_bytes": 13370
+      "total_bytes": 13372
     }
   },
   {
     "name": "AER-Skills",
-    "description": "AER/AEJ 系顶级经济学期刊强审稿逻辑与体例专用套件。针对《美国经济评论》特有的理论数推深度与实证检验完备度进行交叉审查。嵌入顶刊评审人的苛刻挑刺标准，提供经济学专属论证沙盘。Leading Words: AER/AEJ顶级经济学期刊套件, 美国经济评论体例排版, 理论推导与实证检验交叉审查, 经济学专属论证沙盘挑刺",
+    "description": "面向 AER、AER: Insights 与 AEJ 的实证经济学投稿技能栈。覆盖选题、文献定位、识别策略、稳健性、正文与引言、表图、复现包、模拟审稿和 R&R 回复。",
     "category": "13_社科研究与实证工具",
     "folder": "AER-Skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/AER-Skills",
     "file_index": {
-      "path": ".catalog/b738788ce1b4fe0313695a0090c1137ca7ee33541bb87d005f5971a11f27d468.json",
-      "sha256": "b738788ce1b4fe0313695a0090c1137ca7ee33541bb87d005f5971a11f27d468",
+      "path": ".catalog/9b9612555e7ee1bfd10e2d516dcf9c167b61b06e9d76bcb11f665e7b193dea75.json",
+      "sha256": "9b9612555e7ee1bfd10e2d516dcf9c167b61b06e9d76bcb11f665e7b193dea75",
       "file_count": 132,
-      "total_bytes": 538550
+      "total_bytes": 543870
     }
   },
   {
     "name": "auto-empirical-research-skills",
-    "description": "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵",
+    "description": "实证经济学与社会科学 Agent Skills 合集。收录 76 个技能包、1096 个技能，覆盖数据清理、因果推断、稳健性检验、论文写作、复现与投稿工作流。",
     "category": "13_社科研究与实证工具",
     "folder": "Auto-Empirical-Research-Skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Empirical-Research-Skills",
     "file_index": {
-      "path": ".catalog/15e8c3efaae1668f3d34cf30941a5c9ed4c332fdb726ab0d14b5a5a862d09231.json",
-      "sha256": "15e8c3efaae1668f3d34cf30941a5c9ed4c332fdb726ab0d14b5a5a862d09231",
+      "path": ".catalog/075e14f30fb0a40c8b605c0ab22d0026d889381ccc209a34ca89f1b76ca6b955.json",
+      "sha256": "075e14f30fb0a40c8b605c0ab22d0026d889381ccc209a34ca89f1b76ca6b955",
       "file_count": 4599,
-      "total_bytes": 94540000
+      "total_bytes": 94539991
     }
   },
   {
     "name": "Auto-Research-Skills",
-    "description": "Autonomic Research 强自驱全生命周期科研流水线精选库。收敛从无脑开题、定性调研到文献剥丝抽茧的复杂脉络，部署自底向上的自动化科研实验流程与探索协议。Leading Words: 强自驱科研探索协议流水线, 全生命周期学术自动部署, 自底向上文献开题定性调研, 无脑实验复杂脉络剥丝抽茧",
+    "description": "自动化科研技能与工具精选目录。按研究、实验、论文、评审和复现阶段查找上游项目、技能集合与基准，并注明子模块安装和同名技能冲突。",
     "category": "13_社科研究与实证工具",
     "folder": "Auto-Research-Skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Research-Skills",
     "file_index": {
-      "path": ".catalog/04ea5351a84caba16e4bcdff8fd91f07f9a842a57871af1a68772aa50cfed96a.json",
-      "sha256": "04ea5351a84caba16e4bcdff8fd91f07f9a842a57871af1a68772aa50cfed96a",
+      "path": ".catalog/99399de55f0f72bfcfbc3eab56d65c3b210e220312dfed2ac279a2e8aa5228ca.json",
+      "sha256": "99399de55f0f72bfcfbc3eab56d65c3b210e220312dfed2ac279a2e8aa5228ca",
       "file_count": 100,
-      "total_bytes": 13471403
+      "total_bytes": 13472539
     }
   },
   {
     "name": "Awesome-Journal-Skills",
-    "description": "Top Journals (AER/QJE/Nature 等) 顶刊定制化投稿格式降维重塑器。预置全球顶级期刊极为严苛的排版规则、引用规范及图表阈值，一键接管原稿并暴力转换为可直接 Submission 的终稿。Leading Words: Nature/AER/QJE顶刊投稿降维重塑, 严苛期刊排版引用规范预置, 暴力转换Submission终稿生成, 学术投稿格式强制校验",
+    "description": "期刊与会议投稿技能总库。按目标 venue 查找排版、引用、图表、审稿回复和 camera-ready 工作流，覆盖 744 个期刊与会议、约 4166 个技能。",
     "category": "13_社科研究与实证工具",
     "folder": "Awesome-Journal-Skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/Awesome-Journal-Skills",
     "file_index": {
-      "path": ".catalog/5c74083c82447f2f91556cb74c7fab879c36ec8ae11f6e685fffd0c0a5515376.json",
-      "sha256": "5c74083c82447f2f91556cb74c7fab879c36ec8ae11f6e685fffd0c0a5515376",
+      "path": ".catalog/a37edf6e7cbb9afb6dd0387fc552056960c1ef2d6f6209b1200142e4b5897c0e.json",
+      "sha256": "a37edf6e7cbb9afb6dd0387fc552056960c1ef2d6f6209b1200142e4b5897c0e",
       "file_count": 10851,
-      "total_bytes": 108070114
+      "total_bytes": 108069607
     }
   },
   {
@@ -2359,10 +2359,10 @@
     "folder": "StatsPAI",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/StatsPAI",
     "file_index": {
-      "path": ".catalog/a66ef0df913e9743cefdec9bbc3ae3fc09e47b1930e1dade474de446aaf9935a.json",
-      "sha256": "a66ef0df913e9743cefdec9bbc3ae3fc09e47b1930e1dade474de446aaf9935a",
+      "path": ".catalog/af691efdb3c8807829e10883ac57661c2e24df974a331f1cd3eee1145a741153.json",
+      "sha256": "af691efdb3c8807829e10883ac57661c2e24df974a331f1cd3eee1145a741153",
       "file_count": 136,
-      "total_bytes": 9709338
+      "total_bytes": 9709340
     }
   },
   {
@@ -2372,10 +2372,10 @@
     "folder": "EasyAccounts",
     "relative_path": "./00_全局大管家/14_财务发票提取与归档/EasyAccounts",
     "file_index": {
-      "path": ".catalog/31026a7ef6bd08c293e4f2753bcc6e79904b17b00f6e31b6b83480db7498035d.json",
-      "sha256": "31026a7ef6bd08c293e4f2753bcc6e79904b17b00f6e31b6b83480db7498035d",
+      "path": ".catalog/da737d05d963688da697a31d97014a8d4f79755928fdcf13c8d0aa56e458befa.json",
+      "sha256": "da737d05d963688da697a31d97014a8d4f79755928fdcf13c8d0aa56e458befa",
       "file_count": 56,
-      "total_bytes": 6338057
+      "total_bytes": 6338040
     }
   },
   {
@@ -2385,10 +2385,10 @@
     "folder": "Invoice_LLM",
     "relative_path": "./00_全局大管家/14_财务发票提取与归档/Invoice_LLM",
     "file_index": {
-      "path": ".catalog/92218e1eaf15c690973b5980513bc5a55c87268fe3d6faef9ca05d5d645aa49d.json",
-      "sha256": "92218e1eaf15c690973b5980513bc5a55c87268fe3d6faef9ca05d5d645aa49d",
+      "path": ".catalog/69a8b70a2328bc3f91cbbce7fd96dd0b9abf4f2b8c100e34c694a6767dc769da.json",
+      "sha256": "69a8b70a2328bc3f91cbbce7fd96dd0b9abf4f2b8c100e34c694a6767dc769da",
       "file_count": 9,
-      "total_bytes": 316879
+      "total_bytes": 316856
     }
   },
   {
@@ -2398,10 +2398,10 @@
     "folder": "invoice2data",
     "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice2data",
     "file_index": {
-      "path": ".catalog/5f9fa59a4ae601f2425bfb763e9da439bfe7ff52830d9e75c3d610cdc2e38686.json",
-      "sha256": "5f9fa59a4ae601f2425bfb763e9da439bfe7ff52830d9e75c3d610cdc2e38686",
+      "path": ".catalog/fbe08267c85a2b996ec4b0451eee8d17634760df19f3eee5698093ac66f09a1c.json",
+      "sha256": "fbe08267c85a2b996ec4b0451eee8d17634760df19f3eee5698093ac66f09a1c",
       "file_count": 233,
-      "total_bytes": 312504
+      "total_bytes": 312490
     }
   },
   {
@@ -2411,10 +2411,10 @@
     "folder": "invoice-organizer",
     "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice-organizer",
     "file_index": {
-      "path": ".catalog/8a7566d6bf027152fa96b69f6339661ff307f61f29beef601d98e98e2ace5d23.json",
-      "sha256": "8a7566d6bf027152fa96b69f6339661ff307f61f29beef601d98e98e2ace5d23",
+      "path": ".catalog/096f6154b16eecb8ac3cfd33cc751d4a76fd84f4d2e00866af35b79202abe99f.json",
+      "sha256": "096f6154b16eecb8ac3cfd33cc751d4a76fd84f4d2e00866af35b79202abe99f",
       "file_count": 1,
-      "total_bytes": 12165
+      "total_bytes": 12167
     }
   },
   {
@@ -2463,10 +2463,10 @@
     "folder": "oh-story-claudecode",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/oh-story-claudecode",
     "file_index": {
-      "path": ".catalog/4a3551186f06b2cd9e2c33b5a319c499e07e7e85d9d75c875becbe6541f11e5e.json",
-      "sha256": "4a3551186f06b2cd9e2c33b5a319c499e07e7e85d9d75c875becbe6541f11e5e",
+      "path": ".catalog/86688cee2778836396de717e3ef4a1e0ddffeeef897e7795578b8f715f327c7b.json",
+      "sha256": "86688cee2778836396de717e3ef4a1e0ddffeeef897e7795578b8f715f327c7b",
       "file_count": 512,
-      "total_bytes": 9390647
+      "total_bytes": 9390609
     }
   },
   {
@@ -2488,10 +2488,10 @@
     "folder": "human-writing",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/human-writing",
     "file_index": {
-      "path": ".catalog/ba24f899c6de60221b4fd9a60138a357fba836e4f4c5f0397fd38341fa5d8725.json",
-      "sha256": "ba24f899c6de60221b4fd9a60138a357fba836e4f4c5f0397fd38341fa5d8725",
+      "path": ".catalog/6bebd8552bd07df80dea39b77e08249f8c4a6fb4c7e545c20366f2730139bf0d.json",
+      "sha256": "6bebd8552bd07df80dea39b77e08249f8c4a6fb4c7e545c20366f2730139bf0d",
       "file_count": 13,
-      "total_bytes": 100786
+      "total_bytes": 100748
     }
   },
   {
@@ -2501,10 +2501,10 @@
     "folder": "ecom-details-image",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/ecom-details-image",
     "file_index": {
-      "path": ".catalog/0e4ed502e2f36632fd5316cd3b6815fb4b6387a7b3a188b91392f1aa928d3c50.json",
-      "sha256": "0e4ed502e2f36632fd5316cd3b6815fb4b6387a7b3a188b91392f1aa928d3c50",
+      "path": ".catalog/7179ec83f69d7b3f893607c8c859bfcf0e1d37c1a248174ee4d788b570fecffa.json",
+      "sha256": "7179ec83f69d7b3f893607c8c859bfcf0e1d37c1a248174ee4d788b570fecffa",
       "file_count": 118,
-      "total_bytes": 103769211
+      "total_bytes": 103769979
     }
   },
   {
@@ -2514,10 +2514,10 @@
     "folder": "Financial-API",
     "relative_path": "./00_全局大管家/06_商业与专业领域/Financial-API",
     "file_index": {
-      "path": ".catalog/446767c7ae3a358b21f75541f57fda2214c428c9c70f1349ac20965d23839d06.json",
-      "sha256": "446767c7ae3a358b21f75541f57fda2214c428c9c70f1349ac20965d23839d06",
+      "path": ".catalog/420bbd5bda2354889e3f8b42b35d9fcf56cea18b82dece8d581b22ec125aa169.json",
+      "sha256": "420bbd5bda2354889e3f8b42b35d9fcf56cea18b82dece8d581b22ec125aa169",
       "file_count": 50,
-      "total_bytes": 319400
+      "total_bytes": 319402
     }
   },
   {
@@ -2527,10 +2527,10 @@
     "folder": "stock-data-mcp",
     "relative_path": "./00_全局大管家/06_商业与专业领域/stock-data-mcp",
     "file_index": {
-      "path": ".catalog/958dca3f1d0b9d526e093d5be33ef0969cab1db90e30eee8ebcaa770d415e369.json",
-      "sha256": "958dca3f1d0b9d526e093d5be33ef0969cab1db90e30eee8ebcaa770d415e369",
+      "path": ".catalog/78b9951ca9c34a026ebd00f1f507912bbbf82a92318f283c6feb4fd70b61aa74.json",
+      "sha256": "78b9951ca9c34a026ebd00f1f507912bbbf82a92318f283c6feb4fd70b61aa74",
       "file_count": 6,
-      "total_bytes": 9424
+      "total_bytes": 9413
     }
   },
   {
@@ -2540,10 +2540,10 @@
     "folder": "tickdb-unified-realtime-marketdata-api",
     "relative_path": "./00_全局大管家/06_商业与专业领域/tickdb-unified-realtime-marketdata-api",
     "file_index": {
-      "path": ".catalog/00ef24ef9e3a149863f21396b0962f7654acc611665d8f35b22662cc561cef9b.json",
-      "sha256": "00ef24ef9e3a149863f21396b0962f7654acc611665d8f35b22662cc561cef9b",
+      "path": ".catalog/ac8b5cf0a0f6f2531df140572e1b6703a1c3ee806472f65ade6baad489b50609.json",
+      "sha256": "ac8b5cf0a0f6f2531df140572e1b6703a1c3ee806472f65ade6baad489b50609",
       "file_count": 39,
-      "total_bytes": 349396
+      "total_bytes": 349385
     }
   },
   {
@@ -2553,10 +2553,10 @@
     "folder": "taste-skill",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/taste-skill",
     "file_index": {
-      "path": ".catalog/1ea64722b3f5389f08ffc8dcb9dedbca5902df30c7362496eebfe0c9424a7abb.json",
-      "sha256": "1ea64722b3f5389f08ffc8dcb9dedbca5902df30c7362496eebfe0c9424a7abb",
+      "path": ".catalog/267d7daac30287722694856f4cf406e8340d5b2dfec41f9acaa957e64d43756e.json",
+      "sha256": "267d7daac30287722694856f4cf406e8340d5b2dfec41f9acaa957e64d43756e",
       "file_count": 57,
-      "total_bytes": 1706576
+      "total_bytes": 1706551
     }
   },
   {
@@ -2580,10 +2580,10 @@
       "矢量图"
     ],
     "file_index": {
-      "path": ".catalog/dae316c21114e8fe0215f44359637116acd0ffd4d92c6bf171bbdbdc473a403c.json",
-      "sha256": "dae316c21114e8fe0215f44359637116acd0ffd4d92c6bf171bbdbdc473a403c",
+      "path": ".catalog/185e7faf36b8fd7a66a2a9d7dbe2c9c7b9c71c3120ffb268c4b9320d5070efae.json",
+      "sha256": "185e7faf36b8fd7a66a2a9d7dbe2c9c7b9c71c3120ffb268c4b9320d5070efae",
       "file_count": 37,
-      "total_bytes": 632271
+      "total_bytes": 632257
     }
   },
   {
@@ -2619,10 +2619,10 @@
     "folder": "hand-drawn-styles",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/hand-drawn-styles",
     "file_index": {
-      "path": ".catalog/23e4ef904e51677a1567dece8031c9677a295d929d2a670abab3d1f2deb52c69.json",
-      "sha256": "23e4ef904e51677a1567dece8031c9677a295d929d2a670abab3d1f2deb52c69",
+      "path": ".catalog/d2bdaafeabe8bec7c6baf5bc0f859bfc48c23ba9b967ae22e7802acc52039843.json",
+      "sha256": "d2bdaafeabe8bec7c6baf5bc0f859bfc48c23ba9b967ae22e7802acc52039843",
       "file_count": 41,
-      "total_bytes": 71654980
+      "total_bytes": 71654906
     }
   },
   {
@@ -2632,10 +2632,10 @@
     "folder": "VideoClaw",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/VideoClaw",
     "file_index": {
-      "path": ".catalog/c5055a47f07d110f9982abb2bee277eaa810eeb1eed4b2ab017cf391dff41f7b.json",
-      "sha256": "c5055a47f07d110f9982abb2bee277eaa810eeb1eed4b2ab017cf391dff41f7b",
+      "path": ".catalog/ced65000f1d61d20f1e54d54891664d304dfcffe84809c7f272e0b63b534a1b2.json",
+      "sha256": "ced65000f1d61d20f1e54d54891664d304dfcffe84809c7f272e0b63b534a1b2",
       "file_count": 440,
-      "total_bytes": 38201127
+      "total_bytes": 38201091
     }
   },
   {
@@ -2645,10 +2645,10 @@
     "folder": "OnlyShot",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/OnlyShot",
     "file_index": {
-      "path": ".catalog/913353d7a298b40ec429d649ec5b4335cd01731ccf2fff3a9b79b6a59a02ad4b.json",
-      "sha256": "913353d7a298b40ec429d649ec5b4335cd01731ccf2fff3a9b79b6a59a02ad4b",
+      "path": ".catalog/f524f9ae0a85eba3452cfa214f0b2a75081fc6929dad276a4bbc117d40080a7e.json",
+      "sha256": "f524f9ae0a85eba3452cfa214f0b2a75081fc6929dad276a4bbc117d40080a7e",
       "file_count": 47,
-      "total_bytes": 338604
+      "total_bytes": 338606
     }
   },
   {
@@ -2658,10 +2658,10 @@
     "folder": "KrillinAI",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/KrillinAI",
     "file_index": {
-      "path": ".catalog/a44d231d319472ba5d50008c66e844b353c62dbea7dfb9d0e1327eade4339ea5.json",
-      "sha256": "a44d231d319472ba5d50008c66e844b353c62dbea7dfb9d0e1327eade4339ea5",
+      "path": ".catalog/e8c10753a18f5596666eb2d5d55ed380880c07d5d6a38e5ed65e4e6cebaed8f1.json",
+      "sha256": "e8c10753a18f5596666eb2d5d55ed380880c07d5d6a38e5ed65e4e6cebaed8f1",
       "file_count": 201,
-      "total_bytes": 4943368
+      "total_bytes": 4943370
     }
   },
   {
@@ -2671,10 +2671,10 @@
     "folder": "nuwa-skill",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/nuwa-skill",
     "file_index": {
-      "path": ".catalog/dc1aa7690d31c95f4fcc636507aded21a6f1efe2d0650e61ffba69e95ab6fa46.json",
-      "sha256": "dc1aa7690d31c95f4fcc636507aded21a6f1efe2d0650e61ffba69e95ab6fa46",
+      "path": ".catalog/e8328bd23066d3a8034290b13a5c12f0b86d908afd2d2383679d4eb30f16cee1.json",
+      "sha256": "e8328bd23066d3a8034290b13a5c12f0b86d908afd2d2383679d4eb30f16cee1",
       "file_count": 144,
-      "total_bytes": 7156683
+      "total_bytes": 7156685
     }
   },
   {
@@ -2684,10 +2684,10 @@
     "folder": "technical-proposal-expert-writing-skill",
     "relative_path": "./00_全局大管家/06_商业与专业领域/technical-proposal-expert-writing-skill",
     "file_index": {
-      "path": ".catalog/2c08e10d561b890b8ad8c3551dbd55e7eb6bc9f10e8749806057c7c125703762.json",
-      "sha256": "2c08e10d561b890b8ad8c3551dbd55e7eb6bc9f10e8749806057c7c125703762",
+      "path": ".catalog/2ae3336cafca2e6aeafc51649116723d76238944d8e23dff095e2bd816fc0b8b.json",
+      "sha256": "2ae3336cafca2e6aeafc51649116723d76238944d8e23dff095e2bd816fc0b8b",
       "file_count": 53,
-      "total_bytes": 7340334
+      "total_bytes": 7340315
     }
   },
   {
@@ -2718,15 +2718,15 @@
   },
   {
     "name": "Scientific Agent Skills",
-    "description": "这是一个极其庞大的开源领域技能库，旨在将通用 AI 助手转变为“AI 科学家”。包含超过 170 个专门针对跨学科科研（生物、化学、医学、物理等）的子技能。",
+    "description": "跨学科科研 Agent Skills 集合，收录 163 个子技能，覆盖生物、化学、医学、物理、地球科学、材料、数据分析和科学绘图。",
     "category": "13_社科研究与实证工具",
     "folder": "scientific-agent-skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/scientific-agent-skills",
     "file_index": {
-      "path": ".catalog/b82179927f7c8c77f1f62edafa215b467fa3c9da044f7d4caf57d553dfd851e2.json",
-      "sha256": "b82179927f7c8c77f1f62edafa215b467fa3c9da044f7d4caf57d553dfd851e2",
+      "path": ".catalog/5619aa046ec1890985560a4f6627bdb17d048e0d0743276abb6d1292e886712f.json",
+      "sha256": "5619aa046ec1890985560a4f6627bdb17d048e0d0743276abb6d1292e886712f",
       "file_count": 2058,
-      "total_bytes": 27616566
+      "total_bytes": 27616226
     }
   },
   {
@@ -2736,10 +2736,10 @@
     "folder": "zlibrary-mcp",
     "relative_path": "./00_全局大管家/08_MCP服务开发与评估/zlibrary-mcp",
     "file_index": {
-      "path": ".catalog/c73a3ba124e2fd36c5bc6167cfbeb2d4bbe93764723521ab26eb98bbc663de98.json",
-      "sha256": "c73a3ba124e2fd36c5bc6167cfbeb2d4bbe93764723521ab26eb98bbc663de98",
+      "path": ".catalog/44ab0202d0bc66d4de9a6b39cef394feed8496fab0773ec5ef0623a788643d7a.json",
+      "sha256": "44ab0202d0bc66d4de9a6b39cef394feed8496fab0773ec5ef0623a788643d7a",
       "file_count": 19,
-      "total_bytes": 139565
+      "total_bytes": 139523
     }
   },
   {
@@ -2749,10 +2749,10 @@
     "folder": "qiaomu-libgen-downloader",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/qiaomu-libgen-downloader",
     "file_index": {
-      "path": ".catalog/024cedefd9b792e471df78d7ba0cc2348d46114d062ad66523be1dc837bd66e4.json",
-      "sha256": "024cedefd9b792e471df78d7ba0cc2348d46114d062ad66523be1dc837bd66e4",
+      "path": ".catalog/8365a7b94b44dbad22037accfdc5d98acd85c41785063eb61b72b2df9f180007.json",
+      "sha256": "8365a7b94b44dbad22037accfdc5d98acd85c41785063eb61b72b2df9f180007",
       "file_count": 4,
-      "total_bytes": 9848
+      "total_bytes": 9741
     }
   },
   {
@@ -2762,10 +2762,10 @@
     "folder": "originlab-mcp",
     "relative_path": "./00_全局大管家/12_学术论文与科研图表/originlab-mcp",
     "file_index": {
-      "path": ".catalog/decfb82bd26ff57317fef8fdfd88dff734c03c34e32566cc264d5850577ef9c0.json",
-      "sha256": "decfb82bd26ff57317fef8fdfd88dff734c03c34e32566cc264d5850577ef9c0",
+      "path": ".catalog/13be7ae12e78ce81fdfac99f0a1f3db2de431bc2b799df6ec62eb8f91e607086.json",
+      "sha256": "13be7ae12e78ce81fdfac99f0a1f3db2de431bc2b799df6ec62eb8f91e607086",
       "file_count": 31,
-      "total_bytes": 539168
+      "total_bytes": 539170
     }
   },
   {
@@ -2775,10 +2775,10 @@
     "folder": "dsh-plugin-cas-kb",
     "relative_path": "./00_全局大管家/06_商业与专业领域/dsh-plugin-cas-kb",
     "file_index": {
-      "path": ".catalog/cb167f7de7b87a3b49686a087e1d75c0f787305019f2df9c73810919ff7e86c2.json",
-      "sha256": "cb167f7de7b87a3b49686a087e1d75c0f787305019f2df9c73810919ff7e86c2",
+      "path": ".catalog/8f148799b40e29f328ee028f019a4b4ce0ec08826562fe817a66e9357717d3d2.json",
+      "sha256": "8f148799b40e29f328ee028f019a4b4ce0ec08826562fe817a66e9357717d3d2",
       "file_count": 8,
-      "total_bytes": 36980
+      "total_bytes": 36969
     }
   },
   {
@@ -2807,10 +2807,10 @@
       "数字人"
     ],
     "file_index": {
-      "path": ".catalog/bff584be07743920b6a5f24812646457ba75554249241aae380b6a7089a9ea00.json",
-      "sha256": "bff584be07743920b6a5f24812646457ba75554249241aae380b6a7089a9ea00",
+      "path": ".catalog/1f53f31b4e3fa37d09b5ffe21f0a0208f72730157c1c2bdb6adf954c31ccf094.json",
+      "sha256": "1f53f31b4e3fa37d09b5ffe21f0a0208f72730157c1c2bdb6adf954c31ccf094",
       "file_count": 60,
-      "total_bytes": 127242
+      "total_bytes": 127206
     }
   },
   {
@@ -2838,10 +2838,10 @@
       "自媒体运营"
     ],
     "file_index": {
-      "path": ".catalog/1c27a9c102bb42e515a75e91bd83a0799f719cdb12818b984039551001ba8add.json",
-      "sha256": "1c27a9c102bb42e515a75e91bd83a0799f719cdb12818b984039551001ba8add",
+      "path": ".catalog/8cba1d5f23cbb66c26b5517ddfb3a1be2fac17ce7e04bd0939a83d3c467392f7.json",
+      "sha256": "8cba1d5f23cbb66c26b5517ddfb3a1be2fac17ce7e04bd0939a83d3c467392f7",
       "file_count": 137,
-      "total_bytes": 907145
+      "total_bytes": 907147
     }
   },
   {
@@ -2872,10 +2872,10 @@
       "多媒体"
     ],
     "file_index": {
-      "path": ".catalog/2fbc1f81089c70923d7559a662245a2894a320ec08d721c4c6475fc35a029bd9.json",
-      "sha256": "2fbc1f81089c70923d7559a662245a2894a320ec08d721c4c6475fc35a029bd9",
+      "path": ".catalog/b4a68fc629f175a538515f889999d077703e128c0b1a7f0d1abe16d4aa263201.json",
+      "sha256": "b4a68fc629f175a538515f889999d077703e128c0b1a7f0d1abe16d4aa263201",
       "file_count": 78,
-      "total_bytes": 3686275
+      "total_bytes": 3686277
     }
   },
   {
@@ -2914,10 +2914,10 @@
       "多智能体协同"
     ],
     "file_index": {
-      "path": ".catalog/8f42a563078d0a711ec63102b090618c6e69b1cbbe12b948ce07f1f6111ee6d1.json",
-      "sha256": "8f42a563078d0a711ec63102b090618c6e69b1cbbe12b948ce07f1f6111ee6d1",
+      "path": ".catalog/c084cd03e4330a54197401df175656c723926c2cc68158720a08dc049dc095e2.json",
+      "sha256": "c084cd03e4330a54197401df175656c723926c2cc68158720a08dc049dc095e2",
       "file_count": 2818,
-      "total_bytes": 115450477
+      "total_bytes": 115450458
     }
   },
   {
@@ -2973,10 +2973,10 @@
       "避免重复造轮子"
     ],
     "file_index": {
-      "path": ".catalog/43523d935c8748d070ea1c270aca25c594c1c191e8a98f55c5f7fad3119a5faa.json",
-      "sha256": "43523d935c8748d070ea1c270aca25c594c1c191e8a98f55c5f7fad3119a5faa",
+      "path": ".catalog/938b2cc5a53ab00bf2fba685715b53bcdb4de38c3313c77ff8519d274f100383.json",
+      "sha256": "938b2cc5a53ab00bf2fba685715b53bcdb4de38c3313c77ff8519d274f100383",
       "file_count": 2,
-      "total_bytes": 32171
+      "total_bytes": 32173
     }
   },
   {
@@ -3001,10 +3001,10 @@
       "chinese"
     ],
     "file_index": {
-      "path": ".catalog/67564a28ec085d14a403642a347749dac1134a9829082e8ad283245c74a3683b.json",
-      "sha256": "67564a28ec085d14a403642a347749dac1134a9829082e8ad283245c74a3683b",
+      "path": ".catalog/a4f2eddd950fc17f337cc210e9edf6bc28f271c8bf3a63663b1a15b90fb7e7f4.json",
+      "sha256": "a4f2eddd950fc17f337cc210e9edf6bc28f271c8bf3a63663b1a15b90fb7e7f4",
       "file_count": 26,
-      "total_bytes": 3185849
+      "total_bytes": 3187130
     }
   },
   {
@@ -3027,10 +3027,10 @@
       "typography"
     ],
     "file_index": {
-      "path": ".catalog/5e2dd864bca6b0c1c9ca2dd239fc645fe30f4f3efe7a3672a8d2d3067d372782.json",
-      "sha256": "5e2dd864bca6b0c1c9ca2dd239fc645fe30f4f3efe7a3672a8d2d3067d372782",
+      "path": ".catalog/569b8ed8c3c431288570b39110d9a04517ca79d9239056c27db2f5b7d7128e5e.json",
+      "sha256": "569b8ed8c3c431288570b39110d9a04517ca79d9239056c27db2f5b7d7128e5e",
       "file_count": 11,
-      "total_bytes": 55747
+      "total_bytes": 55715
     }
   },
   {
@@ -3081,10 +3081,10 @@
       "writing"
     ],
     "file_index": {
-      "path": ".catalog/3ac91885829d48bd6e7f944a9d7a75f46018c475faf722de10f576cd952250e5.json",
-      "sha256": "3ac91885829d48bd6e7f944a9d7a75f46018c475faf722de10f576cd952250e5",
+      "path": ".catalog/d8ce77f9cbe42859d8e371c64691157b7dbe6d06b9b3700d235b1fe499637079.json",
+      "sha256": "d8ce77f9cbe42859d8e371c64691157b7dbe6d06b9b3700d235b1fe499637079",
       "file_count": 35,
-      "total_bytes": 702187
+      "total_bytes": 702072
     }
   },
   {
@@ -3106,10 +3106,10 @@
       "scoring"
     ],
     "file_index": {
-      "path": ".catalog/86fda9608cb81dec736026f84cc6a694fff409f8245f7d7b6a0da93175c06ab3.json",
-      "sha256": "86fda9608cb81dec736026f84cc6a694fff409f8245f7d7b6a0da93175c06ab3",
+      "path": ".catalog/98c16e23304a3298a9af19cb2e419e0431e1a6723a34ccff5735a2edbf7e4247.json",
+      "sha256": "98c16e23304a3298a9af19cb2e419e0431e1a6723a34ccff5735a2edbf7e4247",
       "file_count": 82,
-      "total_bytes": 1040940
+      "total_bytes": 1041000
     }
   },
   {
@@ -3132,10 +3132,10 @@
       "multi-skill"
     ],
     "file_index": {
-      "path": ".catalog/099dc457b6647f66a9d64a532b10c533fd594cc8cbfab76134065188c4d1a8cd.json",
-      "sha256": "099dc457b6647f66a9d64a532b10c533fd594cc8cbfab76134065188c4d1a8cd",
+      "path": ".catalog/49abcbb3dccb1a6f15007a73bc78427f4220060f4b3f35d31b945137e699384a.json",
+      "sha256": "49abcbb3dccb1a6f15007a73bc78427f4220060f4b3f35d31b945137e699384a",
       "file_count": 46,
-      "total_bytes": 1144341
+      "total_bytes": 1145267
     }
   },
   {
@@ -3149,10 +3149,10 @@
       "状态栏"
     ],
     "file_index": {
-      "path": ".catalog/25f18c938004d35b0ee72d7362aafab133ba547bbadd6abda2e6b3f4a35ee111.json",
-      "sha256": "25f18c938004d35b0ee72d7362aafab133ba547bbadd6abda2e6b3f4a35ee111",
+      "path": ".catalog/99e3b74f6d535a54b845cab9250f8d1a38dc8bc1b8e48a3ea914a38b7d4b5524.json",
+      "sha256": "99e3b74f6d535a54b845cab9250f8d1a38dc8bc1b8e48a3ea914a38b7d4b5524",
       "file_count": 60,
-      "total_bytes": 622589
+      "total_bytes": 623383
     }
   },
   {
@@ -3166,10 +3166,10 @@
       "会话记忆"
     ],
     "file_index": {
-      "path": ".catalog/989bc8d69ed7c8aab25044fbfcb7ca8af53b8daee7c20287cbc3b5fed96dcec4.json",
-      "sha256": "989bc8d69ed7c8aab25044fbfcb7ca8af53b8daee7c20287cbc3b5fed96dcec4",
+      "path": ".catalog/788d95a53440c5006ffb6e7b1e01855731ae7d735bfdb60dbe7af5157286d161.json",
+      "sha256": "788d95a53440c5006ffb6e7b1e01855731ae7d735bfdb60dbe7af5157286d161",
       "file_count": 1156,
-      "total_bytes": 34552134
+      "total_bytes": 34552986
     }
   },
   {
@@ -3183,10 +3183,10 @@
       "obsidian"
     ],
     "file_index": {
-      "path": ".catalog/8297160f9a0ee650342790a68dc53b2d9dc65ed276078faa993036010ed58139.json",
-      "sha256": "8297160f9a0ee650342790a68dc53b2d9dc65ed276078faa993036010ed58139",
+      "path": ".catalog/c860d77b46e2764da1c3cec516779241fe958ecd3333ea46f2cdd83dda3faf90.json",
+      "sha256": "c860d77b46e2764da1c3cec516779241fe958ecd3333ea46f2cdd83dda3faf90",
       "file_count": 16,
-      "total_bytes": 57655
+      "total_bytes": 60355
     }
   },
   {
@@ -3200,10 +3200,10 @@
       "阿里代码评审"
     ],
     "file_index": {
-      "path": ".catalog/50ea8a2d8a127786b3b191ae8482f5372a4e1b52508785a06fbbbe1d137c143a.json",
-      "sha256": "50ea8a2d8a127786b3b191ae8482f5372a4e1b52508785a06fbbbe1d137c143a",
+      "path": ".catalog/74eab5ee207c57325bc47d86dd35c158eb371db766a5943f913f32b4cdaf7a1d.json",
+      "sha256": "74eab5ee207c57325bc47d86dd35c158eb371db766a5943f913f32b4cdaf7a1d",
       "file_count": 716,
-      "total_bytes": 8701032
+      "total_bytes": 8702681
     }
   },
   {
@@ -3217,10 +3217,10 @@
       "AI编码网关"
     ],
     "file_index": {
-      "path": ".catalog/7ac7322e05a5428779077762d2a8252c0597564b79aa1df8ac932117f04958d9.json",
-      "sha256": "7ac7322e05a5428779077762d2a8252c0597564b79aa1df8ac932117f04958d9",
+      "path": ".catalog/67bc6cf9876f080de72275e65727c29216472825ec33443e1395e9aa3a9efe06.json",
+      "sha256": "67bc6cf9876f080de72275e65727c29216472825ec33443e1395e9aa3a9efe06",
       "file_count": 173,
-      "total_bytes": 9235447
+      "total_bytes": 9236548
     }
   },
   {
@@ -3233,10 +3233,10 @@
       "Claude Code 最佳实践"
     ],
     "file_index": {
-      "path": ".catalog/85833bdb5a6f2f93a6895ebd4dd4d8eabc57545b0e452614dc5bf3812b2d5153.json",
-      "sha256": "85833bdb5a6f2f93a6895ebd4dd4d8eabc57545b0e452614dc5bf3812b2d5153",
+      "path": ".catalog/dab6f5c2b7da6d7db7ab049f6e2cd66719f0d969bb484c3ca07332176ac6f5d6.json",
+      "sha256": "dab6f5c2b7da6d7db7ab049f6e2cd66719f0d969bb484c3ca07332176ac6f5d6",
       "file_count": 201,
-      "total_bytes": 35217764
+      "total_bytes": 35218499
     }
   },
   {
@@ -3250,10 +3250,10 @@
       "Ian插图"
     ],
     "file_index": {
-      "path": ".catalog/c9205b677c43d3099de823d1262890489cc8b6fe167219f670e1dc01de5f604f.json",
-      "sha256": "c9205b677c43d3099de823d1262890489cc8b6fe167219f670e1dc01de5f604f",
+      "path": ".catalog/c60f9a19427b64cf298702d4c4c0240be0af130385d4538e6b9776f141374c0f.json",
+      "sha256": "c60f9a19427b64cf298702d4c4c0240be0af130385d4538e6b9776f141374c0f",
       "file_count": 35,
-      "total_bytes": 21345473
+      "total_bytes": 21347125
     }
   },
   {
@@ -3267,10 +3267,10 @@
       "marketing skills"
     ],
     "file_index": {
-      "path": ".catalog/a19c045969846c81887cf8fbd6ba85650c00abcc861494765a82ffc9f6f5417a.json",
-      "sha256": "a19c045969846c81887cf8fbd6ba85650c00abcc861494765a82ffc9f6f5417a",
+      "path": ".catalog/74383a12691adeaa1ea5805c5bc9e0aede929d914cbfae9704dc31661f21786e.json",
+      "sha256": "74383a12691adeaa1ea5805c5bc9e0aede929d914cbfae9704dc31661f21786e",
       "file_count": 523,
-      "total_bytes": 4508517
+      "total_bytes": 4509839
     }
   },
   {
@@ -3284,10 +3284,10 @@
       "超快浏览器智能体"
     ],
     "file_index": {
-      "path": ".catalog/09c59d90980973195586e5816104dd343243b3846c5d9ce0bb810516990ee157.json",
-      "sha256": "09c59d90980973195586e5816104dd343243b3846c5d9ce0bb810516990ee157",
+      "path": ".catalog/597f83f2ec2fc0707b3f4ab56a55540b069746563358725ec25c73620b3266e4.json",
+      "sha256": "597f83f2ec2fc0707b3f4ab56a55540b069746563358725ec25c73620b3266e4",
       "file_count": 36,
-      "total_bytes": 2492834
+      "total_bytes": 2493829
     }
   },
   {
@@ -3302,10 +3302,10 @@
       "谷歌全家桶MCP"
     ],
     "file_index": {
-      "path": ".catalog/22fda8fb5580cc46d1aacd238e31ea1f22c8dbbdf037861db07ff2a2adcb2681.json",
-      "sha256": "22fda8fb5580cc46d1aacd238e31ea1f22c8dbbdf037861db07ff2a2adcb2681",
+      "path": ".catalog/638b78302578e86326ab4b69b2e2bd26c468e436304c2c99ed9024673fa54e0e.json",
+      "sha256": "638b78302578e86326ab4b69b2e2bd26c468e436304c2c99ed9024673fa54e0e",
       "file_count": 143,
-      "total_bytes": 2627246
+      "total_bytes": 2628683
     }
   },
   {
@@ -3319,10 +3319,10 @@
       "自愈爬虫"
     ],
     "file_index": {
-      "path": ".catalog/a1ca8b390a90d1cd43473ad8e4b7a21b418cc103bc050faf80aae6e07b3bac7d.json",
-      "sha256": "a1ca8b390a90d1cd43473ad8e4b7a21b418cc103bc050faf80aae6e07b3bac7d",
+      "path": ".catalog/0c98ecc1991acdc481be69bd9760b5749af49db52da52457688b62d6b4202195.json",
+      "sha256": "0c98ecc1991acdc481be69bd9760b5749af49db52da52457688b62d6b4202195",
       "file_count": 185,
-      "total_bytes": 4089560
+      "total_bytes": 4091022
     }
   },
   {
@@ -3336,15 +3336,15 @@
       "API规范SDK"
     ],
     "file_index": {
-      "path": ".catalog/ed1b8390230f7ee6870a484d2388ed90ac17e8e6cc63fc1f286cdfc3dc1a0bac.json",
-      "sha256": "ed1b8390230f7ee6870a484d2388ed90ac17e8e6cc63fc1f286cdfc3dc1a0bac",
+      "path": ".catalog/a367ec4e138c7bf912aa88c1b9b3885d4380b95648bd568bc2711dc4e42994a4.json",
+      "sha256": "a367ec4e138c7bf912aa88c1b9b3885d4380b95648bd568bc2711dc4e42994a4",
       "file_count": 689,
-      "total_bytes": 6472406
+      "total_bytes": 6473410
     }
   },
   {
     "name": "asm",
-    "description": "Agent Skills 管理器 CLI。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
+    "description": "Agent Skills 管理器 CLI。用于安装、搜索、审计、停用和发布 Agent Skills，可统一管理 Codex、Claude Code、Cursor 等工具的本地技能目录。",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "asm",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/asm",
@@ -3353,10 +3353,10 @@
       "技能管理器"
     ],
     "file_index": {
-      "path": ".catalog/6299abcceaf5d9389a15efec3a1538b1a621ecee780f49d69390feebe600ea9b.json",
-      "sha256": "6299abcceaf5d9389a15efec3a1538b1a621ecee780f49d69390feebe600ea9b",
+      "path": ".catalog/e5328713d35cf92aa12ced377e78f1559f56489a32f44ba4acf2f586dd0d5a8f.json",
+      "sha256": "e5328713d35cf92aa12ced377e78f1559f56489a32f44ba4acf2f586dd0d5a8f",
       "file_count": 602,
-      "total_bytes": 53960728
+      "total_bytes": 53962019
     }
   },
   {
@@ -3370,10 +3370,10 @@
       "AI安全扫描"
     ],
     "file_index": {
-      "path": ".catalog/e20092dd2c3319db6ffd8d6b52ce993ecefe3ac61d1bcd13ab9b67b565e7efc9.json",
-      "sha256": "e20092dd2c3319db6ffd8d6b52ce993ecefe3ac61d1bcd13ab9b67b565e7efc9",
+      "path": ".catalog/e991ac5fa52014389053cd971feb3fb053cb7e1717802706b506cb0ffb8897d4.json",
+      "sha256": "e991ac5fa52014389053cd971feb3fb053cb7e1717802706b506cb0ffb8897d4",
       "file_count": 459,
-      "total_bytes": 56362580
+      "total_bytes": 56363566
     }
   },
   {
@@ -3387,10 +3387,10 @@
       "技能发现"
     ],
     "file_index": {
-      "path": ".catalog/c2fea5d28640e190daa690f3b5f2239e880b2e06c0f7a739ba1c53911321cf87.json",
-      "sha256": "c2fea5d28640e190daa690f3b5f2239e880b2e06c0f7a739ba1c53911321cf87",
+      "path": ".catalog/785ea7ede5d0fd316f4fa6ea9da1b4f6144471dfa8cdfbedc464bfe9cb81fb1c.json",
+      "sha256": "785ea7ede5d0fd316f4fa6ea9da1b4f6144471dfa8cdfbedc464bfe9cb81fb1c",
       "file_count": 752,
-      "total_bytes": 10138889
+      "total_bytes": 10140249
     }
   },
   {
@@ -3404,10 +3404,10 @@
       "AI视频叙事"
     ],
     "file_index": {
-      "path": ".catalog/b268c84ce9e34e68ea23d8d076d021e49b97d6c484c95b56612f4f3ea2898623.json",
-      "sha256": "b268c84ce9e34e68ea23d8d076d021e49b97d6c484c95b56612f4f3ea2898623",
+      "path": ".catalog/1e9ecaffb3cafc702e0f0c3ec2ed78fce0ce41ba905b8e4a5018b3a4eeec16e4.json",
+      "sha256": "1e9ecaffb3cafc702e0f0c3ec2ed78fce0ce41ba905b8e4a5018b3a4eeec16e4",
       "file_count": 570,
-      "total_bytes": 31341913
+      "total_bytes": 31342811
     }
   },
   {
@@ -3421,10 +3421,10 @@
       "上下文引擎"
     ],
     "file_index": {
-      "path": ".catalog/51bcf065072af9eaa0569b499727ff309bc59c91b121b814863ebadca17ac28f.json",
-      "sha256": "51bcf065072af9eaa0569b499727ff309bc59c91b121b814863ebadca17ac28f",
+      "path": ".catalog/e6331f2e7d611117361a5f974094dc99ecab0e0437ad90205ca7c74005f7c4f5.json",
+      "sha256": "e6331f2e7d611117361a5f974094dc99ecab0e0437ad90205ca7c74005f7c4f5",
       "file_count": 1235,
-      "total_bytes": 49709656
+      "total_bytes": 49710588
     }
   },
   {
@@ -3438,10 +3438,10 @@
       "语音智能体"
     ],
     "file_index": {
-      "path": ".catalog/2049deb7d34bed08f98ed281e2ec506b7c081a78daf3d67b0a367a4d19ad1bbe.json",
-      "sha256": "2049deb7d34bed08f98ed281e2ec506b7c081a78daf3d67b0a367a4d19ad1bbe",
+      "path": ".catalog/0d8dd3b7825e6632d51a0990ab0b86d77d8914aa2693609df739fe079234364e.json",
+      "sha256": "0d8dd3b7825e6632d51a0990ab0b86d77d8914aa2693609df739fe079234364e",
       "file_count": 1011,
-      "total_bytes": 12487936
+      "total_bytes": 12488743
     }
   },
   {
@@ -3455,10 +3455,10 @@
       "身份认证平台"
     ],
     "file_index": {
-      "path": ".catalog/130b7ce19b8203af992e5d9776d82706eba58c9776b41d3bd85affaf87fb0f08.json",
-      "sha256": "130b7ce19b8203af992e5d9776d82706eba58c9776b41d3bd85affaf87fb0f08",
+      "path": ".catalog/9373d82b775db8ae89256edd7b55441af4365c9e361cf4e76d735ed2f600c6f2.json",
+      "sha256": "9373d82b775db8ae89256edd7b55441af4365c9e361cf4e76d735ed2f600c6f2",
       "file_count": 1276,
-      "total_bytes": 29417339
+      "total_bytes": 29418215
     }
   },
   {
@@ -3472,10 +3472,10 @@
       "知识库引擎"
     ],
     "file_index": {
-      "path": ".catalog/a4bd7eecc551314ae9ea6096620c513154c10cf8ac74199d79c481fe3e0dd346.json",
-      "sha256": "a4bd7eecc551314ae9ea6096620c513154c10cf8ac74199d79c481fe3e0dd346",
+      "path": ".catalog/7c6a321c50c46bdbaa643f2872db7d9489959e31b8846d936d7c1c7e06281b72.json",
+      "sha256": "7c6a321c50c46bdbaa643f2872db7d9489959e31b8846d936d7c1c7e06281b72",
       "file_count": 161,
-      "total_bytes": 1311399
+      "total_bytes": 1312320
     }
   },
   {
@@ -3489,10 +3489,10 @@
       "text2sql"
     ],
     "file_index": {
-      "path": ".catalog/b86736b72abcb4c0e86d11edecca10d54458eaa25b42c3c871c6494aec101363.json",
-      "sha256": "b86736b72abcb4c0e86d11edecca10d54458eaa25b42c3c871c6494aec101363",
+      "path": ".catalog/a69aa743faacde63a34df57ea79202b2072f5e0acf9064d5874f5842946613cd.json",
+      "sha256": "a69aa743faacde63a34df57ea79202b2072f5e0acf9064d5874f5842946613cd",
       "file_count": 333,
-      "total_bytes": 2158022
+      "total_bytes": 2158911
     }
   },
   {
@@ -3506,10 +3506,10 @@
       "X-CMD"
     ],
     "file_index": {
-      "path": ".catalog/077e137a4ab7ff5d388611c6e0958b404e257eedd61087673ca2a3fa35a83826.json",
-      "sha256": "077e137a4ab7ff5d388611c6e0958b404e257eedd61087673ca2a3fa35a83826",
+      "path": ".catalog/36a2f3401a213a39da5748d3bd413467f51e6aa8118810558c106e6ced6bb2f1.json",
+      "sha256": "36a2f3401a213a39da5748d3bd413467f51e6aa8118810558c106e6ced6bb2f1",
       "file_count": 5334,
-      "total_bytes": 16667576
+      "total_bytes": 16668465
     }
   },
   {
@@ -3523,10 +3523,10 @@
       "本地大模型客户端"
     ],
     "file_index": {
-      "path": ".catalog/58afdc4c35e11528c7347e28f707f88d50062572c8161d6b903472c5d58855ca.json",
-      "sha256": "58afdc4c35e11528c7347e28f707f88d50062572c8161d6b903472c5d58855ca",
+      "path": ".catalog/16f43afffe98c80be8d43a9a49bc981cace3b5d7c5af6a218fba7b3f12d0ec4c.json",
+      "sha256": "16f43afffe98c80be8d43a9a49bc981cace3b5d7c5af6a218fba7b3f12d0ec4c",
       "file_count": 3056,
-      "total_bytes": 44858582
+      "total_bytes": 44859429
     }
   },
   {
@@ -3574,10 +3574,10 @@
       "状态栏"
     ],
     "file_index": {
-      "path": ".catalog/b2e53db97877ea417e4f7ccaa64ba7901831185fcbeaf1d95282372d8fa9d92c.json",
-      "sha256": "b2e53db97877ea417e4f7ccaa64ba7901831185fcbeaf1d95282372d8fa9d92c",
+      "path": ".catalog/95c31e4156acb884c0b4e6c652bda1fe787086add04bc3c0532d7a068665011d.json",
+      "sha256": "95c31e4156acb884c0b4e6c652bda1fe787086add04bc3c0532d7a068665011d",
       "file_count": 445,
-      "total_bytes": 9187464
+      "total_bytes": 9188434
     }
   },
   {
@@ -3591,10 +3591,10 @@
       "awesome subagents"
     ],
     "file_index": {
-      "path": ".catalog/95f8d7f884a010affdaf05419656265b491a0e91c93955a9559b5e526d0477eb.json",
-      "sha256": "95f8d7f884a010affdaf05419656265b491a0e91c93955a9559b5e526d0477eb",
+      "path": ".catalog/34a58abe5fb24093208f64bad359f434545f63b6e41beddaa8629b18dc21a495.json",
+      "sha256": "34a58abe5fb24093208f64bad359f434545f63b6e41beddaa8629b18dc21a495",
       "file_count": 194,
-      "total_bytes": 1215070
+      "total_bytes": 1216067
     }
   },
   {
@@ -3607,10 +3607,10 @@
       "Claude技能清单"
     ],
     "file_index": {
-      "path": ".catalog/c282376bd9936dadee2193df6194d9d559b78a468dd72e7fc1946f96536f2b77.json",
-      "sha256": "c282376bd9936dadee2193df6194d9d559b78a468dd72e7fc1946f96536f2b77",
+      "path": ".catalog/64c52efc73a097bd70baf6ddc898accfaae4a58574fb1606d12885b18d9f3718.json",
+      "sha256": "64c52efc73a097bd70baf6ddc898accfaae4a58574fb1606d12885b18d9f3718",
       "file_count": 3,
-      "total_bytes": 22487
+      "total_bytes": 23369
     }
   },
   {
@@ -3623,10 +3623,10 @@
       "游戏开发技能库"
     ],
     "file_index": {
-      "path": ".catalog/10982695461ea1a80333c63e016bc808ce1ce0e198a583bbd57302b2801b5f37.json",
-      "sha256": "10982695461ea1a80333c63e016bc808ce1ce0e198a583bbd57302b2801b5f37",
+      "path": ".catalog/ced5488934c95bf44b60849e2cd8116a852b1e9f9ae8853c73f4ee505f2ac6da.json",
+      "sha256": "ced5488934c95bf44b60849e2cd8116a852b1e9f9ae8853c73f4ee505f2ac6da",
       "file_count": 195,
-      "total_bytes": 2980498
+      "total_bytes": 2981933
     }
   },
   {
@@ -3657,10 +3657,10 @@
       "figma mcp"
     ],
     "file_index": {
-      "path": ".catalog/e9b26e9bbb92b808564d54d67d4a0a84fcabe5a64128a2eb4cc1347018f3144f.json",
-      "sha256": "e9b26e9bbb92b808564d54d67d4a0a84fcabe5a64128a2eb4cc1347018f3144f",
+      "path": ".catalog/8aa484751656ca02d2f0ce99b6376323c8cbadce2b3bf0becfb43bff9ce8cbc7.json",
+      "sha256": "8aa484751656ca02d2f0ce99b6376323c8cbadce2b3bf0becfb43bff9ce8cbc7",
       "file_count": 99,
-      "total_bytes": 621319
+      "total_bytes": 622406
     }
   },
   {
@@ -3674,10 +3674,10 @@
       "AI设计画布"
     ],
     "file_index": {
-      "path": ".catalog/f9c71ea30084348bab71366b4b84926d0ae2a9f19568dd0229c6ea40ced1a352.json",
-      "sha256": "f9c71ea30084348bab71366b4b84926d0ae2a9f19568dd0229c6ea40ced1a352",
+      "path": ".catalog/0cb5fe789baafa9ac869776f62fb9506c54ea2fcc8817315afaa773c37c0ae4f.json",
+      "sha256": "0cb5fe789baafa9ac869776f62fb9506c54ea2fcc8817315afaa773c37c0ae4f",
       "file_count": 493,
-      "total_bytes": 26030152
+      "total_bytes": 26030962
     }
   },
   {
@@ -3691,10 +3691,10 @@
       "浏览器SDK"
     ],
     "file_index": {
-      "path": ".catalog/c6afd7d882ad531032693d8469b68d0fbab1de95f1748dac9b6f23f089cc4ff3.json",
-      "sha256": "c6afd7d882ad531032693d8469b68d0fbab1de95f1748dac9b6f23f089cc4ff3",
+      "path": ".catalog/eb84d749bf88e35c115c1a5f2c102722b3055716b341cf753f7c961971fa982d.json",
+      "sha256": "eb84d749bf88e35c115c1a5f2c102722b3055716b341cf753f7c961971fa982d",
       "file_count": 865,
-      "total_bytes": 15033330
+      "total_bytes": 15035018
     }
   },
   {
@@ -3708,10 +3708,10 @@
       "动画基础"
     ],
     "file_index": {
-      "path": ".catalog/28ff3cf89e8a3c7780c2d625967dbffaea2fcde5f019533e12f8a34de8a00815.json",
-      "sha256": "28ff3cf89e8a3c7780c2d625967dbffaea2fcde5f019533e12f8a34de8a00815",
+      "path": ".catalog/51bfa5bacabd966e7658f08878aa6fbbe107d11f8b2ae8c6097e0eb5ee155563.json",
+      "sha256": "51bfa5bacabd966e7658f08878aa6fbbe107d11f8b2ae8c6097e0eb5ee155563",
       "file_count": 18,
-      "total_bytes": 7894215
+      "total_bytes": 7895159
     }
   },
   {
@@ -3725,10 +3725,10 @@
       "长视频叙事"
     ],
     "file_index": {
-      "path": ".catalog/51d825f05dbd32031c01a9e16b56a60535838b72c83672ea64bbb6f276cef835.json",
-      "sha256": "51d825f05dbd32031c01a9e16b56a60535838b72c83672ea64bbb6f276cef835",
+      "path": ".catalog/95db7b290ee7521ae604dbc3b4be48c5c924eb14b7118848b3ccce9d8a07e319.json",
+      "sha256": "95db7b290ee7521ae604dbc3b4be48c5c924eb14b7118848b3ccce9d8a07e319",
       "file_count": 26,
-      "total_bytes": 4161866
+      "total_bytes": 4162843
     }
   },
   {
@@ -3741,10 +3741,10 @@
       "Codex Claude 插件"
     ],
     "file_index": {
-      "path": ".catalog/00a38e665ce8b418e85c77f9505ba8edd3049320f2f8e43ff06a6294f6917cd0.json",
-      "sha256": "00a38e665ce8b418e85c77f9505ba8edd3049320f2f8e43ff06a6294f6917cd0",
+      "path": ".catalog/e887ebbca4d1ac1b82f408a597124305148d4280deb59e63ecf44dce6fa7e837.json",
+      "sha256": "e887ebbca4d1ac1b82f408a597124305148d4280deb59e63ecf44dce6fa7e837",
       "file_count": 62,
-      "total_bytes": 380858
+      "total_bytes": 381796
     }
   },
   {
@@ -3757,10 +3757,10 @@
       "评审图谱"
     ],
     "file_index": {
-      "path": ".catalog/b4ac4df6fe767e2cf42260a688f18ce2fdff88a777018283ac0c7420710623fe.json",
-      "sha256": "b4ac4df6fe767e2cf42260a688f18ce2fdff88a777018283ac0c7420710623fe",
+      "path": ".catalog/1cb84f11215de82c03bb377504020b3602a87e538a3ab7bbe67a76c7e4c226f4.json",
+      "sha256": "1cb84f11215de82c03bb377504020b3602a87e538a3ab7bbe67a76c7e4c226f4",
       "file_count": 201,
-      "total_bytes": 9391120
+      "total_bytes": 9393331
     }
   },
   {
@@ -3774,10 +3774,10 @@
       "学术PPT"
     ],
     "file_index": {
-      "path": ".catalog/2de7c640b76e00c3b12b6fa77e82ff61e58aa5ca01725b8c738e1f1e975d9393.json",
-      "sha256": "2de7c640b76e00c3b12b6fa77e82ff61e58aa5ca01725b8c738e1f1e975d9393",
+      "path": ".catalog/f261a7baf8c9302b60a68b2cc00b878900d91092209cd8a6b6f8d9cf9f35ceca.json",
+      "sha256": "f261a7baf8c9302b60a68b2cc00b878900d91092209cd8a6b6f8d9cf9f35ceca",
       "file_count": 98,
-      "total_bytes": 44844594
+      "total_bytes": 44846316
     }
   },
   {
@@ -3791,10 +3791,10 @@
       "GPT生图"
     ],
     "file_index": {
-      "path": ".catalog/83c9b4d40aa845c7939bb805e80627af7b62cf691484b6fb20c83d0386e6609c.json",
-      "sha256": "83c9b4d40aa845c7939bb805e80627af7b62cf691484b6fb20c83d0386e6609c",
+      "path": ".catalog/820f662c5025c4753cdf2f857bf73646643faf74c211da45e743dcb218e7cacc.json",
+      "sha256": "820f662c5025c4753cdf2f857bf73646643faf74c211da45e743dcb218e7cacc",
       "file_count": 58,
-      "total_bytes": 3607404
+      "total_bytes": 3608973
     }
   },
   {
@@ -3807,10 +3807,10 @@
       "30天热点"
     ],
     "file_index": {
-      "path": ".catalog/4b5cb4c21017e7cb595ade2de2ab7c37605105dd6b119ff438ddcc966af888a4.json",
-      "sha256": "4b5cb4c21017e7cb595ade2de2ab7c37605105dd6b119ff438ddcc966af888a4",
+      "path": ".catalog/aa42855660cfbbce1e73f0be1cf859f346c7bb319d891a87f79b78f7d4d6dee3.json",
+      "sha256": "aa42855660cfbbce1e73f0be1cf859f346c7bb319d891a87f79b78f7d4d6dee3",
       "file_count": 256,
-      "total_bytes": 30053115
+      "total_bytes": 30054517
     }
   },
   {
@@ -3823,10 +3823,10 @@
       "公众号技能"
     ],
     "file_index": {
-      "path": ".catalog/13b8616ea9487966f2682c0cdc924e056fbe69ad393f255e1aa6b81073b2cf50.json",
-      "sha256": "13b8616ea9487966f2682c0cdc924e056fbe69ad393f255e1aa6b81073b2cf50",
+      "path": ".catalog/25df3b9aa36aac074bad8f64d8fb82be060013ecfd4805751ea62982f56cd41e.json",
+      "sha256": "25df3b9aa36aac074bad8f64d8fb82be060013ecfd4805751ea62982f56cd41e",
       "file_count": 215,
-      "total_bytes": 993459
+      "total_bytes": 997999
     }
   },
   {
@@ -3857,10 +3857,10 @@
       "代码图谱"
     ],
     "file_index": {
-      "path": ".catalog/704539f44b8450b430c34878dafcd9a9159a9a676fd691c130e7eae558cfcc4a.json",
-      "sha256": "704539f44b8450b430c34878dafcd9a9159a9a676fd691c130e7eae558cfcc4a",
+      "path": ".catalog/46ae4f4dde364c6e468c1df92677aecac1ee7a0b2a3be6131d3168f3c940899c.json",
+      "sha256": "46ae4f4dde364c6e468c1df92677aecac1ee7a0b2a3be6131d3168f3c940899c",
       "file_count": 728,
-      "total_bytes": 139240159
+      "total_bytes": 139241096
     }
   },
   {
@@ -3874,15 +3874,15 @@
       "图RAG"
     ],
     "file_index": {
-      "path": ".catalog/bf637ae291a0e494fa3c9fdfd67f13336893f38ddfe0d10e85257e33af12d7ec.json",
-      "sha256": "bf637ae291a0e494fa3c9fdfd67f13336893f38ddfe0d10e85257e33af12d7ec",
+      "path": ".catalog/cb576ade90bd03f51a0f8e420bb4106e4e5af473f0cb6581687530a73a527890.json",
+      "sha256": "cb576ade90bd03f51a0f8e420bb4106e4e5af473f0cb6581687530a73a527890",
       "file_count": 653,
-      "total_bytes": 17906589
+      "total_bytes": 17907631
     }
   },
   {
     "name": "OpenSpace",
-    "description": "Agent Skills 管理层（港大 HKUDS 出品）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
+    "description": "OpenSpace 技能管理与评估层。用于跨 Agent 检索技能、记录任务证据、评估质量并受控地改进技能。",
     "category": "10_Skill开发脚手架与安装器",
     "folder": "OpenSpace",
     "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/OpenSpace",
@@ -3891,15 +3891,15 @@
       "技能管理层"
     ],
     "file_index": {
-      "path": ".catalog/ef3ebc572228d7c5bf4a2c483c58a76b29cf70f5d0fcbedd6aa9b3545db16c9d.json",
-      "sha256": "ef3ebc572228d7c5bf4a2c483c58a76b29cf70f5d0fcbedd6aa9b3545db16c9d",
+      "path": ".catalog/255413c7b5ea8978021877c9e0967378800ab2da80415afbe58de89df009f926.json",
+      "sha256": "255413c7b5ea8978021877c9e0967378800ab2da80415afbe58de89df009f926",
       "file_count": 834,
-      "total_bytes": 10457874
+      "total_bytes": 10459158
     }
   },
   {
     "name": "octocode-mcp",
-    "description": "Agentic 研究平台 MCP（MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
+    "description": "Agentic 研究平台 MCP。跨仓库检索代码、依赖、引用与上下文，并附带研究、评审和文档工作流。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
     "category": "11_API与第三方应用集成",
     "folder": "octocode-mcp",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/octocode-mcp",
@@ -3908,10 +3908,10 @@
       "octocode"
     ],
     "file_index": {
-      "path": ".catalog/7e405325f0de26f1edb96a5a0b8d3b30a17d25d071f0089db2a1e14485c9fed1.json",
-      "sha256": "7e405325f0de26f1edb96a5a0b8d3b30a17d25d071f0089db2a1e14485c9fed1",
+      "path": ".catalog/aeafde9e1e3570ee2acf852632b74b74b1d86572bd900f47eb663602aea6a6a9.json",
+      "sha256": "aeafde9e1e3570ee2acf852632b74b74b1d86572bd900f47eb663602aea6a6a9",
       "file_count": 1603,
-      "total_bytes": 14541576
+      "total_bytes": 14546249
     }
   },
   {
@@ -3925,10 +3925,10 @@
       "马丁循环"
     ],
     "file_index": {
-      "path": ".catalog/fe8b69b273c7a8e22ce207d2c34bc4afaaf4562ede2da0cb2dd6a3ce662d9a6f.json",
-      "sha256": "fe8b69b273c7a8e22ce207d2c34bc4afaaf4562ede2da0cb2dd6a3ce662d9a6f",
+      "path": ".catalog/504a650972f4c5abef526a599ae8465e522074160da07fd6a9097db2a73f1359.json",
+      "sha256": "504a650972f4c5abef526a599ae8465e522074160da07fd6a9097db2a73f1359",
       "file_count": 712,
-      "total_bytes": 9611576
+      "total_bytes": 9612985
     }
   },
   {
@@ -3942,10 +3942,10 @@
       "代码证据"
     ],
     "file_index": {
-      "path": ".catalog/c51fa52eaef855fe7324309f6dbdb62a386abd9e81745a90804198d4575e84a5.json",
-      "sha256": "c51fa52eaef855fe7324309f6dbdb62a386abd9e81745a90804198d4575e84a5",
+      "path": ".catalog/b964f62b291613100d1e56484e6ef41e377ecf139083ea18b40e370100196b1b.json",
+      "sha256": "b964f62b291613100d1e56484e6ef41e377ecf139083ea18b40e370100196b1b",
       "file_count": 827,
-      "total_bytes": 15074685
+      "total_bytes": 15075716
     }
   },
   {
@@ -3958,10 +3958,10 @@
       "Backlot"
     ],
     "file_index": {
-      "path": ".catalog/8eb42667dfaf26f9c90552defef06fad5c198262ce44811e42317c0bc402327f.json",
-      "sha256": "8eb42667dfaf26f9c90552defef06fad5c198262ce44811e42317c0bc402327f",
+      "path": ".catalog/323e73a6f4b3d12ca03dc830b5de4134a553169bd6bf376d13eb025bc0530796.json",
+      "sha256": "323e73a6f4b3d12ca03dc830b5de4134a553169bd6bf376d13eb025bc0530796",
       "file_count": 199,
-      "total_bytes": 6411941
+      "total_bytes": 6413731
     }
   },
   {
@@ -3975,10 +3975,10 @@
       "obsidian谷歌"
     ],
     "file_index": {
-      "path": ".catalog/1a2d116023c10058e4e7176daa6512cc5e412188bdcadcd2cbe332b400bbf1b3.json",
-      "sha256": "1a2d116023c10058e4e7176daa6512cc5e412188bdcadcd2cbe332b400bbf1b3",
+      "path": ".catalog/f878d9cf8813a274a34c7fddb3734eeb420547ea763615af40472ef0b0183b86.json",
+      "sha256": "f878d9cf8813a274a34c7fddb3734eeb420547ea763615af40472ef0b0183b86",
       "file_count": 180,
-      "total_bytes": 4824845
+      "total_bytes": 4825916
     }
   },
   {
@@ -3992,10 +3992,10 @@
       "多智能体OS"
     ],
     "file_index": {
-      "path": ".catalog/774cb82c65e358b8695d9fb5e99035ee60a34f21fae13d0e46b2cb8a926612dd.json",
-      "sha256": "774cb82c65e358b8695d9fb5e99035ee60a34f21fae13d0e46b2cb8a926612dd",
+      "path": ".catalog/fcf150bfda9a6cfc1299fbde82941ee4f415653080f48ad5141234064e3e71e6.json",
+      "sha256": "fcf150bfda9a6cfc1299fbde82941ee4f415653080f48ad5141234064e3e71e6",
       "file_count": 131,
-      "total_bytes": 2529378
+      "total_bytes": 2530370
     }
   },
   {
@@ -4009,10 +4009,10 @@
       "舰队指挥"
     ],
     "file_index": {
-      "path": ".catalog/a69e87c76e449c7c122dbdfa9d8bcd452771e0f443696ade3a0a4b2b4bca8add.json",
-      "sha256": "a69e87c76e449c7c122dbdfa9d8bcd452771e0f443696ade3a0a4b2b4bca8add",
+      "path": ".catalog/49dfda7e0552d409549542f2538984135273a4833cdd841399d8502d45a11bf3.json",
+      "sha256": "49dfda7e0552d409549542f2538984135273a4833cdd841399d8502d45a11bf3",
       "file_count": 1538,
-      "total_bytes": 102534331
+      "total_bytes": 102535280
     }
   },
   {
@@ -4026,27 +4026,29 @@
       "LLM观测"
     ],
     "file_index": {
-      "path": ".catalog/b82f4dd9e53f7d8d897c922a24b9ad1f8b8868e6f3bc90f7a14905586c4ca835.json",
-      "sha256": "b82f4dd9e53f7d8d897c922a24b9ad1f8b8868e6f3bc90f7a14905586c4ca835",
+      "path": ".catalog/ca0c46593215fd2373b3fef8512dddfbbf7d6e29c07d44e1224eb711c4bee923.json",
+      "sha256": "ca0c46593215fd2373b3fef8512dddfbbf7d6e29c07d44e1224eb711c4bee923",
       "file_count": 839,
-      "total_bytes": 6716607
+      "total_bytes": 6717494
     }
   },
   {
     "name": "MARS",
-    "description": "MATLAB Agent RPC Server。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
+    "description": "MARS-Curiosity：用 Delphi 构建 REST 服务、客户端与 MCP 服务器的开源库。包含 Delphi REST API、项目脚手架和 MCP 发布的作者技能。",
     "category": "11_API与第三方应用集成",
     "folder": "MARS",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/MARS",
     "aliases": [
-      "MATLAB MCP",
-      "MATLAB智能体"
+      "MARS-Curiosity",
+      "Delphi REST",
+      "Delphi MCP",
+      "Delphi API"
     ],
     "file_index": {
-      "path": ".catalog/aa5016087a8be761014178cc23556c330f28c0b32e15c3fa0428c9d00db1f105.json",
-      "sha256": "aa5016087a8be761014178cc23556c330f28c0b32e15c3fa0428c9d00db1f105",
+      "path": ".catalog/ddd754faf321ca38557f77640ed59f939fb09be6c85fb53154f241bdebe9982b.json",
+      "sha256": "ddd754faf321ca38557f77640ed59f939fb09be6c85fb53154f241bdebe9982b",
       "file_count": 1608,
-      "total_bytes": 54749759
+      "total_bytes": 54751711
     }
   },
   {
@@ -4059,10 +4061,10 @@
       "Lilbee"
     ],
     "file_index": {
-      "path": ".catalog/8ca777c38f98cea893ad4bea54063b88ae82134a22b000a7b3f6f835296178bf.json",
-      "sha256": "8ca777c38f98cea893ad4bea54063b88ae82134a22b000a7b3f6f835296178bf",
+      "path": ".catalog/361dd26c3b738963968c51a5e04a92b9fef1c2356517cf733d37f739660bbeeb.json",
+      "sha256": "361dd26c3b738963968c51a5e04a92b9fef1c2356517cf733d37f739660bbeeb",
       "file_count": 759,
-      "total_bytes": 20955538
+      "total_bytes": 20956998
     }
   },
   {
@@ -4076,10 +4078,10 @@
       "谷歌工具箱"
     ],
     "file_index": {
-      "path": ".catalog/9134e87e0b5739155ffdb035f6f681ff3cf558116f1ba62c6ff1179c89a548a5.json",
-      "sha256": "9134e87e0b5739155ffdb035f6f681ff3cf558116f1ba62c6ff1179c89a548a5",
+      "path": ".catalog/47551c26c55416a5504095627f7240052599aacd17b5ffaab1cce9c782f6d124.json",
+      "sha256": "47551c26c55416a5504095627f7240052599aacd17b5ffaab1cce9c782f6d124",
       "file_count": 1150,
-      "total_bytes": 8384364
+      "total_bytes": 8385295
     }
   },
   {
@@ -4093,10 +4095,10 @@
       "问数"
     ],
     "file_index": {
-      "path": ".catalog/c40dbf1bf8d94a68406fa84ac682cdd3d8c936659e652f6ae2c22c3439555171.json",
-      "sha256": "c40dbf1bf8d94a68406fa84ac682cdd3d8c936659e652f6ae2c22c3439555171",
+      "path": ".catalog/9c94b063265fd6c091e4f5105986b624932d63b5cace22942dcb7c03041a260f.json",
+      "sha256": "9c94b063265fd6c091e4f5105986b624932d63b5cace22942dcb7c03041a260f",
       "file_count": 638,
-      "total_bytes": 19235507
+      "total_bytes": 19236438
     }
   },
   {
@@ -4110,10 +4112,10 @@
       "工作流平台"
     ],
     "file_index": {
-      "path": ".catalog/9d02e14dc064c893faf12147e8c8c73111a09c2bff5ce04cf8ad55e3f69f0b17.json",
-      "sha256": "9d02e14dc064c893faf12147e8c8c73111a09c2bff5ce04cf8ad55e3f69f0b17",
+      "path": ".catalog/bb49d423b2b63a0985c90f8b24dcd9bd651147e8f2abe5aef63d81e5d2d861e1.json",
+      "sha256": "bb49d423b2b63a0985c90f8b24dcd9bd651147e8f2abe5aef63d81e5d2d861e1",
       "file_count": 628,
-      "total_bytes": 5601003
+      "total_bytes": 5601982
     }
   },
   {
@@ -4126,10 +4128,10 @@
       "规则书库"
     ],
     "file_index": {
-      "path": ".catalog/98744c95ac1ae4fbb0be0fd1b608bca4f475d3c493db9328898cd44736b564ac.json",
-      "sha256": "98744c95ac1ae4fbb0be0fd1b608bca4f475d3c493db9328898cd44736b564ac",
+      "path": ".catalog/b44ac7a1374414c5f017fbd7638485e5683e5320ef3589d0cf5bf917da95cf7f.json",
+      "sha256": "b44ac7a1374414c5f017fbd7638485e5683e5320ef3589d0cf5bf917da95cf7f",
       "file_count": 215,
-      "total_bytes": 2185519
+      "total_bytes": 2189801
     }
   },
   {
@@ -4160,10 +4162,10 @@
       "凭证箱"
     ],
     "file_index": {
-      "path": ".catalog/135f18e7c31bfa8ad82213d4a9b310ba74edadf9bccc67479a384e8d672b7041.json",
-      "sha256": "135f18e7c31bfa8ad82213d4a9b310ba74edadf9bccc67479a384e8d672b7041",
+      "path": ".catalog/5379dadd3aec5209bd04ce40b9c0331756e070fac21bb13ee1972903ab1d1134.json",
+      "sha256": "5379dadd3aec5209bd04ce40b9c0331756e070fac21bb13ee1972903ab1d1134",
       "file_count": 81,
-      "total_bytes": 2153027
+      "total_bytes": 2153986
     }
   },
   {
@@ -4177,10 +4179,10 @@
       "key-amnesia"
     ],
     "file_index": {
-      "path": ".catalog/85ce95da82f6a5f109bcc6d462b5a98b801dffd1227fa51d98e19bab28dce9cb.json",
-      "sha256": "85ce95da82f6a5f109bcc6d462b5a98b801dffd1227fa51d98e19bab28dce9cb",
+      "path": ".catalog/5637d3a2fd3b973f701812ea561f62d21a21d5d8efe1cc9b417acac5c6b8847e.json",
+      "sha256": "5637d3a2fd3b973f701812ea561f62d21a21d5d8efe1cc9b417acac5c6b8847e",
       "file_count": 62,
-      "total_bytes": 2075827
+      "total_bytes": 2077655
     }
   },
   {
@@ -4194,10 +4196,10 @@
       "技能管理"
     ],
     "file_index": {
-      "path": ".catalog/9fa8243ef514338e7613572c770e07eb9bb346fec70b02757eba7717ec4d7e97.json",
-      "sha256": "9fa8243ef514338e7613572c770e07eb9bb346fec70b02757eba7717ec4d7e97",
+      "path": ".catalog/74a0e534eb69f1ab7e41630d2a7b6ece6045d920c33b27c2253453aef5ca578b.json",
+      "sha256": "74a0e534eb69f1ab7e41630d2a7b6ece6045d920c33b27c2253453aef5ca578b",
       "file_count": 258,
-      "total_bytes": 6532012
+      "total_bytes": 6533079
     }
   },
   {
@@ -4211,10 +4213,10 @@
       "产品技能"
     ],
     "file_index": {
-      "path": ".catalog/44ba26d9a3a6b6e4b9fe4933b1036f6ab3a77f08c6ffd8c3c5bbe8f196fa5300.json",
-      "sha256": "44ba26d9a3a6b6e4b9fe4933b1036f6ab3a77f08c6ffd8c3c5bbe8f196fa5300",
+      "path": ".catalog/8ad6212a3b27c8ab52958d67bb8dae818078600a8b259d8b567f9bd6cf927690.json",
+      "sha256": "8ad6212a3b27c8ab52958d67bb8dae818078600a8b259d8b567f9bd6cf927690",
       "file_count": 146,
-      "total_bytes": 6272134
+      "total_bytes": 6273427
     }
   },
   {
@@ -4228,10 +4230,10 @@
       "tg框架"
     ],
     "file_index": {
-      "path": ".catalog/876cb88061aee385575d225e0434685d956e15aee4e6ee7a24d57e63cd62fda4.json",
-      "sha256": "876cb88061aee385575d225e0434685d956e15aee4e6ee7a24d57e63cd62fda4",
+      "path": ".catalog/34c5d1f27352848bedaec3c34270216592a0f37a4190a66b5a28c715e6c76fc6.json",
+      "sha256": "34c5d1f27352848bedaec3c34270216592a0f37a4190a66b5a28c715e6c76fc6",
       "file_count": 2947,
-      "total_bytes": 11663527
+      "total_bytes": 11664466
     }
   },
   {
@@ -4244,10 +4246,10 @@
       "GPT tg bot"
     ],
     "file_index": {
-      "path": ".catalog/3e16460f4029d7e34454a7e6e219c9c550dc86fefc021ac140ea007cfaff8e02.json",
-      "sha256": "3e16460f4029d7e34454a7e6e219c9c550dc86fefc021ac140ea007cfaff8e02",
+      "path": ".catalog/25cfc0dde4f45fd1e69be4081fd9c1f4fd570e2f68aaf3a4519752697b967cce.json",
+      "sha256": "25cfc0dde4f45fd1e69be4081fd9c1f4fd570e2f68aaf3a4519752697b967cce",
       "file_count": 20,
-      "total_bytes": 1062882
+      "total_bytes": 1063796
     }
   },
   {
@@ -4260,10 +4262,10 @@
       "TG搜索"
     ],
     "file_index": {
-      "path": ".catalog/98236df1eb75c7da33d0bf341f8a2cedb9f597301cf4240b66c5fbb1928df8e2.json",
-      "sha256": "98236df1eb75c7da33d0bf341f8a2cedb9f597301cf4240b66c5fbb1928df8e2",
+      "path": ".catalog/5e7ff6898629e3c2821c66e1011c6105162673da1a78991b7358d94d4a41804a.json",
+      "sha256": "5e7ff6898629e3c2821c66e1011c6105162673da1a78991b7358d94d4a41804a",
       "file_count": 633,
-      "total_bytes": 3936035
+      "total_bytes": 3937412
     }
   },
   {
@@ -4276,10 +4278,10 @@
       "Jev压缩插件"
     ],
     "file_index": {
-      "path": ".catalog/24502767eee2e96b5f7d02c8d7563cacc588000134bc84e04053276cde3132f7.json",
-      "sha256": "24502767eee2e96b5f7d02c8d7563cacc588000134bc84e04053276cde3132f7",
+      "path": ".catalog/0d5fcb0d3eace61a71f122b65e19e6608932ec77a1d1d299437c4e5e66bc426d.json",
+      "sha256": "0d5fcb0d3eace61a71f122b65e19e6608932ec77a1d1d299437c4e5e66bc426d",
       "file_count": 26,
-      "total_bytes": 600675
+      "total_bytes": 601618
     }
   },
   {
@@ -4292,10 +4294,10 @@
       "TypeSafe CU"
     ],
     "file_index": {
-      "path": ".catalog/3a22b69f4874598d6bb254ec3290556c8a05cf8e36008e5d0916d147cdea3c60.json",
-      "sha256": "3a22b69f4874598d6bb254ec3290556c8a05cf8e36008e5d0916d147cdea3c60",
+      "path": ".catalog/0e7be8633d5dd61c74b6d2c5cdb5dff3007e971536f2c25bc75ce8197e8e5975.json",
+      "sha256": "0e7be8633d5dd61c74b6d2c5cdb5dff3007e971536f2c25bc75ce8197e8e5975",
       "file_count": 125,
-      "total_bytes": 1722031
+      "total_bytes": 1722942
     }
   },
   {
@@ -4308,10 +4310,10 @@
       "Ralphy CLI"
     ],
     "file_index": {
-      "path": ".catalog/2c516be4f3aa11209d55cc9f98857c3e3a68cf9b10e59f4bd94593f23dc268b1.json",
-      "sha256": "2c516be4f3aa11209d55cc9f98857c3e3a68cf9b10e59f4bd94593f23dc268b1",
+      "path": ".catalog/ef3183d369d4ca20ede21dae98d2918e9543b2d69138206d15de19f1a27de681.json",
+      "sha256": "ef3183d369d4ca20ede21dae98d2918e9543b2d69138206d15de19f1a27de681",
       "file_count": 83,
-      "total_bytes": 7066538
+      "total_bytes": 7067498
     }
   },
   {
@@ -4324,10 +4326,10 @@
       "vibe模板"
     ],
     "file_index": {
-      "path": ".catalog/0203ab4f373e949dcb6bb5b5d4cd9d552900729754af1d5f480466a99c945a63.json",
-      "sha256": "0203ab4f373e949dcb6bb5b5d4cd9d552900729754af1d5f480466a99c945a63",
+      "path": ".catalog/c7668eae19ce7d9473d5a4aedeb254342df047624dfa1135c25c2a2de64cd7f2.json",
+      "sha256": "c7668eae19ce7d9473d5a4aedeb254342df047624dfa1135c25c2a2de64cd7f2",
       "file_count": 178,
-      "total_bytes": 559218
+      "total_bytes": 562291
     }
   },
   {
@@ -4358,10 +4360,10 @@
       "Moli"
     ],
     "file_index": {
-      "path": ".catalog/df61a12ae3579144e1c2f97cc0533ad0f7f92d0fd3ad94dd683eb4d8974276d8.json",
-      "sha256": "df61a12ae3579144e1c2f97cc0533ad0f7f92d0fd3ad94dd683eb4d8974276d8",
+      "path": ".catalog/b7eefe21c79bdf00323bc21ab565b26523cd5df023b79a50b2be96d169454135.json",
+      "sha256": "b7eefe21c79bdf00323bc21ab565b26523cd5df023b79a50b2be96d169454135",
       "file_count": 5841,
-      "total_bytes": 72375354
+      "total_bytes": 72377180
     }
   },
   {
@@ -4375,10 +4377,10 @@
       "agent组件"
     ],
     "file_index": {
-      "path": ".catalog/150ff71d716cbbf5dee5cab50a5fc79847a70b87ee72513a9a2462c844bff4bc.json",
-      "sha256": "150ff71d716cbbf5dee5cab50a5fc79847a70b87ee72513a9a2462c844bff4bc",
+      "path": ".catalog/2be1caca2722738d1424315da829177d8d79600e7f741b2b8361446806ae7adb.json",
+      "sha256": "2be1caca2722738d1424315da829177d8d79600e7f741b2b8361446806ae7adb",
       "file_count": 991,
-      "total_bytes": 6935117
+      "total_bytes": 6935995
     }
   },
   {
@@ -4391,10 +4393,10 @@
       "Claudian"
     ],
     "file_index": {
-      "path": ".catalog/3501d7acb4e2f7b9a04f4250def322a7be524f1c390742846707c6ee76cf7d87.json",
-      "sha256": "3501d7acb4e2f7b9a04f4250def322a7be524f1c390742846707c6ee76cf7d87",
+      "path": ".catalog/82df77fe9c78dd2d12cd9c2ca663fa32d16e9d7e2e1a1bda959f94b25d14af89.json",
+      "sha256": "82df77fe9c78dd2d12cd9c2ca663fa32d16e9d7e2e1a1bda959f94b25d14af89",
       "file_count": 768,
-      "total_bytes": 13135593
+      "total_bytes": 13136514
     }
   },
   {
@@ -4408,10 +4410,10 @@
       "语音CLI"
     ],
     "file_index": {
-      "path": ".catalog/62a5f90fef4639891ec1f66c75a0c1a8aa7da09d526818361ff192292a7255d6.json",
-      "sha256": "62a5f90fef4639891ec1f66c75a0c1a8aa7da09d526818361ff192292a7255d6",
+      "path": ".catalog/30ca0f944b2c62e28632d4ad3e4400cc499a05ec10791e7240b9aa27fa4c577e.json",
+      "sha256": "30ca0f944b2c62e28632d4ad3e4400cc499a05ec10791e7240b9aa27fa4c577e",
       "file_count": 378,
-      "total_bytes": 9190477
+      "total_bytes": 9191324
     }
   },
   {
@@ -4425,10 +4427,10 @@
       "爬虫框架"
     ],
     "file_index": {
-      "path": ".catalog/2ae00f759f5edb2c30fb406e6db2930a9a6976dd10f6120024640f0df9a70e0c.json",
-      "sha256": "2ae00f759f5edb2c30fb406e6db2930a9a6976dd10f6120024640f0df9a70e0c",
+      "path": ".catalog/328646c42ab9150555da019333a0f1c7a6fdf6b34f4ad2a57ea3557543877696.json",
+      "sha256": "328646c42ab9150555da019333a0f1c7a6fdf6b34f4ad2a57ea3557543877696",
       "file_count": 661,
-      "total_bytes": 25799393
+      "total_bytes": 25800395
     }
   },
   {
@@ -4442,10 +4444,10 @@
       "笔记"
     ],
     "file_index": {
-      "path": ".catalog/03621c3d66aad1585e0095e071e50fba3c5fab9b0e630886b5cd4309abc4df06.json",
-      "sha256": "03621c3d66aad1585e0095e071e50fba3c5fab9b0e630886b5cd4309abc4df06",
+      "path": ".catalog/262cbb6da683a71783edb9209f185c7d35c56cb0aea5f16ae3e447c2b1e263e5.json",
+      "sha256": "262cbb6da683a71783edb9209f185c7d35c56cb0aea5f16ae3e447c2b1e263e5",
       "file_count": 1186,
-      "total_bytes": 11759964
+      "total_bytes": 11761068
     }
   },
   {
@@ -4459,10 +4461,10 @@
       "直播"
     ],
     "file_index": {
-      "path": ".catalog/e3888e262be871179c797d4b2048c2a82f872635e7f1b8473f8227a2f5c576ef.json",
-      "sha256": "e3888e262be871179c797d4b2048c2a82f872635e7f1b8473f8227a2f5c576ef",
+      "path": ".catalog/fc6d44311ef44680e6d355b4161de7e11a5e2aaca9974f47ff0d936428362a51.json",
+      "sha256": "fc6d44311ef44680e6d355b4161de7e11a5e2aaca9974f47ff0d936428362a51",
       "file_count": 877,
-      "total_bytes": 11752255
+      "total_bytes": 11753464
     }
   },
   {
@@ -4491,10 +4493,10 @@
       "样本工具箱"
     ],
     "file_index": {
-      "path": ".catalog/e7e206aabc781e6561112df8f4e1b7e59401ae0e8b028aad33e6b21cc1ca3017.json",
-      "sha256": "e7e206aabc781e6561112df8f4e1b7e59401ae0e8b028aad33e6b21cc1ca3017",
+      "path": ".catalog/37debd22aa8fe509b0448947c7ee2b6e4cf040cedcfa2240b8fd0b31903a3c93.json",
+      "sha256": "37debd22aa8fe509b0448947c7ee2b6e4cf040cedcfa2240b8fd0b31903a3c93",
       "file_count": 18,
-      "total_bytes": 652229
+      "total_bytes": 653519
     }
   },
   {
@@ -4507,10 +4509,10 @@
       "流式MCP模板"
     ],
     "file_index": {
-      "path": ".catalog/3d2d08bc5c3560dc54b34fdb8ec6975ed49fc0cbe6951f7ff94bb23f2cd4cf25.json",
-      "sha256": "3d2d08bc5c3560dc54b34fdb8ec6975ed49fc0cbe6951f7ff94bb23f2cd4cf25",
+      "path": ".catalog/b0317da90ef918b3119a85913d97f9037b1d87043d3b54ff7bd2aa9344e88759.json",
+      "sha256": "b0317da90ef918b3119a85913d97f9037b1d87043d3b54ff7bd2aa9344e88759",
       "file_count": 61,
-      "total_bytes": 881633
+      "total_bytes": 882913
     }
   },
   {
@@ -4526,10 +4528,10 @@
       "rea-agents"
     ],
     "file_index": {
-      "path": ".catalog/38c14a390a466094d1699e34c985ecb0fd42801675dc22160259adb597a768fb.json",
-      "sha256": "38c14a390a466094d1699e34c985ecb0fd42801675dc22160259adb597a768fb",
+      "path": ".catalog/a4c763a23bc4a233a04b89362d5bfc2909a071856ae83539865dafe908ba6d2d.json",
+      "sha256": "a4c763a23bc4a233a04b89362d5bfc2909a071856ae83539865dafe908ba6d2d",
       "file_count": 1595,
-      "total_bytes": 13533253
+      "total_bytes": 13533248
     }
   },
   {
@@ -4557,7 +4559,7 @@
   },
   {
     "name": "chatcut-installer",
-    "description": "ChatCut AI 视频剪辑插件安装引导（本仓库自研）。当用户想做视频剪辑、剪视频、装 ChatCut，或说「阅读 chatcut.io/chatgpt 帮我安装 ChatCut 插件并创建一个新任务」时使用。适合场景：剪辑视频、视频剪辑、剪片子、装剪辑插件、AI 剪辑、字幕转场、MG 动画、配音配乐视频制作。Leading Words: 剪辑, 视频剪辑, 剪视频, ChatCut, chatcut安装, 剪辑插件, AI视频编辑, 字幕转场, MG动画, 创建剪辑任务",
+    "description": "ChatCut AI 视频剪辑插件安装引导。用户要剪辑视频、安装 ChatCut、创建剪辑任务，或需要字幕、转场、MG 动画与配音配乐时使用。",
     "category": "05_多媒体与设计资产",
     "folder": "chatcut-installer",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/chatcut-installer",
@@ -4570,10 +4572,10 @@
       "剪辑插件安装"
     ],
     "file_index": {
-      "path": ".catalog/fe480456bebdfe4a1094dd08a40e520efcf5ca27834930b3ad4ba384ba9c92bf.json",
-      "sha256": "fe480456bebdfe4a1094dd08a40e520efcf5ca27834930b3ad4ba384ba9c92bf",
+      "path": ".catalog/8366ad94a213b02ec4416d0af6f75e610b02e2f1a4a4f6a4dd1ccb622ee140d3.json",
+      "sha256": "8366ad94a213b02ec4416d0af6f75e610b02e2f1a4a4f6a4dd1ccb622ee140d3",
       "file_count": 1,
-      "total_bytes": 1449
+      "total_bytes": 906
     }
   }
 ]

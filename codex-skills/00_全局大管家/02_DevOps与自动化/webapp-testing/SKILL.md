@@ -1,6 +1,6 @@
 ---
 name: webapp-testing
-description: 本地 Web 应用 Playwright 自动化测试与调试套件。支持原生 Python 编写端到端测试用例，验证前端交互逻辑，并自动管理测试服务器生命周期及页面状态快照。Leading Words: Playwright端到端测试, Web前端自动化验证, UI交互调试, 本地测试服务器挂载
+description: "本地 Web 应用 Playwright 自动化测试与调试套件。支持原生 Python 编写端到端测试用例，验证前端交互逻辑，并自动管理测试服务器生命周期及页面状态快照。Leading Words: Playwright端到端测试, Web前端自动化验证, UI交互调试, 本地测试服务器挂载"
 license: Complete terms in LICENSE.txt
 ---
 

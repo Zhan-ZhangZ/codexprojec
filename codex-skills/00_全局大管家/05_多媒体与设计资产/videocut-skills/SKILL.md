@@ -1,6 +1,6 @@
 ---
 name: videocut-skills
-description: 中文语境原生短视频矩阵量产编导助手。让大模型深刻理解国内短视频（快手 / 视频号 / 抖音）制作标准，完成本地素材分拣、字幕精准踩点及批量化剪辑流水线架构设计。Leading Words: 中文短视频矩阵编导, 字幕踩点对齐, 本地剪辑素材分拣, 视频号流水线架构
+description: "中文语境原生短视频矩阵量产编导助手。让大模型深刻理解国内短视频（快手 / 视频号 / 抖音）制作标准，完成本地素材分拣、字幕精准踩点及批量化剪辑流水线架构设计。Leading Words: 中文短视频矩阵编导, 字幕踩点对齐, 本地剪辑素材分拣, 视频号流水线架构"
 ---
 
 # videocut-skills
@@ -27,5 +27,3 @@ description: 中文语境原生短视频矩阵量产编导助手。让大模型�
 - [README.md](README.md) — 上游总说明（安装、Runtime 合同、发布顺序）
 - [plugins/chengfeng-videocut/README.md](plugins/chengfeng-videocut/README.md) — 插件说明
 - [plugins/chengfeng-videocut/skills/](plugins/chengfeng-videocut/skills/) — 六个子技能目录
-
-> 上游 `.github/`、根 `test/` 与 11 个 `*.test.cjs` 测试脚本未随库分发；`.mcp.json` 运行入口为 `plugins/chengfeng-videocut/dist/server.mjs`（已保留）。当前集成 Plugin 0.10.8 / Runtime v0.4.8（2026-08-21）。

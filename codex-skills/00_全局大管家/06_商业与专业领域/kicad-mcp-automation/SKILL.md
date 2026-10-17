@@ -1,16 +1,41 @@
 ---
 name: kicad-mcp-automation
-description: KiCad 工业级硬件工程全生命周期流水线管控台 (MCP)。无需开启 IDE 即可基于 CLI 运行高强度的 ERC / DRC 刚性规则拦截。全自动组装标准 BMO 表单并无损导出合规的 Gerber 制造文件投板。Leading Words: KiCad硬件工程自动化, ERC/DRC刚性拦截, 制造级Gerber导出, BOM表单自动生成
+description: "KiCad MCP 自动化服务。通过自然语言或 CLI 管理工程、运行 ERC/DRC、维护元器件，并导出 BOM、Gerber、钻孔文件和 3D 模型。"
+metadata:
+  upstream: github.com/muammar-yacoob/kicad-mcp
+  entrypoint: managed-v2
+  entrypoint_kind: mcp
 ---
 
-# kicad-mcp-automation — 电气与智能化设计 MCP 服务
+<!-- codex-skills-managed-entrypoint:v2 -->
+# kicad-mcp-automation
 
-- **项目主页**: https://github.com/muammar-yacoob/kicad-mcp
+这是一个用于 KiCad 的 MCP 服务，可管理工程与元器件、运行电气规则和设计规则检查，并导出 BOM、Gerber、钻孔文件及制造资料。
 
-## 功能说明
+## 何时使用
 
-KiCad 电路设计与生产自动化审核 MCP。支持通过自然语言创建 PCB 项目、运行电气规则检查 (ERC)、设计规则检查 (DRC)、自动生成物料清单 (BOM) 并导出 Gerber 制造文件。
+适用任务：初始化 KiCad 工程、检查 ERC/DRC、管理元器件、生成 BOM 或导出制造文件。
 
-## 安装与快速开始
+先从下面列出的本地入口确认当前版本和真实用法；不要把包名当成已经安装、授权或验证过的能力。
 
-详细配置与用法请参考该技能目录下的 [README.md](./README.md)。
+## 执行
+
+1. 读取与本任务直接相关的 README、安装说明和入口文件，确认所需运行时、权限与配置。
+2. 按仓库当前文档启动或接入 MCP 服务，核对实际工具名和参数；不要凭项目简介编造工具。
+3. 先用一个只读、最小请求验证连接，再执行用户要求的操作。凭据只从环境或安全配置读取，不写进技能文件。
+
+## 本地入口
+
+- `README.md`
+- `package.json`
+- `requirements.txt`
+- `docs/`
+
+## 上游
+
+- https://github.com/muammar-yacoob/kicad-mcp
+- 如需核对最新行为，以上游仓库和本地固定版本的差异为准。
+
+## 完成标准
+
+交付用户要求的结果，并说明实际运行的命令、验证方式、仍需配置的凭据或未能验证的边界。

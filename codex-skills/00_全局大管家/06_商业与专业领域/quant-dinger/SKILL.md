@@ -1,6 +1,6 @@
 ---
 name: quantdinger
-description: 量化金融宽客 (Quant) 策略全生命周期研发工作台。覆盖因子脑暴、算法代码生成、回测 (Backtest) 调优与模拟盘全栈流程。助力进阶投研人员将投资逻辑直接落地为高容错的实盘交易信号监控。Leading Words: AI宽客量化投研, 交易策略代码生成, Backtest行情回测, 实盘交易信号监控
+description: "量化金融宽客 (Quant) 策略全生命周期研发工作台。覆盖因子脑暴、算法代码生成、回测 (Backtest) 调优与模拟盘全栈流程。助力进阶投研人员将投资逻辑直接落地为高容错的实盘交易信号监控。Leading Words: AI宽客量化投研, 交易策略代码生成, Backtest行情回测, 实盘交易信号监控"
 metadata:
   version: 5.0.25
   upstream: github.com/OpenByteInc/QuantDinger

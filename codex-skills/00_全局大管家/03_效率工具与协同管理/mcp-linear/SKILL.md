@@ -1,6 +1,6 @@
 ---
 name: mcp-linear
-description: 基于 MCP 协议的 Linear 服务。将 Linear 的底层 API 包装为自然语言可调用的 MCP 工具集，适用于解耦的智能体挂载使用。Leading Words: MCP Linear接口, 自然语言项目流转, MCP状态管理
+description: "基于 MCP 协议的 Linear 服务。将 Linear 的底层 API 包装为自然语言可调用的 MCP 工具集，适用于解耦的智能体挂载使用。Leading Words: MCP Linear接口, 自然语言项目流转, MCP状态管理"
 version: 1.4.3
 ---
 
@@ -31,5 +31,3 @@ Claude Desktop / Cline 等 JSON 配置形态见 [references/README.md](reference
 - [references/DEVELOPMENT.md](references/DEVELOPMENT.md) — 开发与贡献指南
 - [references/glama.json](references/glama.json) — MCP 注册表元数据
 - [references/LICENSE.md](references/LICENSE.md) — 许可证
-
-> 用户经 npm 安装运行，本库只携文档层；`src/`、`scripts/`、测试与构建配置未随库分发，需要时访问 [上游仓库](https://github.com/tacticlaunch/mcp-linear/tree/v1.4.3)。

@@ -1,6 +1,6 @@
 ---
 name: novel-writing
-description: 虚构文学与长篇小说创作统筹沙盘。囊括世界观架构、主线章节大纲起草、场景分镜续写与文学级别的文字表现力修改评审。Leading Words: 长篇虚构文学架构, 场景分镜续写, 世界观大纲起草, 文学表现力评审
+description: "虚构文学与长篇小说创作统筹沙盘。囊括世界观架构、主线章节大纲起草、场景分镜续写与文学级别的文字表现力修改评审。Leading Words: 长篇虚构文学架构, 场景分镜续写, 世界观大纲起草, 文学表现力评审"
 version: v0.4.0-public
 metadata:
   upstream: github.com/wgwtest/novel-writing

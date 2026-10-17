@@ -1,6 +1,6 @@
 ---
 name: ComfyUI_Skills_OpenClaw
-description: ComfyUI 高性能工作流执行与官方 MCP 编排管线。通过极速 CLI 调度本地/云端已注册的 ComfyUI 生图与生视频工作流，同时集成官方 Comfy MCP 实现动态模板探针、节点/模型实时发现、工作流合法性校验与算力编排。支持一键文生图/图生图/文生视频/图生视频、参数映射抽象、依赖自动探测与批量无头渲染。Leading Words: ComfyUI工作流调度, 官方Comfy MCP编排, 视频与图像生成管线, 文生图图生图, 节点依赖检测, 自动化生图渲染
+description: "ComfyUI 高性能工作流执行与官方 MCP 编排管线。通过极速 CLI 调度本地/云端已注册的 ComfyUI 生图与生视频工作流，同时集成官方 Comfy MCP 实现动态模板探针、节点/模型实时发现、工作流合法性校验与算力编排。支持一键文生图/图生图/文生视频/图生视频、参数映射抽象、依赖自动探测与批量无头渲染。Leading Words: ComfyUI工作流调度, 官方Comfy MCP编排, 视频与图像生成管线, 文生图图生图, 节点依赖检测, 自动化生图渲染"
 license: Apache-2.0
 metadata:
   version: "1.1.0"
