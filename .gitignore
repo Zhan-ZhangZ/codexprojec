@@ -1,6 +1,8 @@
 # ============================================================
 # 🚫 仓库洁净度防线：严格执行白名单策略
 # 核心原则：项目根目录下，只有白名单内的项会被 Git 追踪。其余（即使是未来新建的文件/文件夹）全部自动忽略！
+# 仅面向使用者的内容入库：README 与 codex-skills 技能包本体。
+# 本地开发/维护文件（.agents、scripts、tests、.github、技能仓库索引.md 等）一律不上传仓库。
 # ============================================================
 
 # 1. 忽略根目录下的所有内容
@@ -10,19 +12,6 @@
 !/codex-skills/
 !/.gitignore
 !/README.md
-!/scripts/
-/scripts/*
-!/scripts/build_file_indexes.py
-!/scripts/validate_manifest.py
-!/tests/
-/tests/*
-!/tests/test_validate_manifest.py
-!/tests/test_build_file_indexes.py
-!/.github/
-/.github/*
-!/.github/workflows/
-/.github/workflows/*
-!/.github/workflows/codex-skills-index.yml
 
 # ============================================================
 # 以下是针对 codex-skills/ 内部子文件的通用忽略规则（防止垃圾文件入库）
