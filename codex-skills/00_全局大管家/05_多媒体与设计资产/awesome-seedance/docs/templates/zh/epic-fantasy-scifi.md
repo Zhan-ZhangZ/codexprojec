@@ -1,0 +1,90 @@
+[English](../en/epic-fantasy-scifi.md) | **中文**
+
+[← 全部分类提示语模板](../../../README_zh.md#-分类提示语模板) · [模板索引](./README.md)
+
+# 💥 奇幻科幻大场面
+
+> 怪兽、巨龙、世界观展示。每个实体单独给一个定义块，镜头按时间码切开，尺度感靠参照物和低机位换，靠 massive 这种词换不来。
+
+<!-- 由 data/ 生成，请勿手改；改 data/templates-local.json 后跑 npm run generate -->
+
+<table>
+<tr>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/weeleey6-seedance-ai-b03a5481e168?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/media/poster/weeleey6-seedance-ai-b03a5481e168.jpg" width="200" alt="GPT Image 2 + Seedance 深海惊魂战机飞行员短片"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/zyrellix-seedance-ai-5fa856d9472a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/media/poster/zyrellix-seedance-ai-5fa856d9472a.jpg" width="200" alt="女武士与白龙击碎熔岩天体"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/seedance-create-a-30-second-ultra-cinematic-supernatural-fantasy-sequence-photorealisti-6d87ff7834d3?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/cases/70fd0a62397d.jpg" width="200" alt="废墟卧室中的白发女子与巨型黑猫"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/zyrellix-seedance-ai-b83a3b47ae61?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/media/poster/zyrellix-seedance-ai-b83a3b47ae61.jpg" width="200" alt="从雨巷涟漪到极光之眼"></a></td>
+</tr>
+</table>
+
+## 直接复制
+
+点代码块右上角的复制按钮整段拿走，把【】里的内容换成你自己的，连同参考图一起发给任意 AI 对话（ChatGPT、Claude、豆包都行）。它会按这个模板替你写出一条可以直接丢进 Seedance 的提示语。
+
+````text
+我要做一条奇幻大场面视频，【主角是一个背着长刀的少年，站在被沙埋掉一半的城市里】，【奇观是一只沙虫从地下顶穿整条街冲出来】。请根据下面这个提示语模板，帮我改写成一条可以直接用的 Seedance 视频提示语：
+
+#### 奇幻科幻大场面
+
+怪兽、巨龙、世界观展示。每个实体单独给一个定义块，镜头按时间码切开，尺度感靠参照物和低机位换，靠 massive 这种词换不来。
+
+**适用场景:** 怪兽攻城、巨龙对战、变身序列、世界观展示，任何有效载荷是一个大片级物理奇观的片子。
+
+**要点:**
+
+- 先把实体拆成独立的块，再写场景。战机怪兽那条把 Pilot、Seabaycity、Monster、Jet 各写一段，每段结尾标清用途：`Appearance only`、`Environment only`、`Vehicle only`。
+- 尺度感靠参照物和机位买。同一条明确要求 `sell the size of the monster with low angles and the city for scale`，CUT 1 就是一个戏剧性低机位。
+- 整条只给一个奇观，其余镜头都是走位。女武士白龙那条全片就是插钥匙、龙出场、一道光束击碎天体。
+- 镜头路径写成能执行的动作。雨巷转场那条每一次换场都点名穿过什么：`pushes directly toward the center of the ripple`，接着穿进瞳孔，再穿过水晶的内部结构。
+- 固定用一段技术参数收尾。热度最高的几条都收在 `volumetric fog, photorealistic visual effects, Unreal Engine 5 render style` 这样一串上，并点明调色方向，比如深灰加金。
+
+**示例:** [#1](https://goodcase.ai/cases/weeleey6-seedance-ai-b03a5481e168) [#2](https://goodcase.ai/cases/zyrellix-seedance-ai-5fa856d9472a) [#3](https://goodcase.ai/cases/seedance-create-a-30-second-ultra-cinematic-supernatural-fantasy-sequence-photorealisti-6d87ff7834d3) [#4](https://goodcase.ai/cases/zyrellix-seedance-ai-b83a3b47ae61)
+
+**结构:**
+
+1. 开场一句：时长、片种写明（cinematic dark fantasy、kaiju action sequence 之类）、是写实还是动画
+2. 实体定义块：人物、怪兽、载具、城市各一段，每段标清楚它只提供什么
+3. 场景与气氛：天气、光源、破坏程度、调色方向
+4. 镜头切分：CUT 1 / CUT 2 带时间码，或者一条连续镜头路径并点名每次穿过什么
+5. 奇观那一拍单独写，把因果交代清楚
+6. 技术收尾段：调色、雾、颗粒、镜头、渲染风格
+7. 规则段：参考图只取外观、脸要一致、最后一帧停在什么上面
+
+**常见坑:**
+
+- 十五秒塞五个奇观。每个都做成半成品，一条片子只给一个爆点，其余镜头当铺垫。
+- 只靠 epic、massive 这类词。没有楼、没有城、没有低机位做参照，怪兽出来就和人一样高。
+- 正文里留着脏字符。废墟黑猫那条句子中间夹了一条 t.co 链接，这种东西会被当成画面内容，要清掉。
+- 不交代最后一帧停在哪。战机怪兽那条写了 `Final frame on the monster crashing into the bay, stable and clean`，少了这句收尾容易抖或者糊。
+````
+
+## 三步用起来
+
+| 步骤 | 做什么 |
+| --- | --- |
+| 1 | 复制上面整段，把【】换成你的产品、人物或场景，能给参考图就给 |
+| 2 | 发给任意 AI 对话，拿到一条按这个结构写好的 Seedance 提示语 |
+| 3 | 粘到 Seedance（即梦 / Dreamina）生成；效果不对先回头看常见坑，再改提示语重跑 |
+
+## 这一类的案例（已归类 49 条，按热度）
+
+| 预览 | 案例 | 版本 | 热度 |
+| --- | --- | --- | --- |
+| <a href="https://goodcase.ai/cases/seedance-2-5-cinematic-dark-fantasy-battle-16-9-photoreal-shallow-depth-of-field-anamorp-a90377df74d6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/4a7f9d53f8c5.jpg" width="160" alt="绿裙女子召唤烈焰树灵迎战恶魔群"></a> | [绿裙女子召唤烈焰树灵迎战恶魔群](https://goodcase.ai/cases/seedance-2-5-cinematic-dark-fantasy-battle-16-9-photoreal-shallow-depth-of-field-anamorp-a90377df74d6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 92 |
+| <a href="https://goodcase.ai/cases/seedance-watch-venice-become-a-sphere-a2018a3e4d6b?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/e5c7676644ab.jpg" width="160" alt="折叠成球的威尼斯送信之旅"></a> | [折叠成球的威尼斯送信之旅](https://goodcase.ai/cases/seedance-watch-venice-become-a-sphere-a2018a3e4d6b?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 91 |
+| <a href="https://goodcase.ai/cases/seedance-2-5-a-cinematic-30-second-sequence-starting-in-a-dark-ruined-gothic-cathedral-at-n-ff745f107b14?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/605e835bd0b1.jpg" width="160" alt="修女化身天使，在废墟教堂中斩灭群魔"></a> | [修女化身天使，在废墟教堂中斩灭群魔](https://goodcase.ai/cases/seedance-2-5-a-cinematic-30-second-sequence-starting-in-a-dark-ruined-gothic-cathedral-at-n-ff745f107b14?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 90 |
+| <a href="https://goodcase.ai/cases/seedance-cinematic-photorealistic-scene-inside-an-indoor-swimming-pool-206ad2eea8f1?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/5b534bd92cd2.jpg" width="160" alt="紫发少女跃过泳池巨浪"></a> | [紫发少女跃过泳池巨浪](https://goodcase.ai/cases/seedance-cinematic-photorealistic-scene-inside-an-indoor-swimming-pool-206ad2eea8f1?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 87 |
+| <a href="https://goodcase.ai/cases/seedance-create-a-30-second-ultra-cinematic-supernatural-fantasy-sequence-photorealisti-6d87ff7834d3?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/70fd0a62397d.jpg" width="160" alt="废墟卧室中的白发女子与巨型黑猫"></a> | [废墟卧室中的白发女子与巨型黑猫](https://goodcase.ai/cases/seedance-create-a-30-second-ultra-cinematic-supernatural-fantasy-sequence-photorealisti-6d87ff7834d3?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 85 |
+| <a href="https://goodcase.ai/cases/zyrellix-seedance-ai-5fa856d9472a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/zyrellix-seedance-ai-5fa856d9472a.jpg" width="160" alt="女武士与白龙击碎熔岩天体"></a> | [女武士与白龙击碎熔岩天体](https://goodcase.ai/cases/zyrellix-seedance-ai-5fa856d9472a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.0 | 83 |
+| <a href="https://goodcase.ai/cases/seedance-2-5-cinematic-16-9-dark-fantasy-photorealistic-gothic-cathedral-emerald-green-gl-a04d1df43215?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/680efb813c0b.jpg" width="160" alt="修女化身绿光天使迎战教堂恶魔"></a> | [修女化身绿光天使迎战教堂恶魔](https://goodcase.ai/cases/seedance-2-5-cinematic-16-9-dark-fantasy-photorealistic-gothic-cathedral-emerald-green-gl-a04d1df43215?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 81 |
+| <a href="https://goodcase.ai/cases/weeleey6-seedance-ai-b03a5481e168?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/weeleey6-seedance-ai-b03a5481e168.jpg" width="160" alt="GPT Image 2 + Seedance 深海惊魂战机飞行员短片"></a> | [GPT Image 2 + Seedance 深海惊魂战机飞行员短片](https://goodcase.ai/cases/weeleey6-seedance-ai-b03a5481e168?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.0 | 81 |
+| <a href="https://goodcase.ai/cases/seedance-2-5-a-dark-fantasy-warrior-with-long-disheveled-black-hair-cold-expression-tatter-7dd307108140?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/0e7af393b7ea.jpg" width="160" alt="荒废战场上的雷霆武者与空间崩裂"></a> | [荒废战场上的雷霆武者与空间崩裂](https://goodcase.ai/cases/seedance-2-5-a-dark-fantasy-warrior-with-long-disheveled-black-hair-cold-expression-tatter-7dd307108140?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 80 |
+| <a href="https://goodcase.ai/cases/seedance-pace-continuous-tension-and-escalation-zero-pauses-maximum-buildup-into-cata-4f6c927ebd3f?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/5e41917cd901.jpg" width="160" alt="废墟街头火焰术引爆全城"></a> | [废墟街头火焰术引爆全城](https://goodcase.ai/cases/seedance-pace-continuous-tension-and-escalation-zero-pauses-maximum-buildup-into-cata-4f6c927ebd3f?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 79 |
+| <a href="https://goodcase.ai/cases/seedance-global-continuity-photorealistic-cinematic-16-9-834ae3f7de05?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/e28bdc9038b1.jpg" width="160" alt="少女以异能摧毁坦克军团"></a> | [少女以异能摧毁坦克军团](https://goodcase.ai/cases/seedance-global-continuity-photorealistic-cinematic-16-9-834ae3f7de05?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 77 |
+| <a href="https://goodcase.ai/cases/zyrellix-seedance-ai-987c5819beca?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/zyrellix-seedance-ai-987c5819beca.jpg" width="160" alt="末日龙背跃斩巨甲战士"></a> | [末日龙背跃斩巨甲战士](https://goodcase.ai/cases/zyrellix-seedance-ai-987c5819beca?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.0 | 77 |
+
+其余 37 条在[完整画廊](../../gallery.zh.md)和 [goodcase.ai](https://goodcase.ai/cases?filter=video&q=seedance&utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) 上。
+
+---
+
+[← 上一个：汽车与载具速度片](./car-vehicle.md) · [下一个：体育与极限运动 →](./sports-extreme.md)

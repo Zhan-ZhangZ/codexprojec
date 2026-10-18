@@ -1,0 +1,89 @@
+**English** | [中文](../zh/retro-found-footage.md)
+
+[← All prompt templates](../../../README.md#-prompt-templates-by-category) · [Template index](./README.md)
+
+# 📱 Early-2000s DV home video
+
+> The period feel comes from camera defects and one tiny everyday incident. Write the camcorder's autofocus hunting, exposure shifts and handheld shake as an explicit list, keep the story small, and the clip reads as a real old tape.
+
+<!-- Generated from data/. Do not hand-edit; change data/templates-local.json and run npm run generate -->
+
+<table>
+<tr>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/media/poster/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf.jpg" width="200" alt="POV: Korean Baddie Meets Her Boyfriend in the US"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/cases/276528e2bcc8.jpg" width="200" alt="The Little Moments That Make AI Feel Real"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/vlog-9decd38e99a4?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/cases/68ae69f99fe4.jpg" width="200" alt="Korean Girl Outdoor Pool Vlog"></a></td>
+</tr>
+</table>
+
+## Copy this
+
+Hit the copy button on the block, replace everything in [square brackets] with your own details, and send it to any AI chat (ChatGPT, Claude, Gemini) together with your reference images. It will write a Seedance-ready prompt for you that follows this template.
+
+````text
+I want a retro home-video clip. [Set it in the summer of 2003, shot on a consumer DV camcorder of that era.] [It follows my cousin walking home from school and meeting a stray cat.] Using the prompt template below, rewrite it into one ready-to-use Seedance video prompt for me:
+
+#### Early-2000s DV home video
+
+The period feel comes from camera defects and one tiny everyday incident. Write the camcorder's autofocus hunting, exposure shifts and handheld shake as an explicit list, keep the story small, and the clip reads as a real old tape.
+
+**Use when:** Home videos, travel diaries, MiniDV couple clips, neighbourhood walks — any everyday footage that should look recorded years ago on consumer gear.
+
+**Guidance:**
+
+- Write the camera paragraph as a defect list. The Seoul summer afternoon clip spells out `autofocus hunting, exposure shifts, accidental zooms`, then immediately bans `No stabilization, drone footage, gimbal movement`.
+- Lock the person in one sentence and reuse it. The Seoul evening vlog closes with `Maintain the same face, hairstyle, clothing, body proportions`; with a reference photo, swap in the couple diary's `Use the uploaded reference image as the exact character reference`.
+- Fill the setting with lived-in clutter and then exclude landmarks. The Seoul afternoon clip names potted plants, utility poles and laundry hanging outside, then adds `No tourist attractions, advertisements, recognizable brands`.
+- Give the clip one small incident, not a plot. The falling-leaf case is thirty seconds of a leaf landing on her head and two failed attempts to balance it on a bicycle seat.
+- End with a tape-style hard cut and keep the audio local. The Seoul afternoon clip follows her around the corner and then `The recording abruptly cuts to black`, with footsteps, insects and bicycle bells as the only sound, `No music`.
+
+**Examples:** [#1](https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf) [#2](https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467) [#3](https://goodcase.ai/cases/vlog-9decd38e99a4)
+
+**Structure:**
+
+1. Opening line: duration, resolution, the format named as an early-2000s DV home video, and whether there is a reference image
+2. MAIN SUBJECT: age, skin, hairstyle, the full outfit, closed with one consistency lock
+3. SETTING: a specific lived-in neighbourhood with its clutter, ending with an exclusion of landmarks, ads and brands
+4. CAMERA: the camcorder's defect list, plus one line banning stabilisation and cinematic moves
+5. Beat sections by timecode or headline, one small event each, with spoken lines written into the beat where they happen
+6. AUDIO: location sound only, stated as no music
+7. Tail: realism constraints, negative list, aspect ratio, and a hard cut to black
+
+**Pitfalls:**
+
+- Piling in 4K, cinematic lighting and sharp detail. Once image quality goes up the DV feel disappears; the period look is bought with the defect list alone.
+- Cramming five events into thirty seconds. One timecode slot holds one action plus one reaction — the falling-leaf case spends a full six seconds per event.
+- Letting props vanish or duplicate between beats. The Seoul afternoon clip states that after the kick the football stays with the children and does not come back or split in two; say where each prop ends up.
+- Writing long spoken lines. When lip sync goes soft, cut the sentence — every line in these cases stays under one sentence, like `Okay, that was pointless.`
+````
+
+## Three steps
+
+| Step | What to do |
+| --- | --- |
+| 1 | Copy the whole block above and replace the [bracketed] parts with your product, person or scene. Attach reference images if you can. |
+| 2 | Send it to any AI chat and get back a Seedance prompt written to this structure. |
+| 3 | Paste that prompt into Seedance (Dreamina / Jimeng) and generate. If the result is off, check the pitfalls first, then adjust and re-run. |
+
+## Cases in this category (35 filed, by heat)
+
+| Preview | Case | Version | Heat |
+| --- | --- | --- | --- |
+| <a href="https://goodcase.ai/cases/vlog-c8171f712492?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/vlog-c8171f712492.jpg" width="160" alt="Seoul Summer Night Vlog"></a> | [Seoul Summer Night Vlog](https://goodcase.ai/cases/vlog-c8171f712492?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 99 |
+| <a href="https://goodcase.ai/cases/seedance-subject-preserve-exact-identity-face-skin-tone-body-proportions-hair-298f82f12f00?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/d3f9b6377ec3.jpg" width="160" alt="An Afternoon in a Hammock and Washing a Motorcycle"></a> | [An Afternoon in a Hammock and Washing a Motorcycle](https://goodcase.ai/cases/seedance-subject-preserve-exact-identity-face-skin-tone-body-proportions-hair-298f82f12f00?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 97 |
+| <a href="https://goodcase.ai/cases/seedance-create-a-30-second-ultra-realistic-personal-home-video-of-a-young-korean-woman-b2425539d28a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/f73ca1c9ee91.jpg" width="160" alt="A Day Buying Bread and Cotton Candy in Old Seoul"></a> | [A Day Buying Bread and Cotton Candy in Old Seoul](https://goodcase.ai/cases/seedance-create-a-30-second-ultra-realistic-personal-home-video-of-a-young-korean-woman-b2425539d28a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 95 |
+| <a href="https://goodcase.ai/cases/seedance-seedance-2-5-on-5de3fbc4f714?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/8394fd6c092a.jpg" width="160" alt="A Korean Woman’s Morning Workout at a Neighborhood Gym"></a> | [A Korean Woman’s Morning Workout at a Neighborhood Gym](https://goodcase.ai/cases/seedance-seedance-2-5-on-5de3fbc4f714?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 95 |
+| <a href="https://goodcase.ai/cases/seedance-a-birthday-worth-remembering-2f852147a691?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/4f746779db27.jpg" width="160" alt="A Korean Girl’s Early-2000s Birthday Celebration"></a> | [A Korean Girl’s Early-2000s Birthday Celebration](https://goodcase.ai/cases/seedance-a-birthday-worth-remembering-2f852147a691?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 94 |
+| <a href="https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf.jpg" width="160" alt="POV: Korean Baddie Meets Her Boyfriend in the US"></a> | [POV: Korean Baddie Meets Her Boyfriend in the US](https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 92 |
+| <a href="https://goodcase.ai/cases/seedance-create-a-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-camcorder-hom-a3fa022a7b4e?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/64e9f9e3ac3b.jpg" width="160" alt="Early-2000s Seoul Couple's Afternoon Drive"></a> | [Early-2000s Seoul Couple's Afternoon Drive](https://goodcase.ai/cases/seedance-create-a-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-camcorder-hom-a3fa022a7b4e?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 91 |
+| <a href="https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-dbd56441c7b6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/ff2f2bf756c1.jpg" width="160" alt="An Idol's Wobbly Post–Leg Day Gym Diary"></a> | [An Idol's Wobbly Post–Leg Day Gym Diary](https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-dbd56441c7b6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 91 |
+| <a href="https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-23c133674a31?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/89d557bcc2fb.jpg" width="160" alt="K-Pop Idol’s Playful Core Workout"></a> | [K-Pop Idol’s Playful Core Workout](https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-23c133674a31?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 89 |
+| <a href="https://goodcase.ai/cases/seedance-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-home-video-in-rural-we-6b3c6132a462?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/2967965aebb4.jpg" width="160" alt="A Summer Walk by Young Lovers in Rural West Java"></a> | [A Summer Walk by Young Lovers in Rural West Java](https://goodcase.ai/cases/seedance-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-home-video-in-rural-we-6b3c6132a462?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.0 | 84 |
+| <a href="https://goodcase.ai/cases/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863.jpg" width="160" alt="Locked Character Sheet for a Korean Woman of 20"></a> | [Locked Character Sheet for a Korean Woman of 20](https://goodcase.ai/cases/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 84 |
+| <a href="https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/276528e2bcc8.jpg" width="160" alt="The Little Moments That Make AI Feel Real"></a> | [The Little Moments That Make AI Feel Real](https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 84 |
+
+The other 23 are in the [full gallery](../../gallery.md) and on [goodcase.ai](https://goodcase.ai/cases?filter=video&q=seedance&utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases).
+
+---
+
+[← Previous: First-person continuous take](./pov-continuous-take.md) · [Next: Pets and animals as the lead →](./pet-animal.md)
