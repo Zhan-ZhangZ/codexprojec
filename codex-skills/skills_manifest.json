@@ -4577,5 +4577,32 @@
       "file_count": 1,
       "total_bytes": 906
     }
+  },
+  {
+    "name": "image-prompt-reverse",
+    "description": "分析用户提供的参考图片，反推高还原度的 AI 生图 Prompt。适用于复刻、模仿、逆向分析图片，或从照片、插画、3D 渲染、产品、角色、风景、字体、Logo、海报等视觉参考中提取中英双语正向 Prompt 与 Negative Prompt；不用于仅需 OCR 或普通图片描述的请求。",
+    "category": "05_多媒体与设计资产",
+    "folder": "image-prompt-reverse",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/image-prompt-reverse",
+    "aliases": [
+      "图片反推提示词",
+      "反推提示词",
+      "提示词逆向",
+      "参考图生图提示词"
+    ],
+    "tags": [
+      "AI生图",
+      "图片分析",
+      "Prompt",
+      "逆向工程",
+      "视觉风格",
+      "参考图"
+    ],
+    "file_index": {
+      "path": ".catalog/6723b5781b82ee087b4e9e6848cb00f7e36df50d2205418567e8a6465bb29b1b.json",
+      "sha256": "6723b5781b82ee087b4e9e6848cb00f7e36df50d2205418567e8a6465bb29b1b",
+      "file_count": 8,
+      "total_bytes": 63670
+    }
   }
 ]
