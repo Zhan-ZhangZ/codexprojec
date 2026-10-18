@@ -791,6 +791,32 @@
     }
   },
   {
+    "name": "awesome-seedance-zerolu",
+    "description": "Seedance 2.0 高保真提示词精选合集（ZeroLu 版）。电影级运镜、广告商业、UGC 口播、动漫、短剧、视觉特效等七大类实战提示词与 Seedance API 接入指南，附九大商用玩法中文拆解，六语言版本。与 LearnPrompt 证据库互补，偏风格配方速查。Leading Words: Seedance 2.0提示词, 电影级视频提示词, Seedance API指南, 商用玩法, 视频风格配方",
+    "category": "05_多媒体与设计资产",
+    "folder": "awesome-seedance-zerolu",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/awesome-seedance-zerolu",
+    "aliases": [
+      "seedance prompts",
+      "Seedance资源大全",
+      "Seedance 2.0 提示词"
+    ],
+    "tags": [
+      "Seedance",
+      "即梦",
+      "视频生成",
+      "提示词",
+      "awesome-list",
+      "商用视频"
+    ],
+    "file_index": {
+      "path": ".catalog/a8d90af54b7b45139c69b7b537480c66d245e7ed57c8a466ffc784caa83ac9b7.json",
+      "sha256": "a8d90af54b7b45139c69b7b537480c66d245e7ed57c8a466ffc784caa83ac9b7",
+      "file_count": 9,
+      "total_bytes": 239604
+    }
+  },
+  {
     "name": "baoyu-skills",
     "description": "宝玉 Agent Skills 合集。按任务提供文章配图、知识漫画、信息图、封面、长图卡片、演示文稿、PDF/DOCX/XLSX、Markdown 转换与社媒发布等 20 个工作流。",
     "category": "05_多媒体与设计资产",
