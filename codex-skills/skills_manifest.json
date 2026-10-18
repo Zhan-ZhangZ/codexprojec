@@ -540,19 +540,6 @@
     }
   },
   {
-    "name": "humanize-text",
-    "description": "英文文本改写管线。通过多轮 LLM 重写和多引擎翻译降低模板化结构与生成器指纹，同时保留原文风格；需要 DeepSeek 与 Niutrans 凭据。",
-    "category": "04_内容创作与文档处理",
-    "folder": "humanize-text",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanize-text",
-    "file_index": {
-      "path": ".catalog/144915313dd3c6d5c932a31cf57f0ddbdfac0e0a60fca43badb59276b2916f0c.json",
-      "sha256": "144915313dd3c6d5c932a31cf57f0ddbdfac0e0a60fca43badb59276b2916f0c",
-      "file_count": 60,
-      "total_bytes": 156509
-    }
-  },
-  {
     "name": "khazix-skills",
     "description": "万字深度长文与重型研究报告架构师。内置复杂的写作推理流，专攻科技热点分析、万字长文拆解重构与极具深度的硬核观点输出（如微信公众号科技评论）。Leading Words: 万字长文架构, 重型写作流, 科技热点深度评论, 硬核观点拆解",
     "category": "04_内容创作与文档处理",
