@@ -765,6 +765,32 @@
     }
   },
   {
+    "name": "awesome-seedance",
+    "description": "Seedance 2.5/2.0 视频提示词证据库与类型化技能集。600+ 溯源案例、260+ 跨模型复测结论、25 套即抄即用模板，内嵌 15 个类型子技能（提示词库/制作流程/梗图喜剧/史诗奇幻/美食ASMR/恐怖悬疑/时尚Lookbook/分镜转视频等），自 goodcase.ai 人审案例蒸馏。Leading Words: Seedance提示词库, 视频生成模板, 即梦视频案例, 分镜转视频, 复测结论",
+    "category": "05_多媒体与设计资产",
+    "folder": "awesome-seedance",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/awesome-seedance",
+    "aliases": [
+      "Seedance提示词",
+      "即梦视频提示词",
+      "seedance prompt library"
+    ],
+    "tags": [
+      "Seedance",
+      "即梦",
+      "视频生成",
+      "提示词工程",
+      "AI视频",
+      "goodcase"
+    ],
+    "file_index": {
+      "path": ".catalog/d04872a81bb8dd12f5de915b634b68a745b06207d72994e397d9761ce61bcf62.json",
+      "sha256": "d04872a81bb8dd12f5de915b634b68a745b06207d72994e397d9761ce61bcf62",
+      "file_count": 118,
+      "total_bytes": 7778126
+    }
+  },
+  {
     "name": "baoyu-skills",
     "description": "宝玉 Agent Skills 合集。按任务提供文章配图、知识漫画、信息图、封面、长图卡片、演示文稿、PDF/DOCX/XLSX、Markdown 转换与社媒发布等 20 个工作流。",
     "category": "05_多媒体与设计资产",

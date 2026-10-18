@@ -1,0 +1,89 @@
+[English](../en/retro-found-footage.md) | **中文**
+
+[← 全部分类提示语模板](../../../README_zh.md#-分类提示语模板) · [模板索引](./README.md)
+
+# 📱 早年 DV 家庭录像
+
+> 年代感靠机器缺陷和一件生活小事撑起来。把 DV 的对焦拉风箱、曝光跳动、手抖写成明确清单，剧情放小，整条就像一盘真的旧带子。
+
+<!-- 由 data/ 生成，请勿手改；改 data/templates-local.json 后跑 npm run generate -->
+
+<table>
+<tr>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/media/poster/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf.jpg" width="200" alt="韩系情侣的街头约会日记"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/cases/276528e2bcc8.jpg" width="200" alt="首尔夏夜的树叶小插曲"></a></td>
+<td align="center" valign="top"><a href="https://goodcase.ai/cases/vlog-9decd38e99a4?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=strip"><img src="https://media.goodcase.ai/cases/68ae69f99fe4.jpg" width="200" alt="韩国女生户外泳池 Vlog"></a></td>
+</tr>
+</table>
+
+## 直接复制
+
+点代码块右上角的复制按钮整段拿走，把【】里的内容换成你自己的，连同参考图一起发给任意 AI 对话（ChatGPT、Claude、豆包都行）。它会按这个模板替你写出一条可以直接丢进 Seedance 的提示语。
+
+````text
+我要做一条年代感家庭录像风格的视频，【时间设定在 2003 年夏天，用当时的家用 DV 拍的】，【拍的是我表妹放学回家路上遇到一只猫】。请根据下面这个提示语模板，帮我改写成一条可以直接用的 Seedance 视频提示语：
+
+#### 早年 DV 家庭录像
+
+年代感靠机器缺陷和一件生活小事撑起来。把 DV 的对焦拉风箱、曝光跳动、手抖写成明确清单，剧情放小，整条就像一盘真的旧带子。
+
+**适用场景:** 家庭录像、旅拍日志、MiniDV 情侣片、街区漫步，任何想看起来像多年前用家用机器拍下来的生活片段。
+
+**要点:**
+
+- 相机那段写成器材缺陷清单。首尔夏日午后那条整段列 `autofocus hunting, exposure shifts, accidental zooms`，紧跟着禁掉 `No stabilization, drone footage, gimbal movement`。
+- 人物一句话锁死，整条复用。首尔夏夜 Vlog 用 `Maintain the same face, hairstyle, clothing, body proportions` 收尾；有参考图就换成情侣约会那条的 `Use the uploaded reference image as the exact character reference`。
+- 场景堆生活痕迹，然后把地标排除掉。首尔午后那条点名盆栽、电线杆、晾在外面的衣服，再补一句 `No tourist attractions, advertisements, recognizable brands`。
+- 整条只给一件小事，别给剧情。树叶那条三十秒就是一片叶子掉到她头上，她试着把叶子立在自行车座上，两次都被风吹掉。
+- 结尾用录像带式的硬切，声音只留现场。首尔午后那条跟拍她转过街角，然后 `The recording abruptly cuts to black`，音频只有脚步、虫鸣、自行车铃，写明 `No music`。
+
+**示例:** [#1](https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf) [#2](https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467) [#3](https://goodcase.ai/cases/vlog-9decd38e99a4)
+
+**结构:**
+
+1. 开场一句：时长、分辨率、片种写成 early-2000s DV home video，说明有没有参考图
+2. MAIN SUBJECT：年龄、皮肤、发型、整套衣服，收一句一致性锁
+3. SETTING：具体的生活化街区和它的杂物，末尾排除地标、广告、品牌
+4. CAMERA：DV 机器的缺陷清单，再加一句禁掉稳定器和电影感运镜
+5. 按时间码或小标题分段，一段一件小事，台词写进它发生的那一拍
+6. AUDIO：只留现场音，写明 no music
+7. 收尾：realism 约束、负面清单、画幅，最后硬切到黑
+
+**常见坑:**
+
+- 往里堆 4K、cinematic lighting、sharp detail。画质一上去 DV 味就没了，年代感只能靠缺陷清单换。
+- 三十秒塞五件事。一个时间码槽只放一个动作加一个反应，树叶那条一件事就占满六秒。
+- 道具在两拍之间消失或者变成两个。首尔午后那条专门写了球踢回去之后留在孩子那边，不会回来也不会复制，每个道具的去向都要点名。
+- 台词写成长句。口型一糊就该砍句子，案例里的台词都不超过一句，像 `Okay, that was pointless.`
+````
+
+## 三步用起来
+
+| 步骤 | 做什么 |
+| --- | --- |
+| 1 | 复制上面整段，把【】换成你的产品、人物或场景，能给参考图就给 |
+| 2 | 发给任意 AI 对话，拿到一条按这个结构写好的 Seedance 提示语 |
+| 3 | 粘到 Seedance（即梦 / Dreamina）生成；效果不对先回头看常见坑，再改提示语重跑 |
+
+## 这一类的案例（已归类 35 条，按热度）
+
+| 预览 | 案例 | 版本 | 热度 |
+| --- | --- | --- | --- |
+| <a href="https://goodcase.ai/cases/vlog-c8171f712492?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/vlog-c8171f712492.jpg" width="160" alt="首尔夏夜 Vlog"></a> | [首尔夏夜 Vlog](https://goodcase.ai/cases/vlog-c8171f712492?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 99 |
+| <a href="https://goodcase.ai/cases/seedance-subject-preserve-exact-identity-face-skin-tone-body-proportions-hair-298f82f12f00?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/d3f9b6377ec3.jpg" width="160" alt="庭院吊床与清洗摩托的午后"></a> | [庭院吊床与清洗摩托的午后](https://goodcase.ai/cases/seedance-subject-preserve-exact-identity-face-skin-tone-body-proportions-hair-298f82f12f00?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 97 |
+| <a href="https://goodcase.ai/cases/seedance-create-a-30-second-ultra-realistic-personal-home-video-of-a-young-korean-woman-b2425539d28a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/f73ca1c9ee91.jpg" width="160" alt="首尔老街买面包与棉花糖的一天"></a> | [首尔老街买面包与棉花糖的一天](https://goodcase.ai/cases/seedance-create-a-30-second-ultra-realistic-personal-home-video-of-a-young-korean-woman-b2425539d28a?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 95 |
+| <a href="https://goodcase.ai/cases/seedance-seedance-2-5-on-5de3fbc4f714?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/8394fd6c092a.jpg" width="160" alt="韩国女生的社区健身房晨练"></a> | [韩国女生的社区健身房晨练](https://goodcase.ai/cases/seedance-seedance-2-5-on-5de3fbc4f714?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 95 |
+| <a href="https://goodcase.ai/cases/seedance-a-birthday-worth-remembering-2f852147a691?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/4f746779db27.jpg" width="160" alt="千禧年代韩国女孩生日聚会"></a> | [千禧年代韩国女孩生日聚会](https://goodcase.ai/cases/seedance-a-birthday-worth-remembering-2f852147a691?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 94 |
+| <a href="https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf.jpg" width="160" alt="韩系情侣的街头约会日记"></a> | [韩系情侣的街头约会日记](https://goodcase.ai/cases/seedance-use-the-uploaded-reference-image-as-the-exact-character-reference-214303ebc4cf?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 92 |
+| <a href="https://goodcase.ai/cases/seedance-create-a-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-camcorder-hom-a3fa022a7b4e?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/64e9f9e3ac3b.jpg" width="160" alt="千禧年代首尔情侣午后兜风"></a> | [千禧年代首尔情侣午后兜风](https://goodcase.ai/cases/seedance-create-a-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-camcorder-hom-a3fa022a7b4e?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 91 |
+| <a href="https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-dbd56441c7b6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/ff2f2bf756c1.jpg" width="160" alt="偶像腿日训练后的踉跄健身日记"></a> | [偶像腿日训练后的踉跄健身日记](https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-dbd56441c7b6?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 91 |
+| <a href="https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-23c133674a31?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/89d557bcc2fb.jpg" width="160" alt="韩流偶像的搞笑核心训练日"></a> | [韩流偶像的搞笑核心训练日](https://goodcase.ai/cases/seedance-dv-16mm-tape-camcorder-handheld-feel-23c133674a31?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 89 |
+| <a href="https://goodcase.ai/cases/seedance-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-home-video-in-rural-we-6b3c6132a462?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/2967965aebb4.jpg" width="160" alt="西爪哇乡村恋人的夏日漫步"></a> | [西爪哇乡村恋人的夏日漫步](https://goodcase.ai/cases/seedance-30-second-1080p-ultra-realistic-early-2000s-consumer-dv-home-video-in-rural-we-6b3c6132a462?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.0 | 84 |
+| <a href="https://goodcase.ai/cases/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/media/poster/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863.jpg" width="160" alt="风中追逐飞走的衣服"></a> | [风中追逐飞走的衣服](https://goodcase.ai/cases/seedance-girl-main-character-young-korean-woman-in-her-early-20s-natural-makeup-bla-99a309189863?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 84 |
+| <a href="https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases"><img src="https://media.goodcase.ai/cases/276528e2bcc8.jpg" width="160" alt="首尔夏夜的树叶小插曲"></a> | [首尔夏夜的树叶小插曲](https://goodcase.ai/cases/seedance-it-s-the-little-moments-that-make-ai-feel-this-real-57c748edf467?utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) | 2.5 | 84 |
+
+其余 23 条在[完整画廊](../../gallery.zh.md)和 [goodcase.ai](https://goodcase.ai/cases?filter=video&q=seedance&utm_source=awesome-seedance&utm_medium=github&utm_campaign=templates&utm_content=cases) 上。
+
+---
+
+[← 上一个：第一人称一镜到底](./pov-continuous-take.md) · [下一个：宠物动物当主角 →](./pet-animal.md)
