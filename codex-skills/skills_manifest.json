@@ -1546,11 +1546,24 @@
     "category": "06_商业与专业领域",
     "folder": "text-to-cad",
     "relative_path": "./00_全局大管家/06_商业与专业领域/text-to-cad",
+    "aliases": [
+      "text2cad",
+      "文本转CAD",
+      "CAD建模"
+    ],
+    "tags": [
+      "build123d",
+      "cadgen",
+      "工程制图",
+      "DfM",
+      "G-code",
+      "3D打印"
+    ],
     "file_index": {
-      "path": ".catalog/251ac1b507cf222af9d75872a2d6bb0aaaed651aa64d2e2266177a03c92fe4cb.json",
-      "sha256": "251ac1b507cf222af9d75872a2d6bb0aaaed651aa64d2e2266177a03c92fe4cb",
-      "file_count": 983,
-      "total_bytes": 23359262
+      "path": ".catalog/dcf80246a57188b9fe80276040db7629d125a0a048f2d148d683cdec5fdb79ad.json",
+      "sha256": "dcf80246a57188b9fe80276040db7629d125a0a048f2d148d683cdec5fdb79ad",
+      "file_count": 94,
+      "total_bytes": 565080
     }
   },
   {
