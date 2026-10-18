@@ -1,0 +1,1841 @@
+import { realpath } from 'node:fs/promises';
+import path_module from 'node:path';
+import {
+  ActiveRunMessages,
+  type AgentEvent,
+  type AskInput,
+  buildApplyCommentUserPrompt,
+  buildDesignContextPack,
+  type CoreLogger,
+  composeSystemPrompt,
+  type DesignSessionBriefV1,
+  type GenerateImageAssetRequest,
+  type GenerateImageAssetResult,
+  generateTitle,
+  generateViaAgent,
+  inspectWorkspaceFiles,
+  loadDesignSkills,
+  loadFrameTemplates,
+  resolveContextWindow,
+  routeRunPreferences,
+  updateDesignSessionBrief,
+} from '@open-codesign/core';
+import { complete, detectProviderFromKey, generateImage } from '@open-codesign/providers';
+import {
+  ActiveRunMessageInputV1,
+  ApplyCommentPayload,
+  CancelGenerationPayloadV1,
+  CodesignError,
+  type Config,
+  deriveResourceStateFromChatRows,
+  GeneratePayloadV1,
+  ListActiveMessagesInputV1,
+  summarizeUsageBudget,
+  type UsageTotals,
+} from '@open-codesign/shared';
+import { computeFingerprint } from '@open-codesign/shared/fingerprint';
+import type { BrowserWindow as ElectronBrowserWindow, WebContents } from 'electron';
+import type { AgentStreamEvent, GenerateResponse } from '../../preload/index';
+import { requestAsk } from '../ask-ipc';
+import { CHATGPT_CODEX_PROVIDER_ID, getCodexTokenStore } from '../codex-oauth-ipc';
+import { makeRuntimeVerifier } from '../done-verify';
+import { app, ipcMain } from '../electron-runtime';
+import {
+  acquireInFlightWorkspaceGeneration,
+  armGenerationTimeout,
+  cancelGenerationRequest,
+  extractGenerationTimeoutError,
+  generationRequestTimeoutMs,
+  listInFlightGenerations,
+  withInFlightGenerationForDesign,
+} from '../generation-ipc';
+import { resolveGenerationWorkspaceRoot } from '../generation-workspace';
+import { resolveImageGenerationConfig, toGenerateImageOptions } from '../image-generation-settings';
+import { makeJudgeVisualParity } from '../judge-visual-parity';
+import { decryptSecret } from '../keychain';
+import { getLogger } from '../logger';
+import {
+  loadMemoryContext,
+  triggerUserMemoryCandidateCapture,
+  triggerUserMemoryConsolidation,
+  triggerWorkspaceMemoryUpdate,
+  workspaceNameFromPath,
+} from '../memory-ipc';
+import { getApiKeyForProvider, getCachedConfig, hasApiKeyForProvider } from '../onboarding-ipc';
+import { readPersisted as readPreferences } from '../preferences-ipc';
+import { runPreview } from '../preview-runtime';
+import { preparePromptContext } from '../prompt-context';
+import { createProviderContextStore } from '../provider-context';
+import { resolveActiveModel } from '../provider-settings';
+import { makeUiKitRenderer } from '../render-ui-kit';
+import { resolveActiveApiKey, resolveCredentialForProvider } from '../resolve-api-key';
+import { projectRunEventToChat } from '../run-event-chat';
+import { RunJournal } from '../run-journal';
+import { withRun } from '../runContext';
+import {
+  appendSessionActiveMessage,
+  appendSessionChatMessage,
+  appendSessionDesignBrief,
+  appendSessionRunPreferences,
+  listSessionActiveMessages,
+  listSessionChatMessages,
+  readSessionDesignBrief,
+  readSessionRunPreferences,
+  type SessionChatStoreOptions,
+} from '../session-chat';
+import {
+  createSnapshot,
+  type Database,
+  getDesign,
+  listSnapshots,
+  recordDiagnosticEvent,
+} from '../snapshots-db';
+import { registerSourceEditBusyCheck } from '../source-edits-ipc';
+import { withTlsBypass } from '../tls-override';
+import { createResearchHost, createWebResearchAuthorization } from '../web-research';
+import { createWebResearchRun } from '../web-research-run';
+import { withStableWorkspacePath } from '../workspace-path-lock';
+import { listWorkspaceFilesAt, readWorkspaceFilesAt } from '../workspace-reader';
+import { finalAssistantTextForTurn } from './assistant-text';
+import { allocateAssetPath, createRuntimeTextEditorFs, resolveLocalAssetRefs } from './runtime-fs';
+import { summarizeToolResultForStream, toolExecutionStatusForStream } from './tool-log';
+
+/**
+ * Whether outbound pi-ai requests for the given provider should bypass TLS
+ * certificate verification. True only for non-built-in providers whose
+ * persisted entry opts in via `tlsRejectUnauthorized: true`. Built-in
+ * providers force-ignore the flag (security floor — see issue #229).
+ */
+function resolveTlsBypassFor(cfg: Config, providerId: string): boolean {
+  const entry = cfg.providers?.[providerId];
+  return entry !== undefined && entry.builtin !== true && entry.tlsRejectUnauthorized === true;
+}
+
+export function shouldRunUserMemoryCandidateCapture(prefs: {
+  memoryEnabled: boolean;
+  userMemoryAutoUpdate: boolean;
+}): boolean {
+  return prefs.memoryEnabled === true && prefs.userMemoryAutoUpdate === true;
+}
+
+/** @deprecated Compatibility helper; generation no longer opens a router interview. */
+export function buildRunPreferenceAskInput(
+  questions: AskInput['questions'],
+  rationale?: string | undefined,
+): AskInput {
+  return {
+    ...(rationale !== undefined && rationale.trim().length > 0
+      ? { rationale: rationale.trim() }
+      : {}),
+    questions,
+  };
+}
+
+function recentHistoryForRunPreferenceRouter(
+  chatRows: ReturnType<typeof listSessionChatMessages>,
+): string {
+  const { history } = buildDesignContextPack({ chatRows, historyBudgetChars: 8_000 });
+  return history.map((message) => `[${message.role}] ${message.content}`).join('\n');
+}
+
+function chatRowText(row: ReturnType<typeof listSessionChatMessages>[number]): string {
+  const payload = row.payload as { text?: unknown };
+  return typeof payload.text === 'string' ? payload.text : '';
+}
+
+function comparablePromptText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function isCurrentPromptEcho(
+  row: ReturnType<typeof listSessionChatMessages>[number],
+  currentPrompt: string,
+): boolean {
+  if (row.kind !== 'user') return false;
+  const rowText = comparablePromptText(chatRowText(row));
+  if (rowText.length === 0) return false;
+  const promptText = comparablePromptText(currentPrompt);
+  return promptText === rowText || promptText.endsWith(rowText);
+}
+
+export function dropCurrentPromptEchoFromChatRows(
+  chatRows: ReturnType<typeof listSessionChatMessages>,
+  currentPrompt: string,
+): ReturnType<typeof listSessionChatMessages> {
+  const last = chatRows.at(-1);
+  if (last === undefined || !isCurrentPromptEcho(last, currentPrompt)) return chatRows;
+  return chatRows.slice(0, -1);
+}
+
+function designMdSummaryForMemory(
+  projectContext: Awaited<ReturnType<typeof preparePromptContext>>['projectContext'],
+): string | null {
+  const raw = projectContext.designMd ?? projectContext.invalidDesignMd?.raw ?? null;
+  if (raw === null || raw.trim().length === 0) return null;
+  const headings = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^#{1,3}\s+\S/.test(line))
+    .slice(0, 24);
+  if (headings.length === 0) {
+    return projectContext.invalidDesignMd
+      ? 'DESIGN.md exists but currently fails validation.'
+      : 'DESIGN.md exists and should remain the authoritative design-system source.';
+  }
+  return [
+    projectContext.invalidDesignMd
+      ? 'DESIGN.md exists but currently fails validation.'
+      : 'DESIGN.md exists and should remain the authoritative design-system source.',
+    'Headings:',
+    ...headings.map((heading) => `- ${heading.replace(/^#+\s*/, '')}`),
+  ].join('\n');
+}
+
+function extractUserMessagesForMemory(messages: DesignBriefConversationMessages): string[] {
+  const out: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    const content = (msg as { content?: unknown }).content;
+    if (typeof content === 'string') {
+      const trimmed = content.trim();
+      if (trimmed.length > 0) out.push(trimmed);
+      continue;
+    }
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .map((part) => {
+        if (typeof part !== 'object' || part === null) return '';
+        const record = part as Record<string, unknown>;
+        return record['type'] === 'text' && typeof record['text'] === 'string'
+          ? record['text']
+          : '';
+      })
+      .join('\n')
+      .trim();
+    if (text.length > 0) out.push(text);
+  }
+  return out;
+}
+
+/**
+ * Pull an HTTP status code out of a caught provider error. Mirrors
+ * `packages/providers/src/retry.ts::extractStatus` intentionally — we don't
+ * import from retry.ts to avoid coupling main to a retry-internal helper
+ * that might get reshaped. Used by the generate catch block to tag the
+ * thrown err with `upstream_status` so the renderer's diagnose pipeline
+ * can pick up a hypothesis.
+ */
+function extractUpstreamHttpStatus(err: unknown): number | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const candidates: unknown[] = [
+    (err as { status?: unknown }).status,
+    (err as { statusCode?: unknown }).statusCode,
+    (err as { upstream_status?: unknown }).upstream_status,
+    (err as { response?: { status?: unknown } }).response?.status,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'number' && Number.isFinite(c) && c >= 100 && c < 600) return c;
+  }
+  if (err instanceof Error) {
+    const m = /\b(\d{3})\b/.exec(err.message);
+    if (m?.[1]) {
+      const n = Number(m[1]);
+      if (n >= 400 && n < 600) return n;
+    }
+  }
+  return undefined;
+}
+
+function normalizeGenerationFailure(opts: {
+  err: unknown;
+  signal: AbortSignal;
+  provider: string;
+  modelId: string;
+  baseUrl: string | undefined;
+  wire: string | undefined;
+}): { error: unknown; upstreamStatus: number | undefined } {
+  const upstreamStatus = extractUpstreamHttpStatus(opts.err);
+  if (opts.err !== null && typeof opts.err === 'object') {
+    const errAsRec = opts.err as Record<string, unknown>;
+    if (upstreamStatus !== undefined && errAsRec['upstream_status'] === undefined) {
+      errAsRec['upstream_status'] = upstreamStatus;
+    }
+    if (errAsRec['upstream_provider'] === undefined) {
+      errAsRec['upstream_provider'] = opts.provider;
+    }
+    if (errAsRec['upstream_model_id'] === undefined) {
+      errAsRec['upstream_model_id'] = opts.modelId;
+    }
+    if (errAsRec['upstream_baseurl'] === undefined && opts.baseUrl !== undefined) {
+      errAsRec['upstream_baseurl'] = opts.baseUrl;
+    }
+    if (errAsRec['upstream_wire'] === undefined && opts.wire !== undefined) {
+      errAsRec['upstream_wire'] = opts.wire;
+    }
+  }
+  return {
+    error: extractGenerationTimeoutError(opts.signal) ?? opts.err,
+    upstreamStatus,
+  };
+}
+
+function resolveActiveApiKeyFromState(providerId: string): Promise<string> {
+  return resolveActiveApiKey(providerId, {
+    getCodexAccessToken: () => getCodexTokenStore().getValidAccessToken(),
+    getApiKeyForProvider,
+  });
+}
+
+function resolveApiKeyForActive(providerId: string, allowKeyless: boolean): Promise<string> {
+  return resolveCredentialForProvider(providerId, allowKeyless, {
+    getCodexAccessToken: () => getCodexTokenStore().getValidAccessToken(),
+    getApiKeyForProvider,
+    hasApiKeyForProvider,
+  });
+}
+
+export interface RegisterGenerateIpcDeps {
+  db: Database | null;
+  getMainWindow: () => ElectronBrowserWindow | null;
+}
+
+type DesignBriefConversationMessages = Parameters<
+  typeof updateDesignSessionBrief
+>[0]['conversationMessages'];
+
+/**
+ * Registers the agent-loop IPC handlers (generate / apply-comment / title /
+ * cancel / detect-provider / done:verify). Returns a teardown closure that
+ * aborts every in-flight generation — call from the app `before-quit` hook.
+ */
+export function registerGenerateIpc({ db, getMainWindow }: RegisterGenerateIpcDeps): () => void {
+  const logIpc = getLogger('main:ipc');
+
+  // Cache of the last NormalizedProviderError seen per run, so recordFinalError
+  // can attach it to the final (non-transient) row. Without this, the row the
+  // user actually reports lacks upstream_request_id / status — those fields
+  // lived only on the hidden transient sibling row emitted by retry.ts.
+  // Implementation + LRU eviction lives in ../provider-context.ts.
+  const providerContext = createProviderContextStore(50);
+  const journal = db ? new RunJournal(path_module.join(db.sessionDir, 'runs')) : null;
+  let eventDelivery = Promise.resolve();
+  const subscribers = new Set<WebContents>();
+  const deliveryFailures = new Map<string, unknown>();
+  const projectionFailures = new Map<string, number>();
+  const settledRuns = new Set<string>();
+  const closingRuns = new Set<string>();
+  const publishEvent = (event: AgentStreamEvent): void => {
+    if (
+      settledRuns.has(event.generationId) ||
+      (closingRuns.has(event.generationId) && event.type !== 'run_settled')
+    )
+      return;
+    if (event.type === 'run_settled') closingRuns.add(event.generationId);
+    event = structuredClone(event);
+    eventDelivery = eventDelivery
+      .then(async () => {
+        const durable = journal ? await journal.append({ ...event, chatPersisted: true }) : event;
+        if (event.type === 'run_settled') settledRuns.add(event.generationId);
+        if (journal && db) {
+          try {
+            projectRunEventToChat({ db, sessionDir: db.sessionDir }, durable);
+          } catch (error) {
+            if (durable.seq !== undefined && !projectionFailures.has(durable.generationId))
+              projectionFailures.set(durable.generationId, durable.seq - 1);
+            logIpc.error('run.chat.projection-failed', {
+              generationId: event.generationId,
+              message: String(error),
+            });
+          }
+        }
+        const win = getMainWindow();
+        // A renderer is a subscriber, never the owner of a running generation.
+        const targets = new Set(subscribers);
+        if (win && !win.isDestroyed()) targets.add(win.webContents);
+        for (const target of targets) {
+          try {
+            if (target.isDestroyed()) {
+              subscribers.delete(target);
+              continue;
+            }
+            target.send('agent:event:v1', durable);
+          } catch (error) {
+            logIpc.warn('run.event.delivery-failed', { message: String(error) });
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        deliveryFailures.set(event.generationId, error);
+        inFlight.get(event.generationId)?.abort(error);
+        logIpc.error('run.event.persist-failed', {
+          generationId: event.generationId,
+          message: String(error),
+        });
+      });
+  };
+  const durableRun = async <T extends Awaited<ReturnType<typeof generateViaAgent>>>(
+    id: string,
+    designId: string,
+    controller: AbortController,
+    run: () => Promise<T>,
+  ): Promise<T & { chatPersisted?: boolean; snapshotId?: string }> => {
+    if (journal) await journal.start({ runId: id, designId, startedAt: Date.now() });
+    try {
+      const result = await run();
+      await eventDelivery;
+      if (deliveryFailures.has(id)) throw deliveryFailures.get(id);
+      let snapshotId: string | undefined;
+      const artifact = result.artifacts[0];
+      if (journal && db && artifact && !controller.signal.aborted) {
+        const parent = listSnapshots(db, designId)[0];
+        const rows = listSessionChatMessages({ db, sessionDir: db.sessionDir }, designId);
+        const lastUser = rows.filter((row) => row.kind === 'user').at(-1);
+        const text = (lastUser?.payload as { text?: unknown } | undefined)?.text;
+        snapshotId =
+          parent?.artifactSource === artifact.content
+            ? parent.id
+            : createSnapshot(db, {
+                designId,
+                parentId: parent?.id ?? null,
+                type: parent ? 'edit' : 'initial',
+                prompt: typeof text === 'string' ? text : null,
+                artifactType: artifact.type === 'svg' ? 'svg' : 'html',
+                artifactSource: artifact.content,
+                message: result.message,
+              }).id;
+      }
+      const response = { ...result, ...(snapshotId ? { snapshotId } : {}) };
+      publishEvent({
+        designId,
+        generationId: id,
+        type: 'run_settled',
+        outcome: controller.signal.aborted ? 'cancelled' : 'completed',
+        response: response as GenerateResponse,
+      });
+      await eventDelivery;
+      if (deliveryFailures.has(id)) throw deliveryFailures.get(id);
+      return { ...response, ...(journal ? { chatPersisted: true } : {}) };
+    } catch (error) {
+      publishEvent({
+        designId,
+        generationId: id,
+        type: 'run_settled',
+        outcome:
+          controller.signal.aborted &&
+          !extractGenerationTimeoutError(controller.signal) &&
+          !deliveryFailures.has(id)
+            ? 'cancelled'
+            : 'failed',
+        message: error instanceof Error ? error.message : String(error),
+        ...(error instanceof CodesignError ? { code: error.code } : {}),
+      });
+      await eventDelivery;
+      throw error;
+    } finally {
+      settledRuns.add(id);
+      closingRuns.delete(id);
+      deliveryFailures.delete(id);
+    }
+  };
+
+  const withDurableGenerationForDesign = <T extends Awaited<ReturnType<typeof generateViaAgent>>>(
+    id: string,
+    designId: string,
+    running: Map<string, AbortController>,
+    byDesign: Map<string, { generationId: string; startedAt: number }>,
+    controller: AbortController,
+    run: () => Promise<T>,
+  ) =>
+    withInFlightGenerationForDesign(id, designId, running, byDesign, controller, () =>
+      durableRun(id, designId, controller, run),
+    );
+  const canRecoverDesign = (designId: string): boolean => {
+    const design = db ? getDesign(db, designId) : null;
+    return design !== null && design.deletedAt === null && design.workspacePath !== null;
+  };
+  let repairedHistory: Promise<void> | undefined;
+  ipcMain.handle('codesign:v1:recover-runs', async (_event, raw: unknown) => {
+    const input = raw as { schemaVersion?: unknown; cursors?: unknown } | null;
+    if (
+      !input ||
+      input.schemaVersion !== 1 ||
+      !input.cursors ||
+      typeof input.cursors !== 'object' ||
+      Array.isArray(input.cursors)
+    )
+      throw new CodesignError('Invalid recovery cursors', 'IPC_BAD_INPUT');
+    const cursors: Record<string, number> = {};
+    for (const [id, seq] of Object.entries(input.cursors)) {
+      if (
+        !/^[A-Za-z0-9_-]{1,200}$/.test(id) ||
+        typeof seq !== 'number' ||
+        !Number.isSafeInteger(seq) ||
+        seq < 0
+      )
+        throw new CodesignError('Invalid recovery cursor', 'IPC_BAD_INPUT');
+      cursors[id] = seq;
+    }
+    if (_event?.sender) subscribers.add(_event.sender);
+    await eventDelivery;
+    if (!journal || !db) return { schemaVersion: 1, events: [] };
+    repairedHistory ??= journal
+      .allEvents()
+      .then((events) => {
+        for (const event of events) {
+          if (canRecoverDesign(event.designId))
+            projectRunEventToChat({ db, sessionDir: db.sessionDir }, event);
+        }
+      })
+      .catch((error: unknown) => {
+        repairedHistory = undefined;
+        throw error;
+      });
+    await repairedHistory;
+    const repairCursors = { ...cursors };
+    for (const [id, beforeFailure] of projectionFailures)
+      repairCursors[id] = Math.min(repairCursors[id] ?? 0, beforeFailure);
+    const recovered = await journal.recover(repairCursors);
+    recovered.events = recovered.events
+      .filter((event) => canRecoverDesign(event.designId))
+      .map((event) => ({ ...event, chatPersisted: true }));
+    for (const event of recovered.events)
+      projectRunEventToChat({ db, sessionDir: db.sessionDir }, event);
+    for (const event of recovered.events) projectionFailures.delete(event.generationId);
+    return recovered;
+  });
+
+  const emptyUsage = (): UsageTotals => ({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
+  ipcMain.handle('codesign:v1:usage-budget', async (_event, raw: unknown) => {
+    const input = raw as { schemaVersion?: unknown; designId?: unknown } | null;
+    if (
+      !input ||
+      input.schemaVersion !== 1 ||
+      typeof input.designId !== 'string' ||
+      input.designId.length === 0 ||
+      input.designId.length > 512
+    ) {
+      throw new CodesignError('Invalid usage budget request', 'IPC_BAD_INPUT');
+    }
+    const empty = {
+      schemaVersion: 1 as const,
+      design: emptyUsage(),
+      today: emptyUsage(),
+      week: emptyUsage(),
+    };
+    if (!journal) return empty;
+    const records = await journal.usageRecords();
+    return {
+      schemaVersion: 1 as const,
+      ...summarizeUsageBudget(records, input.designId, Date.now()),
+    };
+  });
+
+  const recordFinalError = (scope: string, runId: string, err: unknown): void => {
+    if (db === null) return;
+    const code = err instanceof CodesignError ? (err.code as string) : 'PROVIDER_UPSTREAM_ERROR';
+    const stack = err instanceof Error ? err.stack : undefined;
+    const message = err instanceof Error ? err.message : String(err);
+    const context = providerContext.consume(runId);
+    recordDiagnosticEvent(db, {
+      level: 'error',
+      code,
+      scope,
+      runId,
+      fingerprint: computeFingerprint({ errorCode: code, stack, message }),
+      message,
+      stack,
+      transient: false,
+      ...(context !== undefined ? { context } : {}),
+    });
+  };
+
+  /** Adapter so `core` can log step events through the same scoped electron-log
+   * sink the IPC handler uses. Keeps a single timeline per generation in the
+   * log file without forcing `core` to depend on electron-log.
+   *
+   * Only `provider.error` (retry in flight, transient=true) is persisted from
+   * this adapter; the `provider.error.final` event is NOT recorded because the
+   * outer handler's catch block calls `recordFinalError` — recording both
+   * would double-count the same failure with two distinct fingerprints. */
+  const coreLoggerFor = (id: string): CoreLogger => ({
+    info: (event, data) => logIpc.info(event, { generationId: id, ...(data ?? {}) }),
+    warn: (event, data) => {
+      logIpc.warn(event, { generationId: id, ...(data ?? {}) });
+      if (event === 'provider.error' && db !== null) {
+        const code = 'PROVIDER_UPSTREAM_ERROR';
+        const upstream =
+          data !== undefined && typeof data['upstream_message'] === 'string'
+            ? (data['upstream_message'] as string)
+            : event;
+        // Fingerprint basis: errorCode + synthetic frame containing the two
+        // fields that truly differentiate provider errors — upstream_status
+        // and upstream_code. JSON-stringifying `data` and passing it as
+        // `stack` would produce an identical 8-hex for every provider error
+        // because `extractTopFrames` requires lines starting with "at ".
+        const status =
+          typeof data?.['upstream_status'] === 'number' ? data['upstream_status'] : '?';
+        const upstreamCode =
+          typeof data?.['upstream_code'] === 'string' ? data['upstream_code'] : 'unknown';
+        const syntheticFrame = `    at provider (${status}:${upstreamCode})`;
+        if (data !== undefined) providerContext.remember(id, data);
+        recordDiagnosticEvent(db, {
+          level: 'warn',
+          code,
+          scope: 'provider',
+          runId: id,
+          fingerprint: computeFingerprint({
+            errorCode: code,
+            stack: syntheticFrame,
+            message: upstream,
+          }),
+          message: upstream,
+          stack: undefined,
+          transient: true,
+          ...(data !== undefined ? { context: data } : {}),
+        });
+      }
+    },
+    error: (event, data) => logIpc.error(event, { generationId: id, ...(data ?? {}) }),
+  });
+
+  const requireWorkspaceRootForDesign = (
+    designId: string | undefined,
+  ): { designId: string; workspaceRoot: string } => resolveGenerationWorkspaceRoot(db, designId);
+
+  const chatStoreOptions = (): SessionChatStoreOptions | null => {
+    if (db === null) return null;
+    return {
+      db,
+      sessionDir: db.sessionDir,
+    };
+  };
+  const activeMessageRuns = new Map<string, ActiveRunMessages>();
+  const requireChatStore = (): SessionChatStoreOptions => {
+    const opts = chatStoreOptions();
+    if (!opts) throw new CodesignError('Session storage is unavailable.', 'IPC_DB_ERROR');
+    return opts;
+  };
+  ipcMain.handle('codesign:v1:active-message', async (_event, raw: unknown) => {
+    const payload = ActiveRunMessageInputV1.parse(raw);
+    return withStableWorkspacePath(payload.designId, async () => {
+      requireWorkspaceRootForDesign(payload.designId);
+      await eventDelivery;
+      const previous = listSessionActiveMessages(requireChatStore(), payload.designId).find(
+        (row) => row.messageId === payload.messageId,
+      );
+      if (previous) {
+        if (
+          previous.generationId !== payload.generationId ||
+          previous.mode !== payload.mode ||
+          previous.text !== payload.text
+        ) {
+          throw new CodesignError(
+            'Message ID already belongs to a different request.',
+            'IPC_BAD_INPUT',
+          );
+        }
+        if (previous.status === 'pending' && !activeMessageRuns.has(previous.generationId)) {
+          const recovered = {
+            ...previous,
+            status: 'not-delivered' as const,
+            reason: 'The previous run ended. Recover this message to send it again.',
+          };
+          appendSessionActiveMessage(requireChatStore(), recovered);
+          return recovered;
+        }
+        return previous;
+      }
+      const run = activeMessageRuns.get(payload.generationId);
+      if (!run)
+        throw new CodesignError(
+          'This generation is not accepting messages. Keep the draft and send after it finishes.',
+          'GENERATION_NOT_ACTIVE',
+        );
+      const accepted = run.submit(payload);
+      await eventDelivery;
+      if (deliveryFailures.has(payload.generationId))
+        throw deliveryFailures.get(payload.generationId);
+      return accepted;
+    });
+  });
+  ipcMain.handle('codesign:v1:active-messages', async (_event, raw: unknown) => {
+    await eventDelivery;
+    const { designId } = ListActiveMessagesInputV1.parse(raw);
+    const opts = requireChatStore();
+    return listSessionActiveMessages(opts, designId).map((row) => {
+      if (row.status !== 'pending' || activeMessageRuns.has(row.generationId)) return row;
+      const recovered = {
+        ...row,
+        status: 'not-delivered' as const,
+        reason: 'The previous run ended. Recover this message to send it again.',
+      };
+      appendSessionActiveMessage(opts, recovered);
+      return recovered;
+    });
+  });
+
+  const chatRowsForDesign = (designId: string): ReturnType<typeof listSessionChatMessages> => {
+    const opts = chatStoreOptions();
+    if (opts === null) return [];
+    return listSessionChatMessages(opts, designId);
+  };
+
+  const briefForDesign = (designId: string): DesignSessionBriefV1 | null => {
+    const opts = chatStoreOptions();
+    if (opts === null) return null;
+    return readSessionDesignBrief(opts, designId);
+  };
+
+  const sendHostActivity = (
+    event: Omit<AgentStreamEvent, 'type'> & {
+      type?: never;
+      toolName: string;
+      status: 'done' | 'error';
+    },
+  ): void => {
+    publishEvent({
+      ...event,
+      type: 'tool_call_start',
+    } satisfies AgentStreamEvent);
+  };
+
+  /**
+   * Dispatches a generate request through the agent runtime. Forwards
+   * normalized `AgentEvent`s to the renderer via `agent:event:v1` so the
+   * sidebar chat can render incremental output.
+   */
+  const runGenerate = async (
+    input: Parameters<typeof generateViaAgent>[0],
+    id: string,
+    designId: string,
+    previousSource: string | null,
+    workspaceRoot: string,
+    researchRun: ReturnType<typeof createWebResearchRun>,
+    attachmentsForRuntimeFs?: Parameters<typeof createRuntimeTextEditorFs>[0]['attachments'],
+    memoryCallbacks?: {
+      onAggressivePrune?: () => void;
+      onComplete?: (messages: DesignBriefConversationMessages) => void;
+    },
+  ): ReturnType<typeof generateViaAgent> => {
+    const sendEvent = (event: AgentStreamEvent) => {
+      publishEvent(event);
+    };
+    const baseCtx = { designId, generationId: id } as const;
+    const cfg = getCachedConfig();
+    const { settings: researchSettings, network } = researchRun;
+    const toolStartedAt = new Map<string, number>();
+    const templatesRoot = path_module.join(app.getPath('userData'), 'templates');
+    const currentWorkspaceRoot = () => requireWorkspaceRootForDesign(designId).workspaceRoot;
+    const requestTimeoutMs = generationRequestTimeoutMs(
+      (await readPreferences()).generationTimeoutSec,
+    );
+    const [frames, designSkills, initialWorkspaceFiles] = await Promise.all([
+      loadFrameTemplates(path_module.join(templatesRoot, 'frames')),
+      loadDesignSkills(path_module.join(templatesRoot, 'design-skills')),
+      withStableWorkspacePath(designId, () => readWorkspaceFilesAt(currentWorkspaceRoot())),
+    ]);
+    const { fs, fsMap, syncWorkspaceTextFile } = createRuntimeTextEditorFs({
+      db,
+      designId,
+      generationId: id,
+      logger: logIpc,
+      ...(input.signal ? { signal: input.signal } : {}),
+      previousSource,
+      initialFiles: initialWorkspaceFiles,
+      attachments: attachmentsForRuntimeFs ?? input.attachments,
+      sendEvent,
+      frames,
+      designSkills,
+    });
+    const research = createResearchHost({
+      network,
+      inWorkspace: (fn) => withStableWorkspacePath(designId, () => fn(currentWorkspaceRoot())),
+      authorize: createWebResearchAuthorization(researchSettings, (questions, signal) =>
+        requestAsk(id, questions, () => getMainWindow(), {
+          designId,
+          ...(signal ? { signal } : {}),
+        }),
+      ),
+    });
+    const imageConfig = cfg ? await resolveImageGenerationConfig(cfg) : null;
+    const imageLog = getLogger('image-generation');
+    const generateImageAsset = imageConfig
+      ? async (
+          request: GenerateImageAssetRequest,
+          signal?: AbortSignal,
+        ): Promise<GenerateImageAssetResult> => {
+          const started = Date.now();
+          const options = toGenerateImageOptions(
+            imageConfig,
+            request.prompt,
+            signal,
+            request.aspectRatio,
+          );
+          imageLog.info('provider.request', {
+            generationId: id,
+            provider: options.provider,
+            model: options.model,
+            size: options.size,
+            aspectRatio: request.aspectRatio ?? 'default',
+            purpose: request.purpose,
+            quality: options.quality,
+            outputFormat: options.outputFormat,
+            promptChars: options.prompt.length,
+          });
+          try {
+            const image = await generateImage(options);
+            const path = allocateAssetPath(fsMap, request, image.mimeType);
+            imageLog.info('provider.ok', {
+              generationId: id,
+              provider: image.provider,
+              model: image.model,
+              path,
+              ms: Date.now() - started,
+              revised: image.revisedPrompt !== undefined,
+            });
+            return {
+              path,
+              dataUrl: image.dataUrl,
+              mimeType: image.mimeType,
+              model: image.model,
+              provider: image.provider,
+              ...(image.revisedPrompt !== undefined ? { revisedPrompt: image.revisedPrompt } : {}),
+            };
+          } catch (err) {
+            imageLog.warn('provider.fail', {
+              generationId: id,
+              provider: options.provider,
+              model: options.model,
+              ms: Date.now() - started,
+              message: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
+        }
+      : undefined;
+
+    let deltaCount = 0;
+    let turnTextBuffer = '';
+    let toolCount = 0;
+    const renderUiKit = makeUiKitRenderer();
+    const judgeVisualParity = makeJudgeVisualParity(
+      async ({ systemPrompt, userText, userImages, maxTokens, signal: judgeSignal }) => {
+        const judgeMessages = [
+          { role: 'system' as const, content: systemPrompt },
+          { role: 'user' as const, content: userText },
+        ];
+        const judgeOpts: Parameters<typeof complete>[2] = {
+          apiKey: input.apiKey ?? '',
+          maxTokens,
+          timeoutMs: requestTimeoutMs,
+          userImages,
+          ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+          ...(input.wire ? { wire: input.wire } : {}),
+          ...(input.httpHeaders ? { httpHeaders: input.httpHeaders } : {}),
+          ...(judgeSignal ? { signal: judgeSignal } : {}),
+        };
+        const result = await complete(input.model, judgeMessages, judgeOpts);
+        return { content: result.content, costUsd: result.costUsd };
+      },
+    );
+
+    const activeMessages = new ActiveRunMessages(
+      designId,
+      id,
+      (message) => {
+        if (!journal) appendSessionActiveMessage(requireChatStore(), message);
+        try {
+          sendEvent({ ...baseCtx, type: 'active_message', activeMessage: message });
+        } catch (error) {
+          logIpc.warn('active-message.event.delivery-failed', {
+            ...baseCtx,
+            messageId: message.messageId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+      input.signal,
+    );
+    activeMessageRuns.set(id, activeMessages);
+    return generateViaAgent(
+      {
+        ...input,
+        requestTimeoutMs,
+        templatesRoot,
+        askBridge: (askInput, signal) =>
+          requestAsk(id, askInput, () => getMainWindow(), {
+            designId,
+            ...(signal ? { signal } : {}),
+          }),
+        workspaceRoot,
+        getWorkspaceRoot: currentWorkspaceRoot,
+        onScaffolded: async (details) => {
+          await syncWorkspaceTextFile(details.destPath, details.written);
+        },
+        inspectWorkspace: async () =>
+          withStableWorkspacePath(designId, async () => {
+            const files = await listWorkspaceFilesAt(currentWorkspaceRoot());
+            return inspectWorkspaceFiles(files.map((file) => ({ file: file.path })));
+          }),
+        readWorkspaceFiles: (patterns) =>
+          withStableWorkspacePath(designId, () =>
+            readWorkspaceFilesAt(currentWorkspaceRoot(), patterns),
+          ),
+        runPreview: (options) =>
+          withStableWorkspacePath(designId, () =>
+            runPreview({ ...options, workspaceRoot: currentWorkspaceRoot() }),
+          ),
+      },
+      {
+        fs,
+        research,
+        activeMessages,
+        runtimeVerify: (source, context) =>
+          withStableWorkspacePath(designId, () =>
+            makeRuntimeVerifier({ workspaceRoot: currentWorkspaceRoot() })(source, context),
+          ),
+        renderUiKit,
+        judgeVisualParity,
+        ...(generateImageAsset !== undefined ? { generateImageAsset } : {}),
+        ...(memoryCallbacks?.onAggressivePrune !== undefined
+          ? { onAggressivePrune: memoryCallbacks.onAggressivePrune }
+          : {}),
+        ...(memoryCallbacks?.onComplete !== undefined
+          ? { onComplete: memoryCallbacks.onComplete }
+          : {}),
+        onEvent: (event: AgentEvent) => {
+          if (event.type === 'turn_start') {
+            deltaCount = 0;
+            turnTextBuffer = '';
+            toolCount = 0;
+            logIpc.info('agent.turn_start', { generationId: id });
+          } else if (event.type === 'message_update') {
+            const ame = event.assistantMessageEvent;
+            if (ame.type === 'text_delta') {
+              deltaCount += 1;
+              if (typeof ame.delta === 'string') turnTextBuffer += ame.delta;
+            }
+          } else if (event.type === 'tool_execution_start') {
+            toolCount += 1;
+            logIpc.info('agent.tool_start', { generationId: id, tool: event.toolName });
+          } else if (event.type === 'tool_execution_end') {
+            const streamedResult = summarizeToolResultForStream(event.toolName, event.result);
+            const streamStatus = toolExecutionStatusForStream({
+              ...event,
+              result: streamedResult,
+            });
+            logIpc.info('agent.tool_end', {
+              generationId: id,
+              tool: event.toolName,
+              isError: streamStatus.status === 'error',
+              status: streamStatus.status,
+            });
+          } else if (event.type === 'turn_end') {
+            logIpc.info('agent.turn_end', {
+              generationId: id,
+              deltas: deltaCount,
+              tools: toolCount,
+            });
+          } else if (event.type === 'agent_end') {
+            logIpc.info('agent.end', { generationId: id });
+          }
+          if (designId === null) return;
+          if (event.type === 'turn_start') {
+            sendEvent({ ...baseCtx, type: 'turn_start' });
+            return;
+          }
+          if (event.type === 'message_update') {
+            const ame = event.assistantMessageEvent;
+            if (ame.type === 'text_delta' && typeof ame.delta === 'string') {
+              sendEvent({ ...baseCtx, type: 'text_delta', delta: ame.delta });
+            }
+            return;
+          }
+          if (event.type === 'tool_execution_start') {
+            toolStartedAt.set(event.toolCallId, Date.now());
+            const argsObj =
+              typeof event.args === 'object' && event.args !== null
+                ? (event.args as Record<string, unknown>)
+                : {};
+            const command =
+              typeof argsObj['command'] === 'string' ? (argsObj['command'] as string) : undefined;
+            sendEvent({
+              ...baseCtx,
+              type: 'tool_call_start',
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              args: argsObj,
+              ...(command ? { command } : {}),
+            });
+            return;
+          }
+          if (event.type === 'tool_execution_end') {
+            const startedAt = toolStartedAt.get(event.toolCallId) ?? Date.now();
+            toolStartedAt.delete(event.toolCallId);
+            const streamedResult = summarizeToolResultForStream(event.toolName, event.result);
+            const streamStatus = toolExecutionStatusForStream({
+              ...event,
+              result: streamedResult,
+            });
+            sendEvent({
+              ...baseCtx,
+              type: 'tool_call_result',
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              result: streamedResult,
+              durationMs: Date.now() - startedAt,
+              status: streamStatus.status,
+              ...(streamStatus.errorMessage !== undefined
+                ? { message: streamStatus.errorMessage }
+                : {}),
+            });
+            return;
+          }
+          if (event.type === 'turn_end') {
+            const msg = event.message as { content?: Array<{ type: string; text?: string }> };
+            const rawText = (msg.content ?? [])
+              .filter(
+                (c): c is { type: 'text'; text: string } =>
+                  c.type === 'text' && typeof c.text === 'string',
+              )
+              .map((c) => c.text)
+              .join('');
+            // Strip <artifact ...>...</artifact> blocks — artifact content is
+            // delivered via fs_updated / artifact_delivered, not the chat text.
+            // The second pattern catches the cancel-mid-stream case where only
+            // the opening tag has landed.
+            const finalText = finalAssistantTextForTurn(rawText, turnTextBuffer);
+            const chatPersisted = journal !== null || activeMessages.hasAcceptedMessages;
+            if (!journal && chatPersisted && finalText.trim()) {
+              appendSessionChatMessage(requireChatStore(), {
+                designId,
+                kind: 'assistant_text',
+                payload: { text: finalText },
+              });
+            }
+            sendEvent({ ...baseCtx, type: 'turn_end', finalText, chatPersisted });
+            return;
+          }
+          if (event.type === 'agent_end') {
+            sendEvent({ ...baseCtx, type: 'agent_end' });
+            return;
+          }
+        },
+      },
+    )
+      .finally(() => {
+        try {
+          activeMessages.close();
+        } finally {
+          activeMessageRuns.delete(id);
+        }
+      })
+      .then((result) => ({
+        ...result,
+        artifacts: result.artifacts.map((artifact) => ({
+          ...artifact,
+          content: resolveLocalAssetRefs(artifact.content, fsMap),
+        })),
+      }));
+  };
+
+  /** In-flight requests: generationId → AbortController */
+  const inFlight = new Map<string, AbortController>();
+  const inFlightByDesign = new Map<string, { generationId: string; startedAt: number }>();
+  const inFlightByWorkspace = new Map<string, { generationId: string; startedAt: number }>();
+  const unregisterSourceEditBusyCheck = registerSourceEditBusyCheck(
+    async (designId, workspacePath) => {
+      if (inFlightByDesign.has(designId)) return true;
+      const key = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
+      const roots = new Set(inFlightByWorkspace.keys());
+      // Design registration precedes workspace acquisition during setup. Include
+      // those real runs too, including another design bound to this workspace.
+      for (const activeDesignId of inFlightByDesign.keys()) {
+        const root = db === null ? null : getDesign(db, activeDesignId)?.workspacePath;
+        if (root) roots.add(root);
+        else return true;
+      }
+      for (const root of roots) {
+        try {
+          if (key(await realpath(root)) === key(workspacePath)) return true;
+        } catch {
+          // An active run with an unresolved workspace must not permit a write.
+          return true;
+        }
+      }
+      return inFlightByDesign.has(designId);
+    },
+  );
+
+  const armTimeout = (id: string, controller: AbortController) =>
+    armGenerationTimeout(
+      id,
+      controller,
+      async () => (await readPreferences()).generationTimeoutSec,
+      logIpc,
+    );
+
+  ipcMain.handle('codesign:detect-provider', (_e, key: unknown) => {
+    if (typeof key !== 'string') {
+      throw new CodesignError('detect-provider expects a string key', 'IPC_BAD_INPUT');
+    }
+    return detectProviderFromKey(key);
+  });
+
+  // Standalone runtime-verify IPC. Renderer / debug callers can invoke this
+  // directly to dry-run an artifact without going through the agent loop.
+  const sharedRuntimeVerifier = makeRuntimeVerifier();
+  ipcMain.handle('done:verify:v1', async (_e, raw: unknown) => {
+    if (
+      typeof raw !== 'object' ||
+      raw === null ||
+      typeof (raw as { artifact?: unknown }).artifact !== 'string'
+    ) {
+      throw new CodesignError('done:verify:v1 expects { artifact: string }', 'IPC_BAD_INPUT');
+    }
+    const errors = await sharedRuntimeVerifier((raw as { artifact: string }).artifact);
+    return { errors };
+  });
+
+  ipcMain.handle('codesign:v1:generate', async (_e, raw: unknown) => {
+    const payload = GeneratePayloadV1.parse(raw);
+    const id = payload.generationId;
+    return withRun(id, async () => {
+      const controller = new AbortController();
+      return withDurableGenerationForDesign(
+        id,
+        payload.designId,
+        inFlight,
+        inFlightByDesign,
+        controller,
+        async () => {
+          const coreLogger = coreLoggerFor(id);
+
+          coreLogger.info('[generate] step=load_config');
+          const loadStart = Date.now();
+          const cfg = getCachedConfig();
+          if (cfg === null) {
+            throw new CodesignError(
+              'No configuration found. Complete onboarding first.',
+              'CONFIG_MISSING',
+            );
+          }
+          const researchRun = createWebResearchRun(cfg, decryptSecret);
+          const active = resolveActiveModel(cfg, payload.model);
+          const allowKeyless = active.allowKeyless;
+          const apiKey = await resolveApiKeyForActive(active.model.provider, allowKeyless);
+          // Once we've snapped to the canonical active provider, the renderer-supplied
+          // baseUrl can no longer be trusted — it may belong to a different (stale)
+          // provider. Always use the per-provider baseUrl from cached config.
+          const baseUrl = active.baseUrl ?? undefined;
+          if (active.overridden) {
+            payload.baseUrl = baseUrl;
+          }
+          coreLogger.info('[generate] step=load_config.ok', {
+            ms: Date.now() - loadStart,
+            hasApiKey: apiKey.length > 0,
+            baseUrl: baseUrl ?? '<default>',
+          });
+
+          if (active.overridden) {
+            coreLogger.info('[generate] step=resolve_active.override', {
+              requested: payload.model.provider,
+              requestedModelId: payload.model.modelId,
+              active: active.model.provider,
+              activeModelId: active.model.modelId,
+            });
+          }
+
+          const stepCtx = {
+            generationId: id,
+            provider: active.model.provider,
+            modelId: active.model.modelId,
+          };
+          coreLogger.info('[generate] step=validate_provider', stepCtx);
+          if (apiKey.length === 0 && !allowKeyless) {
+            coreLogger.error('[generate] step=validate_provider.fail', {
+              provider: active.model.provider,
+              reason: 'missing_api_key',
+            });
+            throw new CodesignError(
+              `No API key configured for provider "${active.model.provider}". Open Settings to add one.`,
+              'PROVIDER_AUTH_MISSING',
+            );
+          }
+          coreLogger.info('[generate] step=validate_provider.ok', {
+            provider: active.model.provider,
+          });
+          const tlsBypass = resolveTlsBypassFor(cfg, active.model.provider);
+
+          const prefs = await readPreferences();
+          const {
+            designId,
+            workspaceRoot,
+            promptContext,
+            memoryContext,
+            memoryLoadWarning,
+            fileInventory,
+          } = await withStableWorkspacePath(payload.designId, async () => {
+            const { designId, workspaceRoot } = requireWorkspaceRootForDesign(payload.designId);
+            const promptContext = await preparePromptContext({
+              attachments: payload.attachments,
+              referenceUrl: payload.referenceUrl,
+              designSystem: cfg.designSystem ?? null,
+              workspaceRoot,
+            });
+            const workspaceFiles = await listWorkspaceFilesAt(workspaceRoot);
+            const paths: string[] = [];
+            let pathChars = 0;
+            for (const file of workspaceFiles) {
+              if (paths.length >= 200 || pathChars + file.path.length > 16_000) break;
+              paths.push(file.path);
+              pathChars += file.path.length;
+            }
+            const fileInventory = {
+              paths,
+              truncated: paths.length < workspaceFiles.length,
+              // The shared scanner also omits hidden paths and caps its traversal.
+              exhaustive: false,
+            };
+            let memoryContext: Awaited<ReturnType<typeof loadMemoryContext>> | undefined;
+            let memoryLoadWarning: string | undefined;
+            if (prefs.memoryEnabled) {
+              try {
+                memoryContext = await loadMemoryContext(workspaceRoot);
+              } catch (err) {
+                memoryLoadWarning = `Project memory unavailable: ${err instanceof Error ? err.message : String(err)}`;
+                logIpc.warn('memory.load.fail', {
+                  generationId: id,
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+            return {
+              designId,
+              workspaceRoot,
+              promptContext,
+              memoryContext,
+              memoryLoadWarning,
+              fileInventory,
+            };
+          });
+          const currentDesignName =
+            db !== null ? (getDesign(db, designId)?.name ?? undefined) : undefined;
+
+          logIpc.info('generate', {
+            generationId: id,
+            provider: active.model.provider,
+            modelId: active.model.modelId,
+            ...(active.overridden
+              ? {
+                  requestedProvider: payload.model.provider,
+                  requestedModelId: payload.model.modelId,
+                }
+              : {}),
+            promptLen: payload.prompt.length,
+            historyLen: payload.history.length,
+            attachmentCount: payload.attachments.length,
+            hasReferenceUrl: payload.referenceUrl !== undefined,
+            hasDesignSystem: promptContext.designSystem !== null,
+            baseUrl: baseUrl ?? '<default>',
+          });
+
+          const t0 = Date.now();
+          let clearTimeoutGuard: () => void = () => {};
+          let releaseWorkspaceGeneration: () => void = () => {};
+          try {
+            releaseWorkspaceGeneration = acquireInFlightWorkspaceGeneration(
+              id,
+              workspaceRoot,
+              inFlightByWorkspace,
+            );
+            clearTimeoutGuard = await armTimeout(id, controller);
+            const isCodex = active.model.provider === CHATGPT_CODEX_PROVIDER_ID;
+            let capturedMessages: DesignBriefConversationMessages | null = null;
+            let aggressivePruneDetected = false;
+            const rawChatRows = chatRowsForDesign(designId);
+            const chatRows = dropCurrentPromptEchoFromChatRows(rawChatRows, payload.prompt);
+            if (chatRows.length !== rawChatRows.length) {
+              logIpc.info('generate.current_prompt_echo.drop', {
+                generationId: id,
+                designId,
+                rawRows: rawChatRows.length,
+                planningRows: chatRows.length,
+              });
+            }
+            const resourceState = deriveResourceStateFromChatRows(chatRows);
+            const existingBrief = prefs.memoryEnabled ? briefForDesign(designId) : null;
+            const runPreferenceStoreOptions = chatStoreOptions();
+            const existingRunPreferences =
+              runPreferenceStoreOptions !== null
+                ? readSessionRunPreferences(runPreferenceStoreOptions, designId)
+                : null;
+            const workspaceState = {
+              fileInventory,
+              sourcePath: payload.previousSource ? 'App.jsx' : null,
+              hasSource: Boolean(payload.previousSource?.trim()),
+              hasDesignMd: Boolean(promptContext.projectContext.designMd?.trim()),
+              hasAgentsMd: Boolean(promptContext.projectContext.agentsMd?.trim()),
+              hasSettingsJson: Boolean(promptContext.projectContext.settingsJson?.trim()),
+              attachmentCount: promptContext.attachments.length,
+              imageAttachmentCount: promptContext.attachments.filter((file) =>
+                file.mediaType?.startsWith('image/'),
+              ).length,
+              hasReferenceUrl: promptContext.referenceUrl !== null,
+              hasDesignSystem:
+                promptContext.designSystem !== null ||
+                Boolean(promptContext.projectContext.designMd?.trim()),
+            };
+            const routedPreferences = await withTlsBypass(tlsBypass, () =>
+              routeRunPreferences({
+                prompt: payload.prompt,
+                existingPreferences: existingRunPreferences,
+                recentHistory: recentHistoryForRunPreferenceRouter(chatRows),
+                workspaceState,
+                designBrief: existingBrief ? JSON.stringify(existingBrief) : null,
+                userMemory: memoryContext?.userMemory?.content ?? null,
+                workspaceMemory: memoryContext?.workspaceMemory?.content ?? null,
+                model: active.model,
+                apiKey,
+                ...(baseUrl !== undefined ? { baseUrl } : {}),
+                wire: active.wire,
+                ...(active.httpHeaders !== undefined ? { httpHeaders: active.httpHeaders } : {}),
+                ...(active.reasoningLevel !== undefined
+                  ? { reasoningLevel: active.reasoningLevel }
+                  : {}),
+                ...(allowKeyless ? { allowKeyless: true } : {}),
+                logger: coreLogger,
+              }),
+            );
+            const runPreferences = routedPreferences.preferences;
+            if (runPreferenceStoreOptions !== null) {
+              appendSessionRunPreferences(runPreferenceStoreOptions, designId, runPreferences);
+            }
+            const contextPack = buildDesignContextPack({
+              chatRows,
+              brief: existingBrief,
+              runPreferences,
+              resourceState,
+              modelContextWindow: resolveContextWindow(active.model, baseUrl, active.contextWindow),
+              workspaceState: {
+                sourcePath: payload.previousSource ? 'App.jsx' : null,
+                hasSource: Boolean(payload.previousSource?.trim()),
+                hasDesignMd: Boolean(promptContext.projectContext.designMd?.trim()),
+                hasAgentsMd: Boolean(promptContext.projectContext.agentsMd?.trim()),
+                hasSettingsJson: Boolean(promptContext.projectContext.settingsJson?.trim()),
+              },
+            });
+            logIpc.info('generate.context', {
+              generationId: id,
+              ...contextPack.trace,
+            });
+            const result = await withTlsBypass(tlsBypass, () =>
+              runGenerate(
+                {
+                  prompt: payload.prompt,
+                  history: contextPack.history,
+                  model: active.model,
+                  apiKey,
+                  ...(isCodex
+                    ? { getApiKey: () => resolveActiveApiKeyFromState(active.model.provider) }
+                    : {}),
+                  attachments: promptContext.attachments,
+                  referenceUrl: promptContext.referenceUrl,
+                  designSystem: promptContext.designSystem ?? null,
+                  sessionContext: contextPack.contextSections,
+                  ...(memoryContext !== undefined ? { memoryContext: memoryContext.sections } : {}),
+                  projectContext: promptContext.projectContext,
+                  currentDesignName,
+                  initialResourceState: resourceState,
+                  runPreferences,
+                  ...(baseUrl !== undefined ? { baseUrl } : {}),
+                  wire: active.wire,
+                  ...(active.httpHeaders !== undefined ? { httpHeaders: active.httpHeaders } : {}),
+                  ...(active.reasoningLevel !== undefined
+                    ? { reasoningLevel: active.reasoningLevel }
+                    : {}),
+                  ...(active.contextWindow !== undefined
+                    ? { contextWindow: active.contextWindow }
+                    : {}),
+                  ...(allowKeyless ? { allowKeyless: true } : {}),
+                  signal: controller.signal,
+                  logger: coreLogger,
+                },
+                id,
+                designId,
+                payload.previousSource ?? null,
+                workspaceRoot,
+                researchRun,
+                promptContext.attachments,
+                {
+                  onAggressivePrune: () => {
+                    aggressivePruneDetected = true;
+                  },
+                  onComplete: (messages) => {
+                    capturedMessages = messages;
+                  },
+                },
+              ),
+            );
+            logIpc.info('generate.ok', {
+              generationId: id,
+              ms: Date.now() - t0,
+              artifacts: result.artifacts.length,
+              cost: result.costUsd,
+            });
+            if (capturedMessages !== null) {
+              const messagesForMemory = capturedMessages;
+              const design = db !== null ? getDesign(db, designId) : null;
+              let memoryWorkspaceRoot = workspaceRoot;
+              try {
+                memoryWorkspaceRoot = requireWorkspaceRootForDesign(designId).workspaceRoot;
+              } catch (err) {
+                logIpc.warn('memory.workspace.resolve.fail', {
+                  generationId: id,
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              }
+              const designName = design?.name ?? 'Untitled';
+              const previousWorkspaceMemoryHash = memoryContext?.workspaceMemory?.hash ?? null;
+              const workspaceMemoryUpdate =
+                prefs.memoryEnabled === true && prefs.workspaceMemoryAutoUpdate === true
+                  ? (() => {
+                      const startedAt = Date.now();
+                      return withTlsBypass(tlsBypass, () =>
+                        triggerWorkspaceMemoryUpdate({
+                          workspacePath: memoryWorkspaceRoot,
+                          workspaceName: workspaceNameFromPath(memoryWorkspaceRoot),
+                          designId,
+                          designName,
+                          conversationMessages: messagesForMemory,
+                          userMemory: memoryContext?.userMemory?.content ?? null,
+                          designMdSummary: designMdSummaryForMemory(promptContext.projectContext),
+                          model: active.model,
+                          apiKey,
+                          ...(baseUrl !== undefined ? { baseUrl } : {}),
+                          wire: active.wire,
+                          ...(active.httpHeaders !== undefined
+                            ? { httpHeaders: active.httpHeaders }
+                            : {}),
+                          ...(active.reasoningLevel !== undefined
+                            ? { reasoningLevel: active.reasoningLevel }
+                            : {}),
+                          ...(allowKeyless ? { allowKeyless: true } : {}),
+                        }),
+                      )
+                        .then((workspaceMemory) => {
+                          if (
+                            workspaceMemory !== null &&
+                            workspaceMemory.hash !== previousWorkspaceMemoryHash
+                          ) {
+                            const command =
+                              previousWorkspaceMemoryHash === null ? 'create' : 'update';
+                            sendHostActivity({
+                              designId,
+                              generationId: id,
+                              toolName: 'workspace_memory',
+                              command,
+                              args: { path: 'MEMORY.md' },
+                              status: 'done',
+                              durationMs: Date.now() - startedAt,
+                              verbGroup: 'Memory',
+                              result: {
+                                content: [
+                                  {
+                                    type: 'text',
+                                    text: `${command === 'create' ? 'Created' : 'Updated'} workspace memory at MEMORY.md.`,
+                                  },
+                                ],
+                                details: {
+                                  path: 'MEMORY.md',
+                                  bytes: workspaceMemory.content.length,
+                                  source: workspaceMemory.source,
+                                  status: command === 'create' ? 'created' : 'updated',
+                                },
+                              },
+                            });
+                          }
+                          return workspaceMemory;
+                        })
+                        .catch((err) => {
+                          const message = err instanceof Error ? err.message : String(err);
+                          sendHostActivity({
+                            designId,
+                            generationId: id,
+                            toolName: 'workspace_memory',
+                            command: 'update',
+                            args: { path: 'MEMORY.md' },
+                            status: 'error',
+                            durationMs: Date.now() - startedAt,
+                            verbGroup: 'Memory',
+                            message,
+                            result: {
+                              content: [{ type: 'text', text: message }],
+                              details: { path: 'MEMORY.md', status: 'error' },
+                            },
+                          });
+                          throw err;
+                        });
+                    })().catch((err) => {
+                      logIpc.warn('workspace-memory.update.fail', {
+                        generationId: id,
+                        message: err instanceof Error ? err.message : String(err),
+                      });
+                      return memoryContext?.workspaceMemory ?? null;
+                    })
+                  : Promise.resolve(memoryContext?.workspaceMemory ?? null);
+
+              const briefUpdate = prefs.memoryEnabled
+                ? workspaceMemoryUpdate
+                    .then((workspaceMemory) =>
+                      withTlsBypass(tlsBypass, () =>
+                        updateDesignSessionBrief({
+                          existingBrief,
+                          conversationMessages: messagesForMemory,
+                          designId,
+                          designName,
+                          userMemory: memoryContext?.userMemory?.content ?? null,
+                          workspaceMemory: workspaceMemory?.content ?? null,
+                          sourceUserMemoryHash: memoryContext?.userMemory?.hash,
+                          sourceWorkspaceMemoryHash: workspaceMemory?.hash,
+                          sourceMemoryUpdatedAt:
+                            workspaceMemory?.updatedAt ?? memoryContext?.userMemory?.updatedAt,
+                          model: active.model,
+                          apiKey,
+                          ...(baseUrl !== undefined ? { baseUrl } : {}),
+                          wire: active.wire,
+                          ...(active.httpHeaders !== undefined
+                            ? { httpHeaders: active.httpHeaders }
+                            : {}),
+                          ...(active.reasoningLevel !== undefined
+                            ? { reasoningLevel: active.reasoningLevel }
+                            : {}),
+                          ...(allowKeyless ? { allowKeyless: true } : {}),
+                        }),
+                      ),
+                    )
+                    .then((briefResult) => {
+                      const opts = chatStoreOptions();
+                      if (opts !== null)
+                        appendSessionDesignBrief(opts, designId, briefResult.brief);
+                      logIpc.info('design-brief.update.ok', {
+                        generationId: id,
+                        outputLen: JSON.stringify(briefResult.brief).length,
+                      });
+                    })
+                    .catch((err) => {
+                      logIpc.warn('design-brief.update.fail', {
+                        generationId: id,
+                        message: err instanceof Error ? err.message : String(err),
+                      });
+                    })
+                : Promise.resolve();
+              const userMemoryMaintenance = shouldRunUserMemoryCandidateCapture(prefs)
+                ? triggerUserMemoryCandidateCapture({
+                    designId,
+                    designName,
+                    userMessages: extractUserMessagesForMemory(messagesForMemory),
+                  })
+                    .then(() => {
+                      return withTlsBypass(tlsBypass, () =>
+                        triggerUserMemoryConsolidation({
+                          model: active.model,
+                          apiKey,
+                          ...(baseUrl !== undefined ? { baseUrl } : {}),
+                          wire: active.wire,
+                          ...(active.httpHeaders !== undefined
+                            ? { httpHeaders: active.httpHeaders }
+                            : {}),
+                          ...(active.reasoningLevel !== undefined
+                            ? { reasoningLevel: active.reasoningLevel }
+                            : {}),
+                          ...(allowKeyless ? { allowKeyless: true } : {}),
+                        }),
+                      );
+                    })
+                    .catch((err) => {
+                      logIpc.warn('user-memory.maintenance.fail', {
+                        generationId: id,
+                        message: err instanceof Error ? err.message : String(err),
+                      });
+                    })
+                : Promise.resolve();
+              if (aggressivePruneDetected) {
+                await Promise.all([briefUpdate, userMemoryMaintenance]);
+              }
+            }
+            if (memoryLoadWarning !== undefined) {
+              return {
+                ...result,
+                warnings: [...(result.warnings ?? []), memoryLoadWarning],
+              };
+            }
+            return result;
+          } catch (err) {
+            // Attach upstream metadata so the renderer's diagnostic pipeline can
+            // map this failure to a hypothesis (status, baseUrl, wire, provider).
+            const failure = normalizeGenerationFailure({
+              err,
+              signal: controller.signal,
+              provider: active.model.provider,
+              modelId: active.model.modelId,
+              baseUrl,
+              wire: active.wire,
+            });
+            const rethrow = failure.error;
+            logIpc.error('generate.fail', {
+              generationId: id,
+              ms: Date.now() - t0,
+              provider: active.model.provider,
+              modelId: active.model.modelId,
+              baseUrl: baseUrl ?? '<default>',
+              status: failure.upstreamStatus,
+              message: rethrow instanceof Error ? rethrow.message : String(rethrow),
+              code: rethrow instanceof CodesignError ? rethrow.code : undefined,
+            });
+            recordFinalError('generate', id, rethrow);
+            throw rethrow;
+          } finally {
+            clearTimeoutGuard();
+            releaseWorkspaceGeneration();
+          }
+        },
+      );
+    });
+  });
+
+  ipcMain.handle('codesign:v1:cancel-generation', (_e, raw: unknown) => {
+    const { generationId } = CancelGenerationPayloadV1.parse(raw);
+    cancelGenerationRequest(generationId, inFlight, logIpc, inFlightByDesign, inFlightByWorkspace);
+  });
+
+  ipcMain.handle('codesign:v1:generation-status', () => ({
+    schemaVersion: 1 as const,
+    running: listInFlightGenerations(inFlightByDesign),
+  }));
+
+  ipcMain.handle('codesign:apply-comment', async (_e, raw: unknown) => {
+    const payload = ApplyCommentPayload.parse(raw);
+    const id = payload.generationId;
+    return withRun(id, async () => {
+      const controller = new AbortController();
+      return withDurableGenerationForDesign(
+        id,
+        payload.designId,
+        inFlight,
+        inFlightByDesign,
+        controller,
+        async () => {
+          const coreLogger = coreLoggerFor(id);
+
+          const cfg = getCachedConfig();
+          if (cfg === null) {
+            throw new CodesignError(
+              'No configuration found. Complete onboarding first.',
+              'CONFIG_MISSING',
+            );
+          }
+          const researchRun = createWebResearchRun(cfg, decryptSecret);
+          // Inline-comment edits don't need to be tied to whatever provider was
+          // pinned in the original generate; resolve fresh against the canonical
+          // active provider so a switch in Settings takes effect immediately.
+          const hint = payload.model ?? { provider: cfg.provider, modelId: cfg.modelPrimary };
+          const active = resolveActiveModel(cfg, hint);
+          const allowKeyless = active.allowKeyless;
+          const apiKey = await resolveApiKeyForActive(active.model.provider, allowKeyless);
+          const baseUrl = active.baseUrl ?? undefined;
+          const tlsBypass = resolveTlsBypassFor(cfg, active.model.provider);
+
+          const { workspaceRoot, promptContext } = await withStableWorkspacePath(
+            payload.designId,
+            async () => {
+              const { workspaceRoot } = requireWorkspaceRootForDesign(payload.designId);
+              const promptContext = await preparePromptContext({
+                attachments: payload.attachments,
+                referenceUrl: payload.referenceUrl,
+                designSystem: cfg.designSystem ?? null,
+                workspaceRoot,
+              });
+              return { workspaceRoot, promptContext };
+            },
+          );
+
+          logIpc.info('applyComment', {
+            generationId: id,
+            designId: payload.designId,
+            provider: active.model.provider,
+            modelId: active.model.modelId,
+            ...(active.overridden
+              ? { requestedProvider: hint.provider, requestedModelId: hint.modelId }
+              : {}),
+            selector: payload.selection.selector,
+            attachmentCount: payload.attachments.length,
+            hasReferenceUrl: payload.referenceUrl !== undefined,
+            hasDesignSystem: promptContext.designSystem !== null,
+            baseUrl: baseUrl ?? '<default>',
+          });
+
+          const systemPrompt = composeSystemPrompt({ mode: 'revise' });
+          const userPrompt = buildApplyCommentUserPrompt({
+            comment: payload.comment,
+            selection: payload.selection,
+          });
+
+          const t0 = Date.now();
+          let clearTimeoutGuard: () => void = () => {};
+          let releaseWorkspaceGeneration: () => void = () => {};
+          try {
+            releaseWorkspaceGeneration = acquireInFlightWorkspaceGeneration(
+              id,
+              workspaceRoot,
+              inFlightByWorkspace,
+            );
+            clearTimeoutGuard = await armTimeout(id, controller);
+            const isCodex = active.model.provider === CHATGPT_CODEX_PROVIDER_ID;
+            const result = await withTlsBypass(tlsBypass, () =>
+              runGenerate(
+                {
+                  prompt: userPrompt,
+                  systemPrompt,
+                  history: [],
+                  model: active.model,
+                  apiKey,
+                  ...(isCodex
+                    ? { getApiKey: () => resolveActiveApiKeyFromState(active.model.provider) }
+                    : {}),
+                  attachments: promptContext.attachments,
+                  referenceUrl: promptContext.referenceUrl,
+                  designSystem: promptContext.designSystem ?? null,
+                  projectContext: promptContext.projectContext,
+                  initialResourceState: deriveResourceStateFromChatRows(
+                    chatRowsForDesign(payload.designId),
+                  ),
+                  ...(baseUrl !== undefined ? { baseUrl } : {}),
+                  wire: active.wire,
+                  ...(active.httpHeaders !== undefined ? { httpHeaders: active.httpHeaders } : {}),
+                  ...(active.reasoningLevel !== undefined
+                    ? { reasoningLevel: active.reasoningLevel }
+                    : {}),
+                  ...(active.contextWindow !== undefined
+                    ? { contextWindow: active.contextWindow }
+                    : {}),
+                  ...(allowKeyless ? { allowKeyless: true } : {}),
+                  signal: controller.signal,
+                  logger: coreLogger,
+                },
+                id,
+                payload.designId,
+                payload.artifactSource,
+                workspaceRoot,
+                researchRun,
+                promptContext.attachments,
+              ),
+            );
+            logIpc.info('applyComment.ok', {
+              generationId: id,
+              ms: Date.now() - t0,
+              artifacts: result.artifacts.length,
+              cost: result.costUsd,
+            });
+            return result;
+          } catch (err) {
+            const failure = normalizeGenerationFailure({
+              err,
+              signal: controller.signal,
+              provider: active.model.provider,
+              modelId: active.model.modelId,
+              baseUrl,
+              wire: active.wire,
+            });
+            const rethrow = failure.error;
+            logIpc.error('applyComment.fail', {
+              generationId: id,
+              ms: Date.now() - t0,
+              provider: active.model.provider,
+              modelId: active.model.modelId,
+              baseUrl: baseUrl ?? '<default>',
+              status: failure.upstreamStatus,
+              selector: payload.selection.selector,
+              message: rethrow instanceof Error ? rethrow.message : String(rethrow),
+              code: rethrow instanceof CodesignError ? rethrow.code : undefined,
+            });
+            recordFinalError('apply-comment', id, rethrow);
+            throw rethrow;
+          } finally {
+            clearTimeoutGuard();
+            releaseWorkspaceGeneration();
+          }
+        },
+      );
+    });
+  });
+
+  ipcMain.handle('codesign:v1:generate-title', async (_e, raw: unknown): Promise<string> => {
+    const runId = crypto.randomUUID();
+    return withRun(runId, async () => {
+      if (typeof raw !== 'object' || raw === null) {
+        throw new CodesignError('generate-title expects an object payload', 'IPC_BAD_INPUT');
+      }
+      const prompt = (raw as { prompt?: unknown }).prompt;
+      if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+        throw new CodesignError('generate-title requires a non-empty prompt', 'IPC_BAD_INPUT');
+      }
+      const cfg = getCachedConfig();
+      if (cfg === null) throw new CodesignError('No configuration', 'CONFIG_MISSING');
+      const active = resolveActiveModel(cfg, {
+        provider: cfg.activeProvider,
+        modelId: cfg.activeModel,
+      });
+      const allowKeyless = active.allowKeyless;
+      const apiKey = await resolveApiKeyForActive(active.model.provider, allowKeyless);
+      const baseUrl = active.baseUrl ?? undefined;
+      const tlsBypass = resolveTlsBypassFor(cfg, active.model.provider);
+      const titleLogger: CoreLogger = {
+        info: (event, data) => logIpc.info(event, data),
+        warn: (event, data) => logIpc.warn(event, data),
+        error: (event, data) => logIpc.error(event, data),
+      };
+      try {
+        return await withTlsBypass(tlsBypass, () =>
+          generateTitle({
+            prompt,
+            model: active.model,
+            apiKey,
+            ...(baseUrl !== undefined ? { baseUrl } : {}),
+            wire: active.wire,
+            ...(active.httpHeaders !== undefined ? { httpHeaders: active.httpHeaders } : {}),
+            ...(active.reasoningLevel !== undefined
+              ? { reasoningLevel: active.reasoningLevel }
+              : {}),
+            ...(allowKeyless ? { allowKeyless: true } : {}),
+            logger: titleLogger,
+          }),
+        );
+      } catch (err) {
+        logIpc.error('[title] generate-title.fail', {
+          provider: active.model.provider,
+          modelId: active.model.modelId,
+          baseUrl,
+          message: err instanceof Error ? err.message : String(err),
+          code: err instanceof CodesignError ? err.code : undefined,
+        });
+        recordFinalError('title', runId, err);
+        throw err;
+      }
+    });
+  });
+
+  return () => {
+    unregisterSourceEditBusyCheck();
+    for (const controller of inFlight.values()) {
+      try {
+        controller.abort();
+      } catch {
+        // controller may already be settled
+      }
+    }
+    inFlight.clear();
+    inFlightByDesign.clear();
+    inFlightByWorkspace.clear();
+  };
+}
