@@ -4801,5 +4801,38 @@
       "file_count": 17,
       "total_bytes": 715350
     }
+  },
+  {
+    "name": "huashu-motion",
+    "description": "面向编码智能体的本机动效视频制作室：用 HTML 与 GSAP 把产品发布片、解说视频和动效短片写成可编辑代码，内置导演规则、20 种动效语言、模板与字体、ABC 配乐/音效、浏览器截帧渲染、Studio 点选评论迭代和 om CLI。",
+    "category": "05_多媒体与设计资产",
+    "folder": "huashu-motion",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/huashu-motion",
+    "aliases": [
+      "花叔动效",
+      "花叔视频",
+      "动效视频",
+      "产品发布片",
+      "指着画面改",
+      "motion graphics"
+    ],
+    "tags": [
+      "动效",
+      "视频生成",
+      "产品发布片",
+      "解说视频",
+      "GSAP",
+      "HTML动画",
+      "配乐",
+      "本机渲染",
+      "Studio",
+      "om CLI"
+    ],
+    "file_index": {
+      "path": ".catalog/1e7787f8ef83b8a571262d91b878039503fc1fb3183eb4484f990d8ce28fb353.json",
+      "sha256": "1e7787f8ef83b8a571262d91b878039503fc1fb3183eb4484f990d8ce28fb353",
+      "file_count": 254,
+      "total_bytes": 21109584
+    }
   }
 ]
