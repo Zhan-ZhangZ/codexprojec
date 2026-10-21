@@ -13,7 +13,8 @@ metadata:
 这是一个可执行的品牌视觉识别系统技能。正式执行入口位于：
 
 - [完整技能指令](./skills/brand-identity/SKILL.md)
-- [项目说明与示例](./README.md)
+- [中文项目说明与示例](./README.zh-CN.md)
+- [English README](./README.md)
 - [Python 依赖](./requirements.txt)
 
 先读取完整技能指令，再检查本地运行环境。脚本、参考卡、模板和字体/语言目录均在 `skills/brand-identity/` 下。

@@ -13,3 +13,10 @@
 - The runtime check `python3 skills/brand-identity/scripts/brand.py check` passes with Python dependencies, cached uv environment and a discovered Chromium browser.
 - Upstream tests pass with the declared development dependencies under uv: `487 tests`, `7 skipped`, `OK`. Running them with the system Python alone fails on missing `fontTools`, `pathops` and other declared packages; this is an environment requirement, not a source defect.
 - The reference scan reports 17 paths. Fifteen document runtime inputs/outputs created by the commands; two cite upstream development-only catalogue/experiment tools. No static execution dependency is missing.
+
+## 2026-10-21 — Chinese README
+
+- Added `README.zh-CN.md`, based on the English README at upstream version `1.1.1`, commit `532742d7477dba3b744433adf92845642953dc28`.
+- Kept the English `README.md` unchanged.
+- Updated the root router to link the Chinese README first and retain the English original for comparison.
+- Preserved the upstream installation instructions with a local-distribution note, and adapted host-specific privacy wording so it remains accurate outside Claude Code.
