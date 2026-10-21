@@ -4834,5 +4834,40 @@
       "file_count": 254,
       "total_bytes": 21109584
     }
+  },
+  {
+    "name": "brand-building-skills",
+    "description": "集合型品牌建设与品牌交付技能库。用于从零建立或重塑品牌，覆盖品牌上下文、定位、受众、竞品、命名、视觉识别、品牌声音、叙事、信息架构、包装、品牌规范、审计、发布与测量，以及 DTC、B2B、个人品牌、品牌合作、UGC、ASO、WhatsApp、邮件、网红与 Meta/Google 广告等增长渠道。",
+    "category": "16_专业设计与生产交付",
+    "folder": "brand-building-skills",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/brand-building-skills",
+    "aliases": [
+      "品牌建设",
+      "品牌策略",
+      "品牌设计",
+      "品牌咨询",
+      "Brand Building"
+    ],
+    "tags": [
+      "品牌定位",
+      "品牌命名",
+      "视觉识别",
+      "品牌规范",
+      "品牌发布",
+      "品牌营销",
+      "B2B",
+      "DTC",
+      "UGC",
+      "ASO",
+      "Google Ads",
+      "Meta Ads"
+    ],
+    "updated_at": "2026-10-21",
+    "file_index": {
+      "path": ".catalog/1cc5593586aa198d071dfc9ac181759a5b32539fd16c590598920bccb9c29eff.json",
+      "sha256": "1cc5593586aa198d071dfc9ac181759a5b32539fd16c590598920bccb9c29eff",
+      "file_count": 33,
+      "total_bytes": 245171
+    }
   }
 ]
