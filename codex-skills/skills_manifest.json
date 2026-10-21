@@ -4869,5 +4869,39 @@
       "file_count": 34,
       "total_bytes": 256046
     }
+  },
+  {
+    "name": "brand-identity-skill",
+    "description": "品牌视觉识别系统生成与评估技能。根据一份品牌 brief，将 Logo、字体和色彩作为同一系统共同设计，通过对比度、色盲模拟、字形覆盖、字体许可和小尺寸渲染进行量化检查，以身份板并排比较，支持现有网站改版预览，并为选定方案生成品牌规范 PDF、Logo 文件和设计 tokens。适用于新品牌、视觉识别刷新、单独 Logo/字体/配色或现有品牌审查。",
+    "category": "16_专业设计与生产交付",
+    "folder": "brand-identity-skill",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/brand-identity-skill",
+    "aliases": [
+      "品牌视觉识别",
+      "品牌识别系统",
+      "Logo字体配色",
+      "品牌规范套件",
+      "visual identity"
+    ],
+    "tags": [
+      "品牌设计",
+      "视觉识别",
+      "Logo",
+      "字体",
+      "色彩",
+      "WCAG",
+      "色盲模拟",
+      "品牌规范",
+      "设计token",
+      "网站改版",
+      "PDF"
+    ],
+    "updated_at": "2026-10-21T16:35:59+08:00",
+    "file_index": {
+      "path": ".catalog/f456943a1508dc94641c0a89e58b3647ce8c785f13bfc1a69436ed1d63f71e17.json",
+      "sha256": "f456943a1508dc94641c0a89e58b3647ce8c785f13bfc1a69436ed1d63f71e17",
+      "file_count": 77,
+      "total_bytes": 4336873
+    }
   }
 ]
