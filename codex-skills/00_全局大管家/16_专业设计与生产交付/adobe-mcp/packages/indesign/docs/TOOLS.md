@@ -1,0 +1,6116 @@
+# Tool reference
+
+<!-- Generated from the upstream tool definitions. Do not edit by hand. -->
+
+423 tools in adobe-mcp-indesign 2.5.0. Positions and sizes are millimeters from the target page's top-left corner unless a parameter says otherwise; indexes are 0-based. Labels: *read-only* tools change nothing; **destructive** tools can delete or overwrite work; *idempotent* tools can be repeated safely; *external* tools reach beyond the local InDesign.
+
+## Contents
+
+- [Documents & Books](#document) (46): [`get_document_info`](#get_document_info), [`create_document`](#create_document), [`open_document`](#open_document), [`save_document`](#save_document), [`close_document`](#close_document), [`preflight_document`](#preflight_document), [`zoom_to_page`](#zoom_to_page), [`data_merge`](#data_merge), [`get_document_elements`](#get_document_elements), [`get_document_styles`](#get_document_styles), [`get_document_colors`](#get_document_colors), [`get_document_preferences`](#get_document_preferences), [`set_document_preferences`](#set_document_preferences), [`get_document_stories`](#get_document_stories), [`find_text_in_document`](#find_text_in_document), [`get_document_layers`](#get_document_layers), [`organize_document_layers`](#organize_document_layers), [`get_document_hyperlinks`](#get_document_hyperlinks), [`create_document_hyperlink`](#create_document_hyperlink), [`get_document_sections`](#get_document_sections), [`create_document_section`](#create_document_section), [`get_document_xml_structure`](#get_document_xml_structure), [`export_document_xml`](#export_document_xml), [`save_document_to_cloud`](#save_document_to_cloud), [`open_cloud_document`](#open_cloud_document), [`get_document_grid_settings`](#get_document_grid_settings), [`set_document_grid_settings`](#set_document_grid_settings), [`get_document_layout_preferences`](#get_document_layout_preferences), [`set_document_layout_preferences`](#set_document_layout_preferences), [`validate_document`](#validate_document), [`cleanup_document`](#cleanup_document), [`create_book`](#create_book), [`open_book`](#open_book), [`list_books`](#list_books), [`add_document_to_book`](#add_document_to_book), [`synchronize_book`](#synchronize_book), [`repaginate_book`](#repaginate_book), [`update_all_cross_references`](#update_all_cross_references), [`update_all_numbers`](#update_all_numbers), [`update_chapter_and_paragraph_numbers`](#update_chapter_and_paragraph_numbers), [`export_book`](#export_book), [`package_book`](#package_book), [`preflight_book`](#preflight_book), [`print_book`](#print_book), [`get_book_info`](#get_book_info), [`set_book_properties`](#set_book_properties)
+- [Pages & Spreads](#page) (30): [`add_page`](#add_page), [`delete_page`](#delete_page), [`duplicate_page`](#duplicate_page), [`navigate_to_page`](#navigate_to_page), [`get_page_info`](#get_page_info), [`move_page`](#move_page), [`set_page_properties`](#set_page_properties), [`adjust_page_layout`](#adjust_page_layout), [`resize_page`](#resize_page), [`place_file_on_page`](#place_file_on_page), [`place_xml_on_page`](#place_xml_on_page), [`snapshot_page_layout`](#snapshot_page_layout), [`delete_page_layout_snapshot`](#delete_page_layout_snapshot), [`delete_all_page_layout_snapshots`](#delete_all_page_layout_snapshots), [`reframe_page`](#reframe_page), [`create_page_guides`](#create_page_guides), [`select_page`](#select_page), [`get_page_content_summary`](#get_page_content_summary), [`set_page_background`](#set_page_background), [`list_spreads`](#list_spreads), [`get_spread_info`](#get_spread_info), [`duplicate_spread`](#duplicate_spread), [`move_spread`](#move_spread), [`delete_spread`](#delete_spread), [`set_spread_properties`](#set_spread_properties), [`create_spread_guides`](#create_spread_guides), [`place_file_on_spread`](#place_file_on_spread), [`place_xml_on_spread`](#place_xml_on_spread), [`select_spread`](#select_spread), [`get_spread_content_summary`](#get_spread_content_summary)
+- [Text & Tables](#text) (5): [`create_text_frame`](#create_text_frame), [`edit_text_frame`](#edit_text_frame), [`find_replace_text`](#find_replace_text), [`create_table`](#create_table), [`populate_table`](#populate_table)
+- [Graphics & Images](#graphics) (8): [`place_image`](#place_image), [`create_rectangle`](#create_rectangle), [`create_ellipse`](#create_ellipse), [`create_polygon`](#create_polygon), [`create_object_style`](#create_object_style), [`list_object_styles`](#list_object_styles), [`apply_object_style`](#apply_object_style), [`get_image_info`](#get_image_info)
+- [Styles & Colors](#styles) (27): [`create_paragraph_style`](#create_paragraph_style), [`create_character_style`](#create_character_style), [`apply_paragraph_style`](#apply_paragraph_style), [`apply_character_style`](#apply_character_style), [`list_styles`](#list_styles), [`create_color_swatch`](#create_color_swatch), [`list_color_swatches`](#list_color_swatches), [`apply_color`](#apply_color), [`set_paragraph_style`](#set_paragraph_style), [`set_character_style`](#set_character_style), [`set_object_style`](#set_object_style), [`set_table_style`](#set_table_style), [`set_cell_style`](#set_cell_style), [`manage_styles`](#manage_styles), [`manage_style_groups`](#manage_style_groups), [`apply_style`](#apply_style), [`clear_style_overrides`](#clear_style_overrides), [`redefine_style`](#redefine_style), [`break_link_to_style`](#break_link_to_style), [`load_styles`](#load_styles), [`set_nested_styles`](#set_nested_styles), [`set_style_export_tags`](#set_style_export_tags), [`find_change_style`](#find_change_style), [`set_style_defaults`](#set_style_defaults), [`quick_apply_style`](#quick_apply_style), [`set_quick_apply_filters`](#set_quick_apply_filters), [`style_panel_command`](#style_panel_command)
+- [Layout, Masters & Layers](#layout) (30): [`get_page_item_info`](#get_page_item_info), [`select_page_item`](#select_page_item), [`move_page_item`](#move_page_item), [`resize_page_item`](#resize_page_item), [`set_page_item_properties`](#set_page_item_properties), [`duplicate_page_item`](#duplicate_page_item), [`delete_page_item`](#delete_page_item), [`list_page_items`](#list_page_items), [`create_group`](#create_group), [`create_group_from_items`](#create_group_from_items), [`ungroup`](#ungroup), [`get_group_info`](#get_group_info), [`add_item_to_group`](#add_item_to_group), [`remove_item_from_group`](#remove_item_from_group), [`list_groups`](#list_groups), [`set_group_properties`](#set_group_properties), [`create_master_spread`](#create_master_spread), [`list_master_spreads`](#list_master_spreads), [`delete_master_spread`](#delete_master_spread), [`duplicate_master_spread`](#duplicate_master_spread), [`apply_master_spread`](#apply_master_spread), [`create_master_text_frame`](#create_master_text_frame), [`create_master_rectangle`](#create_master_rectangle), [`create_master_guides`](#create_master_guides), [`get_master_spread_info`](#get_master_spread_info), [`detach_master_items`](#detach_master_items), [`remove_master_override`](#remove_master_override), [`create_layer`](#create_layer), [`set_active_layer`](#set_active_layer), [`list_layers`](#list_layers)
+- [Export & Utilities](#export) (10): [`export_pdf`](#export_pdf), [`export_images`](#export_images), [`export_epub`](#export_epub), [`package_document`](#package_document), [`indesign_status`](#indesign_status), [`execute_indesign_code`](#execute_indesign_code), [`view_document`](#view_document), [`get_session_info`](#get_session_info), [`clear_session`](#clear_session), [`help`](#help)
+- [Transformations](#transform) (7): [`turn_items`](#turn_items), [`transform_items`](#transform_items), [`nudge_items`](#nudge_items), [`transform_again`](#transform_again), [`align_items`](#align_items), [`set_transform_preferences`](#set_transform_preferences), [`get_transform_info`](#get_transform_info)
+- [Character formatting](#character) (13): [`set_character_attributes`](#set_character_attributes), [`apply_type_command`](#apply_type_command), [`set_story_options`](#set_story_options), [`set_type_preferences`](#set_type_preferences), [`insert_special_character`](#insert_special_character), [`run_glyphs_panel_command`](#run_glyphs_panel_command), [`change_case`](#change_case), [`manage_fonts`](#manage_fonts), [`manage_cjk_sets`](#manage_cjk_sets), [`set_tab_stops`](#set_tab_stops), [`set_grep_styles`](#set_grep_styles), [`set_bullets_and_numbering`](#set_bullets_and_numbering), [`manage_numbering_lists`](#manage_numbering_lists)
+- [Text frames and stories](#text_frames) (16): [`set_text_frame_options`](#set_text_frame_options), [`get_text_frame_options`](#get_text_frame_options), [`set_text_wrap`](#set_text_wrap), [`get_text_wrap`](#get_text_wrap), [`manage_notes`](#manage_notes), [`manage_tracked_changes`](#manage_tracked_changes), [`get_editorial_preferences`](#get_editorial_preferences), [`set_editorial_preferences`](#set_editorial_preferences), [`show_text_extras`](#show_text_extras), [`thread_text_frames`](#thread_text_frames), [`get_story_statistics`](#get_story_statistics), [`manage_story_editor`](#manage_story_editor), [`fill_with_placeholder_text`](#fill_with_placeholder_text), [`select_text`](#select_text), [`apply_type_on_path`](#apply_type_on_path), [`remove_type_on_path`](#remove_type_on_path)
+- [Tables](#tables) (14): [`get_table_info`](#get_table_info), [`set_table_options`](#set_table_options), [`set_cell_options`](#set_cell_options), [`insert_table`](#insert_table), [`insert_table_rows_columns`](#insert_table_rows_columns), [`delete_table_parts`](#delete_table_parts), [`edit_table_cells`](#edit_table_cells), [`resize_table_rows_columns`](#resize_table_rows_columns), [`convert_text_to_table`](#convert_text_to_table), [`convert_table_to_text`](#convert_table_to_text), [`copy_table_cells`](#copy_table_cells), [`select_table_part`](#select_table_part), [`run_table_command`](#run_table_command), [`place_spreadsheet_table`](#place_spreadsheet_table)
+- [Paragraph formatting](#paragraph) (3): [`set_paragraph_formatting`](#set_paragraph_formatting), [`get_paragraph_formatting`](#get_paragraph_formatting), [`set_underline_and_strikethrough`](#set_underline_and_strikethrough)
+- [Paths and pathfinder](#paths) (8): [`draw_path`](#draw_path), [`edit_path`](#edit_path), [`get_path_info`](#get_path_info), [`combine_paths`](#combine_paths), [`convert_shape`](#convert_shape), [`set_corner_options`](#set_corner_options), [`set_clipping_path`](#set_clipping_path), [`create_outlines`](#create_outlines)
+- [Effects and transparency](#effects) (7): [`set_item_effects`](#set_item_effects), [`get_item_effects`](#get_item_effects), [`clear_item_effects`](#clear_item_effects), [`set_transparency_preferences`](#set_transparency_preferences), [`get_transparency_settings`](#get_transparency_settings), [`manage_flattener_preset`](#manage_flattener_preset), [`set_spread_flattening`](#set_spread_flattening)
+- [XML structure and tags](#xml) (17): [`list_xml_structure`](#list_xml_structure), [`add_xml_element`](#add_xml_element), [`edit_xml_element`](#edit_xml_element), [`set_xml_comment_or_instruction`](#set_xml_comment_or_instruction), [`remove_xml_items`](#remove_xml_items), [`tag_xml_content`](#tag_xml_content), [`select_xml_element`](#select_xml_element), [`set_xml_preferences`](#set_xml_preferences), [`list_xml_tags`](#list_xml_tags), [`set_xml_tag`](#set_xml_tag), [`delete_xml_tags`](#delete_xml_tags), [`transfer_xml_tags`](#transfer_xml_tags), [`map_xml_tags_and_styles`](#map_xml_tags_and_styles), [`import_xml`](#import_xml), [`export_xml`](#export_xml), [`manage_xml_dtd`](#manage_xml_dtd), [`validate_xml_structure`](#validate_xml_structure)
+- [Long documents](#long_documents) (21): [`define_toc_style`](#define_toc_style), [`create_toc`](#create_toc), [`set_note_options`](#set_note_options), [`insert_note`](#insert_note), [`manage_footnotes`](#manage_footnotes), [`manage_index`](#manage_index), [`generate_index`](#generate_index), [`manage_conditions`](#manage_conditions), [`apply_conditions`](#apply_conditions), [`manage_cross_reference_formats`](#manage_cross_reference_formats), [`insert_cross_reference`](#insert_cross_reference), [`manage_hyperlinks`](#manage_hyperlinks), [`manage_bookmarks`](#manage_bookmarks), [`define_text_variable`](#define_text_variable), [`insert_text_variable`](#insert_text_variable), [`convert_text_variables`](#convert_text_variables), [`generate_captions`](#generate_captions), [`manage_book_contents`](#manage_book_contents), [`set_chapter_numbering`](#set_chapter_numbering), [`invoke_long_document_command`](#invoke_long_document_command), [`get_long_document_info`](#get_long_document_info)
+- [Import and export formats](#formats) (13): [`export_pdf_with_options`](#export_pdf_with_options), [`manage_pdf_export_presets`](#manage_pdf_export_presets), [`background_exports`](#background_exports), [`export_interactive_pdf`](#export_interactive_pdf), [`export_epub_with_options`](#export_epub_with_options), [`manage_epub_viewing_apps`](#manage_epub_viewing_apps), [`export_html`](#export_html), [`place_with_import_options`](#place_with_import_options), [`export_story`](#export_story), [`set_object_export_options`](#set_object_export_options), [`manage_articles`](#manage_articles), [`export_image_file`](#export_image_file), [`transfer_resource_file`](#transfer_resource_file)
+- [Interactive documents](#interactive) (20): [`create_button`](#create_button), [`set_button_options`](#set_button_options), [`create_form_field`](#create_form_field), [`set_form_field_options`](#set_form_field_options), [`add_button_action`](#add_button_action), [`edit_button_actions`](#edit_button_actions), [`set_tab_order`](#set_tab_order), [`convert_interactive_to_object`](#convert_interactive_to_object), [`reset_interactive_states`](#reset_interactive_states), [`create_multi_state_object`](#create_multi_state_object), [`edit_object_states`](#edit_object_states), [`set_animation`](#set_animation), [`manage_motion_presets`](#manage_motion_presets), [`set_timing`](#set_timing), [`place_media`](#place_media), [`set_media_options`](#set_media_options), [`set_page_transitions`](#set_page_transitions), [`get_interactive_elements`](#get_interactive_elements), [`preview_interactivity`](#preview_interactivity), [`place_sample_button`](#place_sample_button)
+- [Printing and prepress](#prepress) (15): [`print_document`](#print_document), [`get_print_settings`](#get_print_settings), [`manage_print_preset`](#manage_print_preset), [`print_booklet`](#print_booklet), [`get_trap_presets`](#get_trap_presets), [`manage_trap_preset`](#manage_trap_preset), [`get_preflight_info`](#get_preflight_info), [`manage_preflight_profile`](#manage_preflight_profile), [`set_preflight_options`](#set_preflight_options), [`get_inks`](#get_inks), [`set_separation_inks`](#set_separation_inks), [`set_output_preview`](#set_output_preview), [`set_print_attributes`](#set_print_attributes), [`get_package_report`](#get_package_report), [`package_document_for_print`](#package_document_for_print)
+- [Colour](#color) (15): [`create_swatch`](#create_swatch), [`edit_swatch`](#edit_swatch), [`manage_swatches`](#manage_swatches), [`load_swatches`](#load_swatches), [`save_swatches`](#save_swatches), [`set_inks`](#set_inks), [`set_gradient_swatch`](#set_gradient_swatch), [`set_fill_stroke`](#set_fill_stroke), [`copy_fill_stroke`](#copy_fill_stroke), [`set_color_panel_options`](#set_color_panel_options), [`get_color_settings`](#get_color_settings), [`set_color_settings`](#set_color_settings), [`assign_document_profiles`](#assign_document_profiles), [`set_proofing`](#set_proofing), [`set_image_color_settings`](#set_image_color_settings)
+- [Frames and objects](#frames) (16): [`draw_shape`](#draw_shape), [`set_frame_content_type`](#set_frame_content_type), [`arrange_objects`](#arrange_objects), [`reveal_spread_items`](#reveal_spread_items), [`set_object_preferences`](#set_object_preferences), [`set_item_stroke`](#set_item_stroke), [`manage_stroke_styles`](#manage_stroke_styles), [`get_object_options`](#get_object_options), [`set_frame_fitting`](#set_frame_fitting), [`insert_anchored_object`](#insert_anchored_object), [`set_anchored_object_options`](#set_anchored_object_options), [`set_anchored_object_defaults`](#set_anchored_object_defaults), [`manage_object_library`](#manage_object_library), [`manage_library_items`](#manage_library_items), [`create_qr_code`](#create_qr_code), [`manage_math_objects`](#manage_math_objects)
+- [Layout tools](#layout_tools) (19): [`set_liquid_layout`](#set_liquid_layout), [`create_alternate_layout`](#create_alternate_layout), [`manage_alternate_layouts`](#manage_alternate_layouts), [`create_flex_layout`](#create_flex_layout), [`set_flex_layout`](#set_flex_layout), [`get_flex_layout`](#get_flex_layout), [`manage_named_grids`](#manage_named_grids), [`set_frame_grid`](#set_frame_grid), [`set_layout_grid`](#set_layout_grid), [`place_linked_copies`](#place_linked_copies), [`set_link_options`](#set_link_options), [`manage_style_mappings`](#manage_style_mappings), [`load_content_conveyor`](#load_content_conveyor), [`set_content_placer_options`](#set_content_placer_options), [`set_rulers`](#set_rulers), [`manage_guides`](#manage_guides), [`measure_between`](#measure_between), [`adjust_gap`](#adjust_gap), [`set_context_break_styles`](#set_context_break_styles)
+- [Images and links](#images) (10): [`list_document_links`](#list_document_links), [`relink_document_links`](#relink_document_links), [`run_document_link_action`](#run_document_link_action), [`run_links_panel_command`](#run_links_panel_command), [`place_graphic_with_options`](#place_graphic_with_options), [`get_placed_graphic_options`](#get_placed_graphic_options), [`set_placed_graphic_options`](#set_placed_graphic_options), [`adjust_frame_content`](#adjust_frame_content), [`place_contact_sheet`](#place_contact_sheet), [`manage_place_cursor`](#manage_place_cursor)
+- [Documents and windows](#documents) (6): [`create_document_with_options`](#create_document_with_options), [`manage_document_presets`](#manage_document_presets), [`run_file_command`](#run_file_command), [`manage_file_info`](#manage_file_info), [`arrange_document_windows`](#arrange_document_windows), [`set_margins_and_columns`](#set_margins_and_columns)
+- [Pages, spreads and parents](#pages_spreads) (8): [`arrange_spread_pages`](#arrange_spread_pages), [`set_spread_visibility`](#set_spread_visibility), [`go_to_page`](#go_to_page), [`rotate_spread_view`](#rotate_spread_view), [`insert_page_marker`](#insert_page_marker), [`manage_parent_pages`](#manage_parent_pages), [`set_layout_view_options`](#set_layout_view_options), [`show_document_panels`](#show_document_panels)
+- [Layers](#layers) (4): [`set_layer_options`](#set_layer_options), [`run_layer_command`](#run_layer_command), [`send_items_to_layer`](#send_items_to_layer), [`manage_layer_objects`](#manage_layer_objects)
+- [Selection and clipboard](#selection) (5): [`select_layout_objects`](#select_layout_objects), [`set_active_tool`](#set_active_tool), [`run_clipboard_command`](#run_clipboard_command), [`step_and_repeat_items`](#step_and_repeat_items), [`set_clipboard_preferences`](#set_clipboard_preferences)
+- [Undo and history](#history) (1): [`manage_undo_history`](#manage_undo_history)
+- [Preferences](#preferences) (2): [`get_indesign_preferences`](#get_indesign_preferences), [`set_indesign_preferences`](#set_indesign_preferences)
+- [Data merge](#data_merge) (4): [`add_data_merge_placeholder`](#add_data_merge_placeholder), [`manage_data_merge`](#manage_data_merge), [`set_data_merge_options`](#set_data_merge_options), [`export_data_merge_pdf`](#export_data_merge_pdf)
+- [Find and change](#find_change) (3): [`run_find_change`](#run_find_change), [`manage_find_change_queries`](#manage_find_change_queries), [`run_find_change_command`](#run_find_change_command)
+- [Dictionaries and languages](#proofing) (4): [`manage_autocorrect`](#manage_autocorrect), [`manage_user_dictionary`](#manage_user_dictionary), [`manage_languages`](#manage_languages), [`apply_language`](#apply_language)
+- [Scripting and automation](#automation) (12): [`manage_scripts_panel`](#manage_scripts_panel), [`set_script_preferences`](#set_script_preferences), [`manage_script_labels`](#manage_script_labels), [`run_menu_action`](#run_menu_action), [`manage_script_menus`](#manage_script_menus), [`manage_event_listeners`](#manage_event_listeners), [`manage_idle_tasks`](#manage_idle_tasks), [`edit_preference_object`](#edit_preference_object), [`get_performance_metrics`](#get_performance_metrics), [`apply_ui_customization`](#apply_ui_customization), [`generate_idml_schema`](#generate_idml_schema), [`find_xml_rule_matches`](#find_xml_rule_matches)
+- [InCopy and Creative Cloud](#incopy) (4): [`manage_assignments`](#manage_assignments), [`manage_incopy_content`](#manage_incopy_content), [`manage_cc_library_assets`](#manage_cc_library_assets), [`manage_pdf_comments`](#manage_pdf_comments)
+
+## Documents & Books
+<a id="document"></a>
+
+Create, open, save, inspect and validate documents; manage books.
+
+### `get_document_info`
+
+Get information about the active document (name, path, page/spread/layer counts, page size, bleed and margins in millimetres)
+
+*read-only*
+
+No parameters.
+
+### `create_document`
+
+Create a new document and make it active. All measurements are in millimetres. Margins are applied to every page of the new document.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `width` | number |  | `210` | Page width in mm |
+| `height` | number |  | `297` | Page height in mm |
+| `pages` | integer |  | `1` | Number of pages |
+| `facingPages` | boolean |  | `false` | Enable facing pages |
+| `pageOrientation` | `PORTRAIT`, `LANDSCAPE` |  | `"PORTRAIT"` | Page orientation; width and height are swapped if needed to match |
+| `bleedTop` | number |  | `3` | Top bleed in mm |
+| `bleedBottom` | number |  | `3` | Bottom bleed in mm |
+| `bleedInside` | number |  | `3` | Inside (left) bleed in mm |
+| `bleedOutside` | number |  | `3` | Outside (right) bleed in mm |
+| `marginTop` | number |  | `20` | Top margin in mm |
+| `marginBottom` | number |  | `20` | Bottom margin in mm |
+| `marginLeft` | number |  | `20` | Left (inside, for facing pages) margin in mm |
+| `marginRight` | number |  | `20` | Right (outside, for facing pages) margin in mm |
+
+### `open_document`
+
+Open an existing InDesign document (.indd, .indt, .idml) and make it active
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Absolute path to the document file |
+
+### `save_document`
+
+Save the active document. With filePath, saves to that location (Save As); without it, saves in place (the document must have been saved before).
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string |  |  | Absolute path to save to (e.g. /Users/me/Documents/file.indd). Omit to save in place. |
+
+### `close_document`
+
+Close the active document WITHOUT saving (unsaved changes are discarded)
+
+***destructive** · idempotent*
+
+No parameters.
+
+### `preflight_document`
+
+Run a preflight check on the active document with a preflight profile and list the problems found (optionally saving a report)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `profile` | string |  | `"[Basic]"` | Preflight profile name, e.g. "[Basic]" (the built-in profile). Embedded document profiles are checked first, then application profiles. |
+| `reportPath` | string |  |  | Optional absolute path to save the preflight report (.pdf or .txt) |
+| `maxResults` | integer |  | `50` | Maximum number of problems to list |
+| `timeoutSeconds` | integer |  | `60` | Maximum seconds to wait for preflight to finish |
+
+### `zoom_to_page`
+
+Show a page in the document window: fit the page in the window, or zoom to a given percentage
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Zero-based page index to show |
+| `zoomLevel` | number |  |  | Zoom percentage (5-4000). Omit to fit the page in the window. |
+
+### `data_merge`
+
+Data merge: select a CSV or tab-delimited text data source for the active document and (optionally) merge records. The document must already contain data merge placeholders for merging to succeed.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `dataSource` | string | yes |  | Absolute path to the data source file (.csv or tab-delimited .txt) |
+| `mergeRecords` | boolean |  | `true` | Merge records after selecting the data source. If false, only selects the source and lists its fields. |
+| `recordSelection` | `ALL_RECORDS`, `ONE_RECORD`, `RANGE` |  | `"ALL_RECORDS"` | Which records to merge |
+| `recordNumber` | integer |  |  | Record to merge when recordSelection is ONE_RECORD |
+| `recordRange` | string |  |  | Record range when recordSelection is RANGE, e.g. "1-5,8" |
+| `recordsPerPage` | `SINGLE_RECORD`, `MULTIPLE_RECORD` |  | `"SINGLE_RECORD"` | One record per page, or multiple records per page |
+| `createNewDocument` | boolean |  | `true` | Create a new document for the merged records |
+| `removeBlankLines` | boolean |  | `false` | Remove blank lines caused by empty fields |
+
+### `get_document_elements`
+
+Count the elements in the document (text frames, stories, shapes, graphics, tables, groups, layers), including items nested in groups
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `elementType` | `all`, `text`, `graphics`, `tables` |  | `"all"` | Which kind of elements to count |
+
+### `get_document_styles`
+
+List the styles of one type in the document (including styles inside style groups)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styleType` | `PARAGRAPH`, `CHARACTER`, `OBJECT`, `TABLE`, `CELL` |  | `"PARAGRAPH"` | Type of styles to list |
+
+### `get_document_colors`
+
+List the colors (with color model) and optionally the swatches, gradients and tints in the document
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `includeSwatches` | boolean |  | `true` | Include swatches |
+| `includeGradients` | boolean |  | `true` | Include gradients |
+| `includeTints` | boolean |  | `true` | Include tints |
+
+### `get_document_preferences`
+
+Read document preferences. Measurements are reported in millimetres. Property names match set_document_preferences.
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `preferenceType` | `GENERAL`, `MARGINS`, `GUIDES`, `TEXT`, `GRID`, `ALL` |  | `"GENERAL"` | Which preference group to read |
+
+### `set_document_preferences`
+
+Set document preferences. Pass one or more groups (general, margins, guides, text, grid) with the properties to change. Measurements are millimetres. Margin changes are applied to the document defaults and to every existing document and master page.
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `general` | object |  |  | Document setup (DocumentPreference) |
+| `margins` | object |  |  | Margins and columns (MarginPreference) |
+| `guides` | object |  |  | Ruler guides (GuidePreference) |
+| `text` | object |  |  | Text (TextPreference) |
+| `grid` | object |  |  | Grids (GridPreference) |
+
+### `get_document_stories`
+
+List the stories in the document with length, frame count, overset status and a short preview
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `oversetOnly` | boolean |  | `false` | Only list stories whose text is overset (overflows its frames) |
+| `maxStories` | integer |  | `100` | Maximum number of stories to list |
+
+### `find_text_in_document`
+
+Find (and optionally replace) text across the entire document. Uses Text find/change, or GREP when useRegex is true.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `searchText` | string | yes |  | Text to search for (a GREP pattern when useRegex is true) |
+| `replaceText` | string |  |  | Replacement text. Omit to only find; pass "" to delete matches. |
+| `caseSensitive` | boolean |  | `false` | Case sensitive search |
+| `wholeWord` | boolean |  | `false` | Match whole words only |
+| `useRegex` | boolean |  | `false` | Treat searchText as a GREP pattern (and replaceText may use $1 etc.) |
+
+### `get_document_layers`
+
+List the layers in the document (top to bottom) with visibility, lock state, printability and item count
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `includeHidden` | boolean |  | `true` | Include hidden layers |
+| `includeLocked` | boolean |  | `true` | Include locked layers |
+
+### `organize_document_layers`
+
+Organize document layers: merge layers with duplicate names, delete empty layers, and/or sort layers alphabetically (A at top). Operations run in that order. The last remaining layer is never deleted.
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `mergeSimilarLayers` | boolean |  |  | Merge layers whose names are equal ignoring case, surrounding spaces and a trailing " copy" / " copy N" (default false) |
+| `deleteEmptyLayers` | boolean |  |  | Delete layers that contain no page items and no guides (default false) |
+| `sortLayers` | boolean |  |  | Sort layers alphabetically by name (default false) |
+
+### `get_document_hyperlinks`
+
+List the hyperlinks in the document with their sources and destinations
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `includeDestinations` | boolean |  | `true` | Include link destinations (URL, page or text anchor) |
+| `includeSources` | boolean |  | `true` | Include link sources (the linked text or object) |
+
+### `create_document_hyperlink`
+
+Create a hyperlink on the first occurrence of sourceText in the document. The destination is a URL, a page, or the first occurrence of some other text (a text anchor).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `sourceText` | string | yes |  | Existing text in the document to turn into a link (first occurrence, case-sensitive) |
+| `linkType` | `URL`, `PAGE`, `TEXT` |  | `"URL"` | Type of destination |
+| `destination` | string |  |  | For URL: the URL. For TEXT: existing text in the document to link to. Not used for PAGE. |
+| `pageIndex` | integer |  |  | Zero-based destination page index (required for PAGE links) |
+| `name` | string |  |  | Optional hyperlink name (must be unique in the document) |
+
+### `get_document_sections`
+
+List the sections in the document with start page, numbering style, start number, prefix and marker
+
+*read-only*
+
+No parameters.
+
+### `create_document_section`
+
+Start a new section at a page (or update the section that already starts there) with its own page numbering
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `startPage` | integer | yes |  | Zero-based index of the page that starts the section |
+| `sectionPrefix` | string |  |  | Section prefix |
+| `includeSectionPrefix` | boolean |  |  | Include the prefix when displaying page numbers |
+| `marker` | string |  |  | Section marker text |
+| `startNumber` | integer |  |  | Starting page number. Omit to continue numbering from the previous section. |
+| `numberingStyle` | `ARABIC`, `UPPER_ROMAN`, `LOWER_ROMAN`, `UPPER_LETTERS`, `LOWER_LETTERS`, `SINGLE_LEADING_ZEROS`, `DOUBLE_LEADING_ZEROS`, `TRIPLE_LEADING_ZEROS`, `KANJI`, `ARABIC_ABJAD`, `ARABIC_ALIF_BA_TAH`, `HEBREW_BIBLICAL`, `HEBREW_NON_STANDARD` |  | `"ARABIC"` | Page number style (PageNumberStyle) |
+
+### `get_document_xml_structure`
+
+Show the document XML structure: the tag list and/or the element tree (tag, attribute and child counts, text preview)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `includeTags` | boolean |  | `true` | Include the list of XML tags |
+| `includeElements` | boolean |  | `true` | Include the XML element tree |
+| `maxDepth` | integer |  | `10` | Maximum element tree depth to show |
+
+### `export_document_xml`
+
+Export the document XML structure (the Structure pane content) to an XML file
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Absolute path of the XML file to write |
+| `includeImages` | boolean |  | `false` | Copy original images into an Images folder next to the XML file |
+
+### `save_document_to_cloud`
+
+Save the active document as an Adobe Creative Cloud document (Document.saveAsCloud / saveACopyCloud). Requires InDesign with cloud documents support and a signed-in Creative Cloud account.
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `cloudName` | string | yes |  | Name for the cloud document |
+| `mode` | `SAVE_A_COPY`, `SAVE_AS` |  | `"SAVE_A_COPY"` | SAVE_A_COPY keeps the open document as is; SAVE_AS makes the open document the cloud document |
+
+### `open_cloud_document`
+
+Open an Adobe Creative Cloud document by its asset reference (app.openCloudDocument). Requires InDesign with cloud documents support and a signed-in Creative Cloud account.
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `cloudDocumentId` | string | yes |  | Asset reference of the cloud document (as reported by InDesign, e.g. a urn:aaid:... identifier) |
+
+### `get_document_grid_settings`
+
+Get the document grid and baseline grid settings (measurements in millimetres). Property names match set_document_grid_settings.
+
+*read-only*
+
+No parameters.
+
+### `set_document_grid_settings`
+
+Set document grid and baseline grid settings (GridPreference). Pass only the properties to change. Measurements are millimetres.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `documentGridShown` | boolean |  |  | documentGridShown |
+| `documentGridSnapto` | boolean |  |  | documentGridSnapto |
+| `gridColor` | `BLACK`, `BLUE`, `BRICK_RED`, `BROWN`, `BURGUNDY`, `CHARCOAL`, `CUTE_TEAL`, `CYAN`, `DARK_BLUE`, `DARK_GREEN`, `FIESTA`, `GOLD`, `GRASS_GREEN`, `GRAY`, `GREEN`, `GRID_BLUE`, `GRID_GREEN`, `GRID_ORANGE`, `LAVENDER`, `LIGHT_BLUE`, `LIGHT_GRAY`, `LIGHT_OLIVE`, `LIPSTICK`, `MAGENTA`, `OCHRE`, `OLIVE_GREEN`, `ORANGE`, `PEACH`, `PINK`, `PURPLE`, `RED`, `SULPHUR`, `TAN`, `TEAL`, `VIOLET`, `WHITE`, `YELLOW` |  |  | gridColor (UIColors) |
+| `horizontalGridlineDivision` | number |  |  | horizontalGridlineDivision. Millimetres (a string with units such as "12pt" or "0.5in" is also accepted) |
+| `horizontalGridSubdivision` | integer |  |  | horizontalGridSubdivision |
+| `verticalGridlineDivision` | number |  |  | verticalGridlineDivision. Millimetres (a string with units such as "12pt" or "0.5in" is also accepted) |
+| `verticalGridSubdivision` | integer |  |  | verticalGridSubdivision |
+| `gridsInBack` | boolean |  |  | gridsInBack |
+| `baselineGridShown` | boolean |  |  | baselineGridShown |
+| `baselineColor` | `BLACK`, `BLUE`, `BRICK_RED`, `BROWN`, `BURGUNDY`, `CHARCOAL`, `CUTE_TEAL`, `CYAN`, `DARK_BLUE`, `DARK_GREEN`, `FIESTA`, `GOLD`, `GRASS_GREEN`, `GRAY`, `GREEN`, `GRID_BLUE`, `GRID_GREEN`, `GRID_ORANGE`, `LAVENDER`, `LIGHT_BLUE`, `LIGHT_GRAY`, `LIGHT_OLIVE`, `LIPSTICK`, `MAGENTA`, `OCHRE`, `OLIVE_GREEN`, `ORANGE`, `PEACH`, `PINK`, `PURPLE`, `RED`, `SULPHUR`, `TAN`, `TEAL`, `VIOLET`, `WHITE`, `YELLOW` |  |  | baselineColor (UIColors) |
+| `baselineStart` | number |  |  | baselineStart. Millimetres (a string with units such as "12pt" or "0.5in" is also accepted) |
+| `baselineDivision` | number |  |  | baselineDivision. Millimetres (a string with units such as "12pt" or "0.5in" is also accepted) |
+| `baselineViewThreshold` | number |  |  | baselineViewThreshold |
+| `baselineGridRelativeOption` | `TOP_OF_PAGE_OF_BASELINE_GRID_RELATIVE_OPTION`, `TOP_OF_MARGIN_OF_BASELINE_GRID_RELATIVE_OPTION` |  |  | baselineGridRelativeOption (BaselineGridRelativeOption) |
+
+### `get_document_layout_preferences`
+
+Get Adjust Layout preferences (document) and Align & Distribute and Smart Guides preferences (application-wide). Property names match set_document_layout_preferences.
+
+*read-only*
+
+No parameters.
+
+### `set_document_layout_preferences`
+
+Set Adjust Layout preferences (stored in the document) and Align & Distribute / Smart Guides preferences (application-wide in InDesign). Pass one or more groups with the properties to change.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `adjustLayout` | object |  |  | Adjust Layout (document, AdjustLayoutPreference) |
+| `alignDistribute` | object |  |  | Align & Distribute (application-wide, AlignDistributePreference) |
+| `smartGuides` | object |  |  | Smart Guides (application-wide, SmartGuidePreference) |
+
+### `validate_document`
+
+Check the document for problems: missing/modified links, missing fonts, missing or low-resolution images, overset text and unused styles
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `checkLinks` | boolean |  | `true` | Report links that are missing, out of date or inaccessible |
+| `checkFonts` | boolean |  | `true` | Report fonts that are not installed (missing, substituted, faux) |
+| `checkImages` | boolean |  | `true` | Report placed graphics with missing/modified links and images below minImagePpi |
+| `minImagePpi` | number |  | `150` | Minimum effective resolution for images |
+| `checkOverset` | boolean |  | `true` | Report stories with overset text |
+| `checkStyles` | boolean |  | `false` | Report paragraph and character styles not applied to any text |
+
+### `cleanup_document`
+
+Clean up the document by removing unused paragraph/character styles, unused swatches, empty layers and/or hidden page items. Use dryRun to list what would be removed.
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `removeUnusedStyles` | boolean |  |  | Remove paragraph and character styles not applied to any text (built-in [bracketed] styles are kept) (default false) |
+| `removeUnusedColors` | boolean |  |  | Remove unused swatches (built-in [bracketed] swatches are kept) (default false) |
+| `removeUnusedLayers` | boolean |  |  | Remove layers with no page items and no guides (the last layer is kept) (default false) |
+| `removeHiddenElements` | boolean |  |  | Remove page items that are hidden (visible = false) (default false) |
+| `dryRun` | boolean |  | `false` | Only report what would be removed |
+
+### `create_book`
+
+Create a new InDesign book file and leave it open (fails if a file already exists at the path)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Path for the new book file (".indb" is appended if missing) |
+
+### `open_book`
+
+Open an existing InDesign book (it stays open)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Path to the book file |
+
+### `list_books`
+
+List the books currently open in InDesign with their file paths and document counts
+
+*read-only*
+
+No parameters.
+
+### `add_document_to_book`
+
+Add an InDesign document to the end of a book and save the book
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `documentPath` | string | yes |  | Path to the document to add |
+
+### `synchronize_book`
+
+Synchronize styles, swatches and other enabled options from the book's style source document to all documents, then save the book
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `repaginate_book`
+
+Repaginate all documents in a book and save it
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `update_all_cross_references`
+
+Update all cross references in a book
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `update_all_numbers`
+
+Update all numbers (page numbers, chapter numbers, paragraph numbers) in a book
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `update_chapter_and_paragraph_numbers`
+
+Update chapter and paragraph numbers in a book
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `export_book`
+
+Export an entire book to a single file
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `format` | `PDF`, `INTERACTIVE_PDF`, `EPUB`, `FIXED_LAYOUT_EPUB`, `HTML` |  | `"PDF"` | Export format |
+| `outputPath` | string | yes |  | Path for the exported file |
+| `pdfPreset` | string |  |  | PDF export preset name for format PDF (e.g. "[High Quality Print]"); default: current PDF export settings |
+
+### `package_book`
+
+Package a book for print production into a folder (created if missing)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `outputPath` | string | yes |  | Path for the package folder |
+| `copyingFonts` | boolean |  | `true` | Copy fonts to package |
+| `copyingLinkedGraphics` | boolean |  | `true` | Copy linked graphics |
+| `copyingProfiles` | boolean |  | `true` | Copy color profiles |
+| `updatingGraphics` | boolean |  | `true` | Update graphics links |
+| `includingHiddenLayers` | boolean |  | `false` | Include hidden layers |
+| `ignorePreflightErrors` | boolean |  | `false` | Ignore preflight errors |
+| `creatingReport` | boolean |  | `true` | Create package report |
+| `includeIdml` | boolean |  | `false` | Include IDML file |
+| `includePdf` | boolean |  | `false` | Include PDF file |
+| `pdfStyle` | string |  | `"[High Quality Print]"` | PDF export preset used when includePdf is true |
+
+### `preflight_book`
+
+Preflight a book and save the preflight report (PDF, or text if the path ends in .txt). The report path is returned.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `outputPath` | string |  |  | Path for the preflight report (default: <book name>-preflight.pdf in the system temp folder) |
+| `autoOpen` | boolean |  | `false` | Automatically open the report |
+
+### `print_book`
+
+Print every document in a book with a printer preset, optionally showing the print dialog first
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `printDialog` | boolean |  | `false` | Show the print dialog and wait for the user (leave false for unattended use) |
+| `printerPreset` | string |  | `"DEFAULT_VALUE"` | Printer preset name (e.g. "[Default]" or a saved preset), or "DEFAULT_VALUE" for the default preset |
+
+### `get_book_info`
+
+Get detailed information about a book
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+
+### `set_book_properties`
+
+Set book options (only the ones given) and save the book
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book file |
+| `automaticPagination` | boolean |  |  | Enable automatic pagination |
+| `automaticDocumentConversion` | boolean |  |  | Enable automatic document conversion |
+| `insertBlankPage` | boolean |  |  | Insert blank pages as necessary |
+| `mergeIdenticalLayers` | boolean |  |  | Merge identical layers when exporting to PDF |
+| `synchronizeBulletNumberingList` | boolean |  |  | Synchronize bullets and numbering |
+| `synchronizeCellStyle` | boolean |  |  | Synchronize cell styles |
+| `synchronizeCharacterStyle` | boolean |  |  | Synchronize character styles |
+| `synchronizeConditionalText` | boolean |  |  | Synchronize conditional text |
+| `synchronizeCrossReferenceFormat` | boolean |  |  | Synchronize cross reference formats |
+| `synchronizeMasterPage` | boolean |  |  | Synchronize master pages |
+| `synchronizeObjectStyle` | boolean |  |  | Synchronize object styles |
+| `synchronizeParagraphStyle` | boolean |  |  | Synchronize paragraph styles |
+| `synchronizeSwatch` | boolean |  |  | Synchronize swatches |
+| `synchronizeTableOfContentStyle` | boolean |  |  | Synchronize table of content styles |
+| `synchronizeTableStyle` | boolean |  |  | Synchronize table styles |
+| `synchronizeTextVariable` | boolean |  |  | Synchronize text variables |
+| `synchronizeTrapStyle` | boolean |  |  | Synchronize trap styles |
+
+## Pages & Spreads
+<a id="page"></a>
+
+Add, move, resize and inspect pages and spreads; guides and placement.
+
+### `add_page`
+
+Add a page to the active document at the end, the beginning, or before/after a given page; returns the new page count
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Where to add the page: AT_END, AT_BEGINNING, or BEFORE/AFTER referencePage |
+| `referencePage` | integer |  |  | 0-based reference page index (required for BEFORE/AFTER) |
+
+### `delete_page`
+
+Delete a page from the document (the only page cannot be deleted)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based index of the page to delete |
+
+### `duplicate_page`
+
+Duplicate a page and put the copy at the given position in the document
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based index of the page to duplicate |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Where to put the copy |
+| `referencePageIndex` | integer |  |  | 0-based reference page index (required for BEFORE/AFTER) |
+
+### `navigate_to_page`
+
+Navigate to a page: make it the active page of the document's layout window
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based index of the page to navigate to |
+
+### `get_page_info`
+
+Get detailed information about a specific page
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+
+### `move_page`
+
+Move a page to a different position in the document
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based index of the page to move |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Where to move the page: AT_END, AT_BEGINNING, or BEFORE/AFTER referencePage |
+| `referencePageIndex` | integer |  |  | 0-based reference page index (required for BEFORE/AFTER; must differ from pageIndex) |
+| `binding` | `DEFAULT_VALUE`, `LEFT_ALIGN`, `RIGHT_ALIGN` |  | `"DEFAULT_VALUE"` | Location of the binding spine in the spread (BindingOptions) |
+
+### `set_page_properties`
+
+Set properties for a page (only the properties given are changed)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `label` | string |  |  | Page label |
+| `pageColor` | string |  |  | Page color shown in the Pages panel: UI color name (e.g. "BLUE", "LIGHT_BLUE"), "r,g,b" (0-255), "USE_MASTER_COLOR" or "NOTHING" |
+| `optionalPage` | boolean |  |  | Optional page for HTML5 pagination |
+| `layoutRule` | `GUIDE_BASED`, `OBJECT_BASED`, `OFF`, `PRESERVE_EXISTING`, `RECENTER`, `SCALE`, `USE_MASTER` |  |  | Liquid layout rule (LayoutRuleOptions) |
+| `snapshotBlendingMode` | `FULL_SNAPSHOT_BLENDING`, `IGNORE_LAYOUT_SNAPSHOTS`, `LIMITED_SNAPSHOT_BLENDING`, `USE_NEAREST_SNAPSHOT` |  |  | Snapshot blending mode (SnapshotBlendingModes) |
+| `appliedTrapPreset` | string |  |  | Name of an existing trap preset to apply |
+
+### `adjust_page_layout`
+
+Adjust a page's size and margins with InDesign's Adjust Layout (content is repositioned/scaled to follow). Bleed values are a document setting and are applied to the whole document. All values use the given units.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `units` | `mm`, `cm`, `in`, `pt`, `px` |  | `"mm"` | Units for all values below |
+| `width` | number |  |  | New page width |
+| `height` | number |  |  | New page height |
+| `bleedInside` | number |  |  | Inside (left) bleed, document-wide |
+| `bleedTop` | number |  |  | Top bleed, document-wide |
+| `bleedOutside` | number |  |  | Outside (right) bleed, document-wide |
+| `bleedBottom` | number |  |  | Bottom bleed, document-wide |
+| `leftMargin` | number |  |  | Left margin |
+| `topMargin` | number |  |  | Top margin |
+| `rightMargin` | number |  |  | Right margin |
+| `bottomMargin` | number |  |  | Bottom margin |
+
+### `resize_page`
+
+Resize a page (Page.resize). With REPLACING/ADDING, width and height are lengths in mm; with MULTIPLYING they are scale factors; with RESHAPING_* they are a width:height ratio.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `width` | number | yes |  | Width value (mm, factor or ratio part depending on resizeMethod) |
+| `height` | number | yes |  | Height value (mm, factor or ratio part depending on resizeMethod) |
+| `resizeMethod` | `REPLACING_CURRENT_DIMENSIONS_WITH`, `MULTIPLYING_CURRENT_DIMENSIONS_BY`, `ADDING_CURRENT_DIMENSIONS_TO`, `RESHAPING_AREA_TO_RATIO`, `RESHAPING_BORDER_TO_RATIO` |  | `"REPLACING_CURRENT_DIMENSIONS_WITH"` | How width and height are applied: replace the size (default), multiply it, add to it, or reshape to a ratio |
+| `anchorPoint` | `TOP_LEFT_ANCHOR`, `TOP_CENTER_ANCHOR`, `TOP_RIGHT_ANCHOR`, `LEFT_CENTER_ANCHOR`, `CENTER_ANCHOR`, `RIGHT_CENTER_ANCHOR`, `BOTTOM_LEFT_ANCHOR`, `BOTTOM_CENTER_ANCHOR`, `BOTTOM_RIGHT_ANCHOR` |  | `"CENTER_ANCHOR"` | Point of the page that stays fixed while it resizes |
+| `coordinateSpace` | `PAGE_COORDINATES`, `SPREAD_COORDINATES`, `PASTEBOARD_COORDINATES`, `INNER_COORDINATES`, `PARENT_COORDINATES` |  | `"PAGE_COORDINATES"` | Coordinate space the size is measured in; PAGE_COORDINATES unless you need another |
+
+### `place_file_on_page`
+
+Place a file (image, PDF, text, InDesign snippet, ...) on a page. x/y are measured in mm from the page's top-left corner.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `filePath` | string | yes |  | Path to file to place |
+| `x` | number |  | `10` | X position in mm |
+| `y` | number |  | `10` | Y position in mm |
+| `layerName` | string |  |  | Layer to place on (default: active layer) |
+| `showingOptions` | boolean |  | `false` | Show import options dialog |
+| `autoflowing` | boolean |  | `false` | Autoflow placed text |
+
+### `place_xml_on_page`
+
+Place an XML element (the first element whose tag matches xmlElementName) on a page. x/y are measured in mm from the page's top-left corner.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `xmlElementName` | string | yes |  | Tag name of the XML element to place |
+| `x` | number |  | `10` | X position in mm |
+| `y` | number |  | `10` | Y position in mm |
+| `autoflowing` | boolean |  | `false` | Autoflow placed text |
+
+### `snapshot_page_layout`
+
+Create a liquid-layout snapshot of the page layout for its current size and shape
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+
+### `delete_page_layout_snapshot`
+
+Delete the page's layout snapshot for its current size and shape
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+
+### `delete_all_page_layout_snapshots`
+
+Delete all layout snapshots for a page
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+
+### `reframe_page`
+
+Reframe a page: set its bounding box from two opposing corners, in mm in the given coordinate space
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `x1` | number | yes |  | Top-left X coordinate in mm |
+| `y1` | number | yes |  | Top-left Y coordinate in mm |
+| `x2` | number | yes |  | Bottom-right X coordinate in mm |
+| `y2` | number | yes |  | Bottom-right Y coordinate in mm |
+| `coordinateSpace` | `PAGE_COORDINATES`, `SPREAD_COORDINATES`, `PASTEBOARD_COORDINATES`, `INNER_COORDINATES`, `PARENT_COORDINATES` |  | `"PAGE_COORDINATES"` | Coordinate space of the corner coordinates; PAGE_COORDINATES unless you need another |
+
+### `create_page_guides`
+
+Create row/column guides on one page (like Layout > Create Guides, limited to this page)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `numberOfRows` | integer |  | `0` | Number of rows (2+ creates horizontal guides) |
+| `numberOfColumns` | integer |  | `0` | Number of columns (2+ creates vertical guides) |
+| `rowGutter` | number |  | `5` | Row gutter in mm |
+| `columnGutter` | number |  | `5` | Column gutter in mm |
+| `guideColor` | string |  | `"BLUE"` | Guide color: UI color name (e.g. "BLUE", "GRID_GREEN") or "r,g,b" (0-255) |
+| `fitMargins` | boolean |  | `true` | Divide the area inside the margins (true) or the whole page (false) |
+| `removeExisting` | boolean |  | `false` | Remove the page's existing guides first |
+| `layerName` | string |  |  | Layer to create the guides on (default: active layer) |
+
+### `select_page`
+
+Select a page in the active document (for example before running a command that acts on the selection)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+| `selectionMode` | `REPLACE_WITH`, `ADD_TO`, `REMOVE_FROM`, `SET_KEY` |  | `"REPLACE_WITH"` | REPLACE_WITH replaces the selection; ADD_TO / REMOVE_FROM change it; SET_KEY makes the page the key object |
+
+### `get_page_content_summary`
+
+Summarize what is on a page: counts of text frames, rectangles, ovals, polygons, lines, groups, placed graphics, guides and master items
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based page index |
+
+### `set_page_background`
+
+Set a page background: adds a full-page rectangle filled with a swatch, sent to the back of its layer
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer |  | `0` | 0-based page index (default 0, the first page) |
+| `backgroundColor` | string |  | `"Paper"` | Swatch name in the document (e.g. "Paper", "Black", a custom swatch); "White" falls back to "Paper" |
+| `opacity` | number |  | `100` | Background opacity percentage (0-100) |
+
+### `list_spreads`
+
+List all spreads in the active document with their pages, applied master, item count and label
+
+*read-only*
+
+No parameters.
+
+### `get_spread_info`
+
+Get detailed information about a spread: pages, applied master, page shuffle, master item visibility, page transition, item and guide counts
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+
+### `duplicate_spread`
+
+Duplicate a spread (Spread.duplicate) and place the copy at the given location in the document
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index to duplicate (0-based) |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Where to put the copy (LocationOptions) |
+| `referenceSpreadIndex` | integer |  |  | Reference spread index (0-based); required for BEFORE/AFTER |
+
+### `move_spread`
+
+Move a spread (Spread.move) to a different position in the document
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index to move (0-based) |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Destination (LocationOptions) |
+| `referenceSpreadIndex` | integer |  |  | Reference spread index (0-based); required for BEFORE/AFTER, must differ from spreadIndex |
+
+### `delete_spread`
+
+Delete a spread and all its pages. The last remaining spread cannot be deleted.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index to delete (0-based) |
+
+### `set_spread_properties`
+
+Set writable properties of a spread. Only the properties you pass are changed; each is applied independently and any rejected value is reported.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+| `name` | string |  |  | Spread name (InDesign treats this as an alias of the spread's label) |
+| `label` | string |  |  | Script label (any string) |
+| `allowPageShuffle` | boolean |  |  | If true, the spread holds at most two pages when pages are added; if false, pages can be added or moved into this existing spread |
+| `showMasterItems` | boolean |  |  | Display master page items on the pages of this spread |
+| `pageTransitionType` | `NONE`, `BLINDS_TRANSITION`, `BOX_TRANSITION`, `COMB_TRANSITION`, `COVER_TRANSITION`, `DISSOLVE_TRANSITION`, `FADE_TRANSITION`, `PUSH_TRANSITION`, `SPLIT_TRANSITION`, `UNCOVER_TRANSITION`, `WIPE_TRANSITION`, `ZOOM_IN_TRANSITION`, `ZOOM_OUT_TRANSITION` |  |  | Page transition type (PageTransitionTypeOptions), used in SWF/interactive PDF export |
+| `pageTransitionDirection` | `HORIZONTAL`, `VERTICAL`, `HORIZONTAL_IN`, `HORIZONTAL_OUT`, `VERTICAL_IN`, `VERTICAL_OUT`, `LEFT_TO_RIGHT`, `RIGHT_TO_LEFT`, `UP`, `DOWN`, `LEFT_UP`, `LEFT_DOWN`, `RIGHT_UP`, `RIGHT_DOWN`, `IN`, `OUT`, `NOT_APPLICABLE` |  |  | Page transition direction (PageTransitionDirectionOptions); must be one the chosen transition type supports |
+| `pageTransitionDuration` | `FAST`, `MEDIUM`, `SLOW` |  |  | Page transition duration (PageTransitionDurationOptions) |
+
+### `create_spread_guides`
+
+Create row/column guides on every page of a spread (Spread.createGuides). Set numberOfRows and/or numberOfColumns above 0; with both 0 nothing is created (the result reports the guide count before and after).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+| `numberOfRows` | number |  | `0` | Number of rows to create on each page (0-100) |
+| `numberOfColumns` | number |  | `0` | Number of columns to create on each page (0-100) |
+| `rowGutter` | number |  | `5` | Row gutter in mm |
+| `columnGutter` | number |  | `5` | Column gutter in mm |
+| `guideColor` | string |  | `"BLUE"` | Guide color: a UIColors name (e.g. BLUE, LIGHT_BLUE, GRID_GREEN) or "R,G,B" with each value 0-255 |
+| `fitMargins` | boolean |  | `true` | If true, rows/columns divide the area inside the page margins; if false, the full page |
+| `removeExisting` | boolean |  | `false` | Remove existing guides when creating the new ones |
+| `layerName` | string |  |  | Name of an existing layer to create the guides on (default: active layer) |
+
+### `place_file_on_spread`
+
+Place a file (image, PDF, text, InDesign snippet...) on a spread at a point (Spread.place)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+| `filePath` | string | yes |  | Absolute path to the file to place (must be inside the allowed directories) |
+| `x` | number |  | `10` | X of the place point in mm, measured from the ruler origin (spread origin by default) |
+| `y` | number |  | `10` | Y of the place point in mm, measured from the ruler origin |
+| `layerName` | string |  |  | Name of an existing layer to place on (default: active layer) |
+| `showingOptions` | boolean |  | `false` | Show the import options dialog (modal: blocks until a user closes it in InDesign) |
+| `autoflowing` | boolean |  | `false` | Autoflow placed text |
+
+### `place_xml_on_spread`
+
+Place an element of the document's XML structure on a spread (Spread.placeXML). The element is found by tag name, searching the structure depth-first from the root.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+| `xmlElementName` | string | yes |  | Tag name (markup tag) of the XML element to place |
+| `matchIndex` | integer |  | `0` | Which element to use when several have this tag (0-based, document order) |
+| `x` | number |  | `10` | X of the place point in mm, measured from the ruler origin |
+| `y` | number |  | `10` | Y of the place point in mm, measured from the ruler origin |
+| `autoflowing` | boolean |  | `false` | Autoflow placed text |
+
+### `select_spread`
+
+Select a spread (Spread.select) and optionally make it the active spread in the layout window
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index to select (0-based) |
+| `selectionMode` | `REPLACE_WITH`, `ADD_TO`, `REMOVE_FROM`, `SET_KEY` |  | `"REPLACE_WITH"` | How the selection relates to the existing selection (SelectionOptions) |
+| `makeActive` | boolean |  | `true` | Also make it the layout window's active spread (scrolls it into view) |
+
+### `get_spread_content_summary`
+
+Summarize the content of a spread: item counts by type, overset text frames, placed graphics with link status, and items per layer
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | Spread index (0-based) |
+
+## Text & Tables
+<a id="text"></a>
+
+Text frames, tables and find/replace.
+
+### `create_text_frame`
+
+Create a text frame on the active page (or pageIndex). Styles are applied first; explicit formatting overrides them.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `content` | string | yes |  | Text content for the frame |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm from the page left edge; omit position or size to have the frame placed automatically |
+| `y` | number |  |  | Y position in mm from the page top edge |
+| `width` | number |  |  | Width in mm |
+| `height` | number |  |  | Height in mm |
+| `fontSize` | number |  |  | Font size in points (default: style/document default) |
+| `fontName` | string |  |  | Font as "Family\tStyle" (e.g. "Arial\tRegular", InDesign's Font.name) or a family name (default: style/document default) |
+| `textColor` | string |  |  | Text color (default: style/document default): swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `alignment` | `LEFT_ALIGN`, `CENTER_ALIGN`, `RIGHT_ALIGN`, `LEFT_JUSTIFIED`, `RIGHT_JUSTIFIED`, `CENTER_JUSTIFIED`, `FULLY_JUSTIFIED` |  |  | Paragraph alignment (InDesign Justification; LEFT_JUSTIFIED = justified, last line left) |
+| `paragraphStyle` | string |  |  | Paragraph style name to apply |
+| `characterStyle` | string |  |  | Character style name to apply |
+
+### `edit_text_frame`
+
+Edit the content and/or formatting of an existing text frame
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `frameIndex` | integer | yes |  | Index in page.textFrames (top-level text frames only; not the list_page_items numbering) |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `content` | string |  |  | New text content (replaces existing text) |
+| `fontSize` | number |  |  | Font size in points |
+| `fontName` | string |  |  | Font as "Family\tStyle" (e.g. "Arial\tRegular", InDesign's Font.name) or a family name |
+| `textColor` | string |  |  | Text color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `alignment` | `LEFT_ALIGN`, `CENTER_ALIGN`, `RIGHT_ALIGN`, `LEFT_JUSTIFIED`, `RIGHT_JUSTIFIED`, `CENTER_JUSTIFIED`, `FULLY_JUSTIFIED` |  |  | Paragraph alignment for the whole frame (InDesign Justification; LEFT_JUSTIFIED = justified, last line left) |
+
+### `find_replace_text`
+
+Find and replace literal text throughout the document (InDesign text search; metacharacters such as ^p and ^t are honored)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `findText` | string | yes |  | Text to find |
+| `replaceText` | string | yes |  | Text to replace with |
+| `caseSensitive` | boolean |  | `false` | Case sensitive search |
+| `wholeWord` | boolean |  | `false` | Whole word search |
+
+### `create_table`
+
+Create a table in a new text frame on the active page (or pageIndex)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `rows` | integer | yes | `3` | Total number of rows, including header rows |
+| `columns` | integer | yes | `3` | Number of columns |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm from the page left edge; omitted values are placed automatically |
+| `y` | number |  |  | Y position in mm from the page top edge |
+| `width` | number |  |  | Frame and table width in mm |
+| `height` | number |  |  | Text frame height in mm |
+| `headerRows` | integer |  |  | Number of header rows (must be less than rows; default 1 when rows > 1) |
+
+### `populate_table`
+
+Fill table cells from a 2-D array. Tables are numbered across the text frames of the page; cells outside the table are skipped and counted.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tableIndex` | integer |  | `0` | Index among the tables in page.textFrames, counted frame by frame |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `data` | array of array | yes |  | Rows of cell values; null becomes an empty cell |
+| `startRow` | integer |  | `0` | Starting row index (header rows count) |
+| `startColumn` | integer |  | `0` | Starting column index |
+
+## Graphics & Images
+<a id="graphics"></a>
+
+Shapes, placed images and object styles.
+
+### `place_image`
+
+Place an image file in a new frame on the active page (or pageIndex). Omit width and height to size the frame to the image.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Path to the image file |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm |
+| `y` | number |  |  | Y position in mm |
+| `width` | number |  |  | Frame width in mm |
+| `height` | number |  |  | Frame height in mm |
+| `linkImage` | boolean |  | `true` | Keep the image linked (false embeds it) |
+| `scale` | number |  | `100` | Image scale percentage (1-1000); used when fitMode is NONE or the frame is sized to the image |
+| `fitMode` | `PROPORTIONALLY`, `FILL_PROPORTIONALLY`, `CONTENT_TO_FRAME`, `FRAME_TO_CONTENT`, `CENTER_CONTENT`, `NONE` |  | `"PROPORTIONALLY"` | InDesign fit option applied to the frame (PROPORTIONALLY and FILL_PROPORTIONALLY also center the content); NONE keeps the placed size |
+| `objectStyle` | string |  |  | Object style to apply to the frame |
+
+### `create_rectangle`
+
+Create a rectangle on the active page (or pageIndex)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm from the page top-left; omitted values are placed on the page automatically |
+| `y` | number |  |  | Y position in mm |
+| `width` | number |  |  | Width in mm |
+| `height` | number |  |  | Height in mm |
+| `fillColor` | string |  |  | Fill color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeColor` | string |  |  | Stroke color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeWeight` | number |  |  | Stroke weight in points (default 1 when strokeColor is given) |
+| `cornerRadius` | number |  | `0` | Rounded corner radius in mm (0 = square corners) |
+
+### `create_ellipse`
+
+Create an ellipse on the active page (or pageIndex)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm from the page top-left; omitted values are placed on the page automatically |
+| `y` | number |  |  | Y position in mm |
+| `width` | number |  |  | Width in mm |
+| `height` | number |  |  | Height in mm |
+| `fillColor` | string |  |  | Fill color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeColor` | string |  |  | Stroke color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeWeight` | number |  |  | Stroke weight in points (default 1 when strokeColor is given) |
+
+### `create_polygon`
+
+Create a regular polygon on the active page (or pageIndex)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `x` | number |  |  | X position in mm from the page top-left; omitted values are placed on the page automatically |
+| `y` | number |  |  | Y position in mm |
+| `width` | number |  |  | Width in mm |
+| `height` | number |  |  | Height in mm |
+| `sides` | integer |  | `6` | Number of sides |
+| `fillColor` | string |  |  | Fill color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeColor` | string |  |  | Stroke color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeWeight` | number |  |  | Stroke weight in points (default 1 when strokeColor is given) |
+
+### `create_object_style`
+
+Create an object style; only the attributes you pass are included in the style
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Object style name |
+| `fillColor` | string |  |  | Fill color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeColor` | string |  |  | Stroke color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `strokeWeight` | number |  |  | Stroke weight in points (default 1 when strokeColor is given) |
+| `cornerRadius` | number |  | `0` | Rounded corner radius in mm (0 = not included) |
+| `opacity` | number |  |  | Opacity percentage (100 = fully opaque) |
+
+### `list_object_styles`
+
+List all object styles in the document
+
+*read-only*
+
+No parameters.
+
+### `apply_object_style`
+
+Apply an object style to a page item
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styleName` | string | yes |  | Object style name |
+| `itemType` | `rectangle`, `ellipse`, `polygon`, `textFrame`, `pageItem` |  | `"rectangle"` | Collection itemIndex counts in: page.rectangles, page.ovals, page.polygons, page.textFrames, or pageItem = page.allPageItems (the list_page_items numbering) |
+| `itemIndex` | integer |  | `0` | Index within the itemType collection on the page |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `clearOverrides` | boolean |  | `false` | Clear local formatting overrides |
+
+### `get_image_info`
+
+Get link, resolution, scale and position of a placed graphic on a page
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `itemIndex` | integer |  | `0` | Index in page.allGraphics (placed graphics, not their frames; not the list_page_items numbering) |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+
+## Styles & Colors
+<a id="styles"></a>
+
+Paragraph, character, object, table and cell styles: create, edit, group, apply, clear overrides, nested and GREP styles, load and defaults; swatches and colors.
+
+### `create_paragraph_style`
+
+Create a paragraph style; only the attributes you pass are set
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Style name |
+| `fontName` | string |  |  | Font as "Family\tStyle" (e.g. "Arial\tRegular", InDesign's Font.name) or a family name |
+| `fontSize` | number |  |  | Font size in points |
+| `textColor` | string |  |  | Text color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `alignment` | `LEFT_ALIGN`, `CENTER_ALIGN`, `RIGHT_ALIGN`, `LEFT_JUSTIFIED`, `RIGHT_JUSTIFIED`, `CENTER_JUSTIFIED`, `FULLY_JUSTIFIED` |  |  | Paragraph alignment (InDesign Justification; LEFT_JUSTIFIED = justified, last line left) |
+| `leading` | number |  |  | Leading in points |
+| `spaceBefore` | number |  |  | Space before paragraph in points |
+| `spaceAfter` | number |  |  | Space after paragraph in points |
+
+### `create_character_style`
+
+Create a character style; only the attributes you pass are set
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Style name |
+| `fontName` | string |  |  | Font as "Family\tStyle" (e.g. "Arial\tRegular", InDesign's Font.name) or a family name |
+| `fontSize` | number |  |  | Font size in points |
+| `textColor` | string |  |  | Text color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `bold` | boolean |  | `false` | Set font style "Bold" ("Bold Italic" with italic) |
+| `italic` | boolean |  | `false` | Set font style "Italic" |
+| `underline` | boolean |  | `false` | Underline text |
+
+### `apply_paragraph_style`
+
+Apply a paragraph style to all text in a text frame
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styleName` | string | yes |  | Paragraph style name |
+| `frameIndex` | integer | yes |  | Index in page.textFrames (top-level text frames only; not the list_page_items numbering) |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+
+### `apply_character_style`
+
+Apply a character style to all text in a text frame, or to a character range
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styleName` | string | yes |  | Character style name |
+| `frameIndex` | integer |  | `0` | Index in page.textFrames (top-level text frames only; not the list_page_items numbering) |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+| `startIndex` | integer |  | `0` | First character index (with endIndex) |
+| `endIndex` | integer |  | `-1` | Last character index (inclusive); -1 applies to the whole frame |
+
+### `list_styles`
+
+List all paragraph and/or character styles (including styles in style groups)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styleType` | `PARAGRAPH`, `CHARACTER`, `ALL` |  | `"ALL"` | Which styles to list |
+
+### `create_color_swatch`
+
+Create a color swatch from RGB values, stored as RGB or converted to CMYK
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Swatch name |
+| `colorType` | `PROCESS`, `SPOT` |  | `"PROCESS"` | PROCESS for CMYK/RGB process color, SPOT for a spot (ink) color |
+| `colorSpace` | `RGB`, `CMYK` |  | `"RGB"` | Color space of the swatch (CMYK uses a simple, non-color-managed conversion) |
+| `red` | number | yes |  | Red value (0-255) |
+| `green` | number | yes |  | Green value (0-255) |
+| `blue` | number | yes |  | Blue value (0-255) |
+
+### `list_color_swatches`
+
+List all swatches with color model, space and values
+
+*read-only*
+
+No parameters.
+
+### `apply_color`
+
+Apply a swatch as fill or stroke to a page item, or to the text of a text frame
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `itemIndex` | integer | yes |  | Index within the targetType collection on the page (see targetType) |
+| `colorName` | string | yes |  | Color: swatch name (e.g. "Black", "Paper") or "#RRGGBB" |
+| `colorType` | `FILL`, `STROKE` |  | `"FILL"` | Apply the swatch to the fill or the stroke |
+| `targetType` | `pageItem`, `text`, `textFrame`, `rectangle`, `ellipse`, `polygon` |  | `"pageItem"` | Collection itemIndex counts in: pageItem = page.allPageItems (the list_page_items numbering); text and textFrame = page.textFrames (text = the text inside the frame); rectangle, ellipse, polygon = page.rectangles, page.ovals, page.polygons |
+| `pageIndex` | integer |  |  | Page index (0-based); defaults to the active page |
+
+### `set_paragraph_style`
+
+Create or edit a paragraph style without applying it (Paragraph Style Options): name, Based On, Next Style, Reset To Base, and its character, indents and spacing, keep, hyphenation, justification, drop cap, rule, span column, shading, border and bullets and numbering attributes
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string | yes |  | The paragraph style to edit (or to create, with create: true): a style name, or "Group/Style" for a style inside a style group |
+| `create` | boolean |  |  | Create the style when it does not exist yet |
+| `group` | string |  |  | Style group path for a new style, such as "Headings" or "Body/Lists" (groups are created as needed). Without it, a "Group/Style" name puts the style in that group |
+| `name` | string |  |  | Rename the style (Style Name) |
+| `basedOn` | string |  |  | Based On: the parent paragraph style: a style name, or "Group/Style" for a style inside a style group |
+| `nextStyle` | string |  |  | Next Style: the paragraph style for the paragraph that follows: a style name, or "Group/Style" for a style inside a style group |
+| `resetToBase` | boolean |  |  | Reset To Base: make the style match its Based On style before applying attributes |
+| `attributes` | object |  |  | Paragraph attributes to set, by InDesign property name |
+| `applyToSelection` | boolean |  |  | Apply Style to Selection: also apply the style to the selected text |
+
+### `set_character_style`
+
+Create or edit a character style without applying it (Character Style Options): name, Based On, Reset To Base, and its font, size, leading, tracking, case, position, scale, colour and stroke attributes
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string | yes |  | The character style to edit (or to create, with create: true): a style name, or "Group/Style" for a style inside a style group |
+| `create` | boolean |  |  | Create the style when it does not exist yet |
+| `group` | string |  |  | Style group path for a new style, such as "Headings" or "Body/Lists" (groups are created as needed). Without it, a "Group/Style" name puts the style in that group |
+| `name` | string |  |  | Rename the style (Style Name) |
+| `basedOn` | string |  |  | Based On: the parent character style: a style name, or "Group/Style" for a style inside a style group |
+| `resetToBase` | boolean |  |  | Reset To Base: make the style match its Based On style before applying attributes |
+| `attributes` | object |  |  | Character attributes to set, by InDesign property name |
+| `applyToSelection` | boolean |  |  | Apply Style to Selection: also apply the style to the selected text |
+
+### `set_object_style`
+
+Create or edit an object style without applying it (Object Style Options): name, Based On, which categories it includes, and its fill, stroke, corner, paragraph style, text frame general, baseline, auto-size and column rule, story, text wrap and other, anchored object, frame fitting and export options
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string | yes |  | The object style to edit (or to create, with create: true): a style name, or "Group/Style" for a style inside a style group |
+| `create` | boolean |  |  | Create the style when it does not exist yet |
+| `group` | string |  |  | Style group path for a new style, such as "Headings" or "Body/Lists" (groups are created as needed). Without it, a "Group/Style" name puts the style in that group |
+| `name` | string |  |  | Rename the style (Style Name) |
+| `basedOn` | string |  |  | Based On: the parent object style: a style name, or "Group/Style" for a style inside a style group |
+| `categories` | object |  |  | Turn categories on or off (the check boxes in Object Style Options). Setting a section below turns its category on unless it is set here |
+| `fill` | object |  |  | Fill category |
+| `stroke` | object |  |  | Stroke category |
+| `corners` | object |  |  | Stroke & Corner Options category: the same corner shape and size on all four corners |
+| `paragraphStyle` | object |  |  | Paragraph Styles category: the paragraph style for text in frames with this style |
+| `textFrame` | object |  |  | Text Frame General Options category |
+| `baseline` | object |  |  | Text Frame Baseline Options category |
+| `autoSize` | object |  |  | Text Frame Auto-Size Options category |
+| `columnRules` | object |  |  | Text Frame Column Rules category |
+| `story` | object |  |  | Story Options category |
+| `textWrap` | object |  |  | Text Wrap & Other category |
+| `anchored` | object |  |  | Anchored Object Options category |
+| `frameFitting` | object |  |  | Frame Fitting Options category |
+| `export` | object |  |  | Export Options categories (Alt Text, Tagged PDF, EPUB and HTML) |
+
+### `set_table_style`
+
+Create or edit a table style without applying it (New Table Style, Table Style Options): name, Based On, the cell styles for header, footer, body, left and right column regions, table setup (border, space before and after, stroke drawing order), alternating row and column strokes, and alternating fills
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string | yes |  | The table style to edit (or to create, with create: true): a style name, or "Group/Style" for a style inside a style group |
+| `create` | boolean |  |  | Create the style when it does not exist yet |
+| `group` | string |  |  | Style group path for a new style, such as "Headings" or "Body/Lists" (groups are created as needed). Without it, a "Group/Style" name puts the style in that group |
+| `name` | string |  |  | Rename the style (Style Name) |
+| `basedOn` | string |  |  | Based On: the parent table style: a style name, or "Group/Style" for a style inside a style group |
+| `cellStyles` | object |  |  | Cell styles by region; each is a cell style name, or "same_as_body" (not for body) |
+| `tableSetup` | object |  |  | Table Setup: border, spacing and stroke drawing order |
+| `rowStrokes` | object |  |  | Row Strokes: an alternating pattern of two row strokes |
+| `columnStrokes` | object |  |  | Column Strokes: an alternating pattern of two column strokes |
+| `fills` | object |  |  | Fills: an alternating pattern of two fills, by rows or by columns |
+
+### `set_cell_style`
+
+Create or edit a cell style without applying it (New Cell Style, Cell Style Options): name, Based On, paragraph style, text (insets, vertical justification, first baseline, clipping, rotation), graphic insets and clipping, edge strokes and fill, and diagonal lines
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string | yes |  | The cell style to edit (or to create, with create: true): a style name, or "Group/Style" for a style inside a style group |
+| `create` | boolean |  |  | Create the style when it does not exist yet |
+| `group` | string |  |  | Style group path for a new style, such as "Headings" or "Body/Lists" (groups are created as needed). Without it, a "Group/Style" name puts the style in that group |
+| `name` | string |  |  | Rename the style (Style Name) |
+| `basedOn` | string |  |  | Based On: the parent cell style: a style name, or "Group/Style" for a style inside a style group |
+| `paragraphStyle` | string |  |  | Paragraph style for text in cells with this style: a style name, or "Group/Style" for a style inside a style group |
+| `text` | object |  |  | Text options: insets, vertical justification, first baseline, clipping and rotation |
+| `graphic` | object |  |  | Graphic cell options |
+| `strokes` | object |  |  | Cell edge strokes |
+| `fill` | object |  |  | Cell fill |
+| `diagonal` | object |  |  | Diagonal lines |
+
+### `manage_styles`
+
+Duplicate, delete (with a replacement style), move or copy styles into a style group, for any kind of style (Duplicate Style, Delete Style, Copy to Group in the Paragraph, Character, Object, Table and Cell Styles panels); and turn a paragraph style's bullets and numbering into text
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style |
+| `action` | `duplicate`, `delete`, `move_to_group`, `copy_to_group`, `convert_bullets_to_text` | yes |  | What to do with each style |
+| `styles` | array of string | yes |  | Style names (or "Group/Style" paths) |
+| `newName` | string |  |  | duplicate: name for the copy (one style only); without it InDesign names the copy |
+| `group` | string |  |  | move_to_group / copy_to_group: style group path, created when missing; "" for the top level |
+| `replaceWith` | string |  |  | delete: the style that replaces the deleted one where it is used: a style name, or "Group/Style" for a style inside a style group |
+
+### `manage_style_groups`
+
+Create, rename, duplicate or delete style groups, or make a group from styles, for any kind of style (New Style Group, New Group from Styles, Style Group Options, Duplicate Group, Delete Group in the style panels)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style |
+| `action` | `create`, `create_from_styles`, `rename`, `duplicate`, `delete` | yes |  | What to do |
+| `group` | string | yes |  | The group path, such as "Headings" or "Body/Lists". For create and create_from_styles, the new group (parents are created as needed) |
+| `name` | string |  |  | rename: the new name; duplicate: a name for the copy |
+| `styles` | array of string |  |  | create_from_styles: the styles to move into the new group |
+| `replaceWith` | string |  |  | delete: the style that replaces the group's styles where they are used: a style name, or "Group/Style" for a style inside a style group |
+
+### `apply_style`
+
+Apply a paragraph, character, object, table or cell style, optionally clearing overrides, character styles, cell styles or attributes the style does not define, and for paragraph styles Apply Style then Next Style (the style panels' Apply commands)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style. Give text for paragraph and character styles, target for object styles, table for table styles and cells for cell styles |
+| `style` | string | yes |  | The style to apply: a style name, or "Group/Style" for a style inside a style group |
+| `text` | object |  |  | Which text: a text frame by id (the text in the frame, or its whole story), optionally narrowed to a paragraph or character range; or selection: true for the selected text |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `clear` | `none`, `overrides`, `character_styles`, `cell_styles`, `not_defined`, `all` |  | `"none"` | What to clear while applying. Paragraph: overrides, character_styles or all. Object: overrides (Clear All), not_defined (Clear Attributes Not Defined by Style) or all. Table: overrides, cell_styles or all. Cell: overrides (Clear All) or not_defined |
+| `thenNextStyle` | boolean |  |  | Paragraph styles: Apply Style then Next Style across the chosen paragraphs |
+
+### `clear_style_overrides`
+
+Clear local formatting that differs from the applied style: all, character-only or paragraph-only overrides on text; object style overrides or attributes not defined by the style; table style overrides; cell style overrides or attributes not defined by the style (Clear Overrides in the style panels)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `text`, `object`, `table`, `cell` | yes |  | What to clear overrides on |
+| `text` | object |  |  | Which text: a text frame by id (the text in the frame, or its whole story), optionally narrowed to a paragraph or character range; or selection: true for the selected text |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `what` | `all`, `character`, `paragraph`, `overrides`, `not_defined` |  |  | Text: all, character or paragraph overrides. Object and cell: overrides, or not_defined (Clear Attributes Not Defined by Style). Table: overrides |
+
+### `redefine_style`
+
+Redefine a style to match the formatting of the chosen text, object, table or cell (Redefine Style in the Paragraph, Character, Object, Table and Cell Styles panel menus). The chosen target is selected first; the style redefined is the one applied to it
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style. Give text for paragraph and character styles, target for object styles, table for table styles and cells for cell styles |
+| `text` | object |  |  | Which text: a text frame by id (the text in the frame, or its whole story), optionally narrowed to a paragraph or character range; or selection: true for the selected text |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+
+### `break_link_to_style`
+
+Break the link between the chosen text, objects, table or cells and their style, keeping the current formatting (Break Link to Style in the Paragraph, Character, Object, Table and Cell Styles panel menus). The chosen target is selected first
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style. Give text for paragraph and character styles, target for object styles, table for table styles and cells for cell styles |
+| `text` | object |  |  | Which text: a text frame by id (the text in the frame, or its whole story), optionally narrowed to a paragraph or character range; or selection: true for the selected text |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+
+### `load_styles`
+
+Load styles from another InDesign document or template: paragraph, character, all text, object, table, cell, table and cell, TOC or stroke styles, choosing how name conflicts resolve (Load Styles in the style panel menus)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | The InDesign document (.indd) or template (.indt) to load from |
+| `types` | array of string | yes |  | Which styles to load: text loads paragraph and character styles, table_and_cell loads both table and cell styles |
+| `conflicts` | `rename`, `overwrite`, `skip` |  | `"rename"` | When a style with the same name exists: rename the incoming one, overwrite the existing one, or skip it |
+
+### `set_nested_styles`
+
+Set a paragraph style's nested styles (a character style up to a delimiter), nested line styles (a character style for N lines) or GREP styles (a character style wherever a GREP pattern matches): replace, add, remove one or clear them; or insert an End Nested Style Here character into text (Drop Caps and Nested Styles, GREP Style)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string |  |  | The paragraph style: a style name, or "Group/Style" for a style inside a style group |
+| `type` | `nested`, `line`, `grep` |  | `"nested"` | nested, line or GREP styles |
+| `action` | `replace`, `add`, `remove`, `clear`, `insert_end_marker` |  | `"replace"` | replace all entries, add entries, remove the entry at removeIndex, clear all, or insert End Nested Style Here at the end of text |
+| `entries` | array of object |  |  | Entries in order. Nested: characterStyle, delimiter (a NestedStyleDelimiters name such as ANY_WORD, SENTENCE, TABS, REPEAT, END_NESTED_STYLE, or literal characters), repetition, inclusive. Line: characterStyle, lineCount, repeatLast. GREP: characterStyle, grepExpression |
+| `removeIndex` | integer |  |  | remove: the entry to delete (0-based) |
+| `text` | object |  |  | Which text: a text frame by id (the text in the frame, or its whole story), optionally narrowed to a paragraph or character range; or selection: true for the selected text |
+
+### `set_style_export_tags`
+
+Set export tagging for paragraph and character styles in one call: the HTML/EPUB tag, class and attributes, the PDF tag, and whether to emit CSS or split the EPUB (Export Tagging in Style Options, Edit All Export Tags)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `entries` | array of object | yes |  | One entry per style and export type |
+
+### `find_change_style`
+
+Find text by paragraph or character style (and optionally by text) in the document or one story, and change it to another paragraph or character style (Find/Change with Find Format and Change Format styles). Without change, only counts the matches
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `find` | object | yes |  | What to find; give at least one |
+| `change` | object |  |  | What to change matches to; leave out to only find |
+| `frameId` | integer |  |  | Search only the story of this text frame (default: the whole document) |
+
+### `set_style_defaults`
+
+Set the default object styles for new text and graphic frames, the default paragraph and character styles for new text, and whether applying an object style always clears overrides (Default Text Frame Style, Default Graphic Frame Style, Clear Overrides When Applying Style); returns the current defaults
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `textFrameStyle` | string |  |  | Object style new text frames get: a style name, or "Group/Style" for a style inside a style group |
+| `graphicFrameStyle` | string |  |  | Object style new graphic frames get: a style name, or "Group/Style" for a style inside a style group |
+| `paragraphStyle` | string |  |  | Paragraph style new text gets: a style name, or "Group/Style" for a style inside a style group |
+| `characterStyle` | string |  |  | Character style new text gets: a style name, or "Group/Style" for a style inside a style group |
+| `clearOverridesWhenApplying` | boolean |  |  | Clear Overrides When Applying Style (an application preference) |
+
+### `quick_apply_style`
+
+Quick Apply for styles: find paragraph, character, object, table and cell styles whose names match a query (optionally prefixed p:, c:, o:, t: or e: to search one kind) and apply the best match to the selection, or only list the matches (Edit > Quick Apply)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `query` | string | yes |  | Words to match in style names, such as "head 2" or "p:body" |
+| `kinds` | array of string |  |  | Kinds of style to search (default: all, or the one named by a prefix) |
+| `apply` | boolean |  | `true` | Apply the best match to the selection (false only lists matches) |
+| `clearOverrides` | boolean |  |  | Clear overrides while applying (paragraph, object, table and cell styles) |
+
+### `set_quick_apply_filters`
+
+Choose which kinds of items Quick Apply searches: paragraph, character, object, table and cell styles, menu commands (and hidden ones), scripts, text variables and conditions (the Include options in the Quick Apply menu); returns each filter's state
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `paragraphStyles` | boolean |  |  | Include paragraph styles |
+| `characterStyles` | boolean |  |  | Include character styles |
+| `objectStyles` | boolean |  |  | Include object styles |
+| `tableStyles` | boolean |  |  | Include table styles |
+| `cellStyles` | boolean |  |  | Include cell styles |
+| `menuCommands` | boolean |  |  | Include menu commands |
+| `hiddenMenuCommands` | boolean |  |  | Include hidden menu commands |
+| `scripts` | boolean |  |  | Include scripts |
+| `textVariables` | boolean |  |  | Include text variables |
+| `conditions` | boolean |  |  | Include conditions |
+
+### `style_panel_command`
+
+Run a style panel menu command: Open All Style Groups, Close All Style Groups, Sort by Name, Small Panel Rows or Select All Unused, in the Paragraph, Character, Object, Table or Cell Styles panel (the panel is shown first)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `paragraph`, `character`, `object`, `table`, `cell` | yes |  | Which kind of style |
+| `command` | `open_all_groups`, `close_all_groups`, `sort_by_name`, `small_panel_rows`, `select_all_unused` | yes |  | The panel menu command (select_all_unused is not in the Table Styles panel) |
+
+## Layout, Masters & Layers
+<a id="layout"></a>
+
+Page items, groups, master spreads and layers.
+
+### `get_page_item_info`
+
+Get detailed information about a specific page item
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to get info for, in page.allPageItems as numbered by list_page_items (nested items included) |
+
+### `select_page_item`
+
+Select a page item (by index from list_page_items) in the document window
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to select, in page.allPageItems as numbered by list_page_items (nested items included) |
+| `existingSelection` | `REPLACE_WITH`, `ADD_TO`, `REMOVE_FROM` |  | `"REPLACE_WITH"` | How to handle existing selection |
+
+### `move_page_item`
+
+Move a page item so its top-left corner (geometric bounds) is at x, y mm on the page
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to move, in page.allPageItems as numbered by list_page_items (nested items included) |
+| `x` | number | yes |  | New X of the item's top-left corner, in mm from the page left edge |
+| `y` | number | yes |  | New Y of the item's top-left corner, in mm from the page top edge |
+
+### `resize_page_item`
+
+Resize a page item to width x height mm around an anchor point
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to resize, in page.allPageItems as numbered by list_page_items (nested items included) |
+| `width` | number | yes |  | New width in mm |
+| `height` | number | yes |  | New height in mm |
+| `anchorPoint` | `CENTER_ANCHOR`, `TOP_LEFT_ANCHOR`, `TOP_CENTER_ANCHOR`, `TOP_RIGHT_ANCHOR`, `LEFT_CENTER_ANCHOR`, `RIGHT_CENTER_ANCHOR`, `BOTTOM_LEFT_ANCHOR`, `BOTTOM_CENTER_ANCHOR`, `BOTTOM_RIGHT_ANCHOR` |  | `"CENTER_ANCHOR"` | Anchor point for resizing |
+
+### `set_page_item_properties`
+
+Set fill, stroke, visibility and lock state of a page item (only the properties you pass are changed)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to modify, in page.allPageItems as numbered by list_page_items (nested items included) |
+| `fillColor` | string |  |  | Fill swatch name (e.g. "Black", "None") or "#RRGGBB" |
+| `strokeColor` | string |  |  | Stroke swatch name or "#RRGGBB" |
+| `strokeWeight` | number |  |  | Stroke weight in points |
+| `visible` | boolean |  |  | Whether the item is visible |
+| `locked` | boolean |  |  | Whether the item is locked |
+
+### `duplicate_page_item`
+
+Duplicate a page item on the same page, optionally placing the copy at x/y; returns the copy ID
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to duplicate, in page.allPageItems as numbered by list_page_items (nested items included) |
+| `x` | number | yes |  | X of the duplicate's top-left corner, in mm from the page left edge |
+| `y` | number | yes |  | Y of the duplicate's top-left corner, in mm from the page top edge |
+
+### `delete_page_item`
+
+Delete a page item (by index from list_page_items) from a page
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the item (0-based) |
+| `itemIndex` | integer | yes |  | Index of the page item to delete, in page.allPageItems as numbered by list_page_items (nested items included) |
+
+### `list_page_items`
+
+List the page items on a page with their index in page.allPageItems (nested items included, such as the image inside a frame and group members). itemIndex and groupIndex in the page-item and group tools use this numbering.
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page to list items from (0-based) |
+
+### `create_group`
+
+Group the page items currently selected in InDesign (at least 2)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page where the group will be created (0-based) |
+
+### `create_group_from_items`
+
+Create a group from specific page items by their indices
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the items (0-based) |
+| `itemIndices` | array of integer | yes |  | Indices (from list_page_items) of top-level items to group together |
+
+### `ungroup`
+
+Ungroup a group, releasing all its items
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the group (0-based) |
+| `groupIndex` | integer | yes |  | Index of the group to ungroup, as numbered by list_groups (its index in page.allPageItems) |
+
+### `get_group_info`
+
+Get information about a group, including its direct members and their indices
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the group (0-based) |
+| `groupIndex` | integer | yes |  | Index of the group to get info for, as numbered by list_groups (its index in page.allPageItems) |
+
+### `add_item_to_group`
+
+Add a top-level page item to an existing group (the group is rebuilt: it keeps its name but gets a new ID and index)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the group and item (0-based) |
+| `groupIndex` | integer | yes |  | Index of the group to add the item to, as numbered by list_groups (its index in page.allPageItems) |
+| `itemIndex` | integer | yes |  | Index of the page item to add to the group, in page.allPageItems as numbered by list_page_items (nested items included) |
+
+### `remove_item_from_group`
+
+Remove a member from a group (the group is rebuilt with the remaining members, or dissolved if fewer than 2 remain)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the group (0-based) |
+| `groupIndex` | integer | yes |  | Index of the group to remove the item from, as numbered by list_groups (its index in page.allPageItems) |
+| `itemIndex` | integer | yes |  | Index of the member within the group (group.pageItems), as listed by get_group_info; not the list_page_items numbering |
+
+### `list_groups`
+
+List the groups on a page with their index, name, item count and bounds
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page to list groups from (0-based) |
+
+### `set_group_properties`
+
+Set a group's name, visibility and locked state
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Index of the page containing the group (0-based) |
+| `groupIndex` | integer | yes |  | Index of the group to modify, as numbered by list_groups (its index in page.allPageItems) |
+| `visible` | boolean |  |  | Whether the group is visible |
+| `locked` | boolean |  |  | Whether the group is locked |
+| `name` | string |  |  | Name for the group |
+
+### `create_master_spread`
+
+Create a new master spread. Its full name is namePrefix + "-" + baseName (e.g. "B-Chapter").
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Master name; used as the base name unless baseName is given |
+| `baseName` | string |  |  | Base name (overrides name) |
+| `namePrefix` | string |  |  | Prefix shown on pages using this master (e.g. "B"); InDesign assigns one if omitted |
+| `pagesPerSpread` | integer |  |  | Pages in the master spread (default: document setting) |
+| `pageColor` | string |  |  | Pages-panel color: UI color name (e.g. "BLUE", "LIGHT_BLUE", "GRID_GREEN") or "r,g,b" (0-255), "USE_MASTER_COLOR" or "NOTHING" |
+| `showMasterItems` | boolean |  | `true` | Show master items on document pages |
+
+### `list_master_spreads`
+
+List all master spreads in the document
+
+*read-only*
+
+No parameters.
+
+### `delete_master_spread`
+
+Delete a master spread (pages that used it are left with no master)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Full master spread name to delete (e.g. "B-Master") |
+
+### `duplicate_master_spread`
+
+Duplicate a master spread; the copy gets newName as its base name (InDesign assigns a new prefix)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Full name of the master spread to duplicate (e.g. "A-Master") |
+| `newName` | string | yes |  | Base name for the duplicated master spread |
+| `position` | `AT_END`, `AT_BEGINNING`, `BEFORE`, `AFTER` |  | `"AT_END"` | Where to put the copy among the masters: AT_END, AT_BEGINNING, or BEFORE/AFTER the reference master |
+| `referenceMasterName` | string |  |  | Full name of the reference master spread (required for BEFORE/AFTER) |
+
+### `apply_master_spread`
+
+Apply a master spread to document pages. Use masterName "None" to remove the master.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `masterName` | string | yes |  | Full master spread name (e.g. "A-Master"), or "None" |
+| `pageRange` | string |  | `"all"` | 1-based page positions in document order: "all", "3", "1-5" or "1,3,7-9" |
+
+### `create_master_text_frame`
+
+Create a text frame on a page of a master spread. Position and size are in mm from that master page's top-left corner.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `masterName` | string | yes |  | Full master spread name (e.g. "A-Master") |
+| `masterPageIndex` | integer |  | `0` | 0-based page within the master spread (0 = left/first page) |
+| `content` | string | yes |  | Text content for the frame |
+| `x` | number |  | `10` | X position in mm |
+| `y` | number |  | `10` | Y position in mm |
+| `width` | number |  | `100` | Width in mm |
+| `height` | number |  | `50` | Height in mm |
+| `fontSize` | number |  | `12` | Font size in points |
+| `fontName` | string |  | `"Helvetica Neue"` | Font as "Family\tStyle" (e.g. "Arial\tBold", InDesign's Font.name) or a family name |
+| `textColor` | string |  | `"Black"` | Text color: swatch name in the document (e.g. "Black", "Paper", "None") or "#RRGGBB" |
+| `alignment` | `LEFT_ALIGN`, `CENTER_ALIGN`, `RIGHT_ALIGN`, `LEFT_JUSTIFIED`, `RIGHT_JUSTIFIED`, `CENTER_JUSTIFIED`, `FULLY_JUSTIFIED` |  | `"LEFT_ALIGN"` | Paragraph alignment for the frame text (InDesign Justification; LEFT_JUSTIFIED = justified, last line left) |
+| `isPrimaryTextFrame` | boolean |  | `false` | Make this the master spread's primary text frame |
+
+### `create_master_rectangle`
+
+Create a rectangle on a page of a master spread. Position and size are in mm from that master page's top-left corner.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `masterName` | string | yes |  | Full master spread name (e.g. "A-Master") |
+| `masterPageIndex` | integer |  | `0` | 0-based page within the master spread |
+| `x` | number | yes |  | X position in mm |
+| `y` | number | yes |  | Y position in mm |
+| `width` | number | yes |  | Width in mm |
+| `height` | number | yes |  | Height in mm |
+| `fillColor` | string |  |  | Fill: swatch name in the document (e.g. "Black", "Paper", "None") or "#RRGGBB" (default: document default) |
+| `strokeColor` | string |  |  | Stroke: swatch name in the document (e.g. "Black", "Paper", "None") or "#RRGGBB" (default: document default) |
+| `strokeWeight` | number |  | `1` | Stroke weight in points |
+| `cornerRadius` | number |  | `0` | Rounded-corner radius in mm (0 = square corners) |
+
+### `create_master_guides`
+
+Create row/column guides on every page of a master spread (MasterSpread.createGuides)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `masterName` | string | yes |  | Full master spread name (e.g. "A-Master") |
+| `numberOfRows` | integer |  | `0` | Number of rows per page |
+| `numberOfColumns` | integer |  | `0` | Number of columns per page |
+| `rowGutter` | number |  | `5` | Row gutter in mm |
+| `columnGutter` | number |  | `5` | Column gutter in mm |
+| `guideColor` | string |  | `"BLUE"` | Guide color: UI color name (e.g. "BLUE", "LIGHT_BLUE", "GRID_GREEN") or "r,g,b" (0-255) |
+| `fitMargins` | boolean |  | `true` | Divide the area inside the margins (true) or the whole page (false) |
+| `removeExisting` | boolean |  | `false` | Remove existing guides first |
+| `layerName` | string |  |  | Layer to create guides on (default: active layer) |
+
+### `get_master_spread_info`
+
+Get detailed information about a master spread
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Full master spread name (e.g. "A-Master") |
+
+### `detach_master_items`
+
+Detach master page items onto a document page: each master item is overridden onto the page and the copy is detached so it no longer follows the master. Without itemIndex, all master items shown on the page (and items already overridden there) are detached.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based document page index |
+| `itemIndex` | integer |  |  | 0-based index into the page's master items (Page.masterPageItems); omit to detach all |
+
+### `remove_master_override`
+
+Remove local overrides from master items on a document page, restoring the master version. Without itemIndex, all overrides on the page are removed.
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | 0-based document page index |
+| `itemIndex` | integer |  |  | 0-based index among the page's overridden master items (top-level page items first, then guides); omit to remove all |
+
+### `create_layer`
+
+Create a new layer in the active document (fails if a layer with that name exists)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Layer name |
+| `visible` | boolean |  | `true` | Layer visibility |
+| `locked` | boolean |  | `false` | Layer locked state |
+| `color` | string |  | `"BLUE"` | Layer color: a UIColors name (e.g. BLUE, LIGHT_BLUE, RED) or "R,G,B" with each value 0-255 |
+
+### `set_active_layer`
+
+Make an existing layer the active layer of the active document
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `layerName` | string | yes |  | Layer name to activate |
+
+### `list_layers`
+
+List all layers in the active document (top of the stack first) with visibility, lock, printable, color, item and guide counts
+
+*read-only*
+
+No parameters.
+
+## Export & Utilities
+<a id="export"></a>
+
+PDF, image, EPUB and package export; status, custom code and session tools.
+
+### `export_pdf`
+
+Export the active document to PDF using a built-in or named PDF export preset
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output PDF file path |
+| `quality` | `PRESS`, `PRINT`, `SCREEN` |  | `"PRINT"` | Preset shortcut: PRESS = [Press Quality], PRINT = [High Quality Print], SCREEN = [Smallest File Size] |
+| `preset` | string |  |  | Exact PDF export preset name (e.g. "[PDF/X-4:2008]"); overrides quality |
+| `includeMarks` | boolean |  | `false` | Force crop, bleed and registration marks, color bars and page info on (otherwise the preset decides) |
+| `includeBleed` | boolean |  | `false` | Force the document bleed settings on (otherwise the preset decides) |
+| `pages` | string |  | `"all"` | Pages to export: "all", or absolute 1-based page numbers/ranges such as "1-3,5" |
+
+### `export_images`
+
+Export pages as JPEG or PNG images, one file per page (page_<n>.jpg/png) in an output folder
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `outputPath` | string | yes |  | Output folder path (created if missing) |
+| `format` | `JPEG`, `PNG` |  | `"JPEG"` | Image format; InDesign exports JPEG and PNG |
+| `resolution` | number |  | `300` | Resolution in PPI (1-2400) |
+| `pages` | string |  | `"all"` | Pages to export: "all", or absolute 1-based page numbers/ranges such as "1-3,5" |
+| `quality` | number |  | `80` | Quality 1-100, mapped to LOW (<=25), MEDIUM (<=50), HIGH (<=80) or MAXIMUM |
+
+### `export_epub`
+
+Export the active document to EPUB (reflowable or fixed layout)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output EPUB file path |
+| `layout` | `REFLOWABLE`, `FIXED_LAYOUT` |  | `"REFLOWABLE"` | REFLOWABLE text that adapts to the reader, or FIXED_LAYOUT that keeps each page as designed |
+| `includeStyles` | boolean |  | `true` | Reflowable only: generate CSS and include style class names in the HTML |
+| `embedFonts` | boolean |  | `true` | Reflowable only: embed fonts |
+| `title` | string |  |  | EPUB title metadata (defaults to the document setting) |
+
+### `package_document`
+
+Package the active (saved) document for printing into an output folder
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `outputPath` | string | yes |  | Output folder path (created if missing) |
+| `includeFonts` | boolean |  | `true` | Copy fonts |
+| `includeLinks` | boolean |  | `true` | Copy linked graphics |
+| `includeProfiles` | boolean |  | `true` | Copy color profiles |
+| `includeHiddenLayers` | boolean |  | `false` | Include fonts and links from hidden layers |
+| `createReport` | boolean |  | `true` | Write the instructions/report file |
+| `forceSave` | boolean |  | `false` | Save the document before packaging if it has unsaved changes |
+
+### `indesign_status`
+
+Health check: platform, resolved InDesign app name, optional live probe (version, open docs). Call with probe=true to round-trip a script; on the UXP backend it also reports backend.uxpProbe, how this InDesign's UXP DOM differs from ExtendScript, with any problems found.
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `probe` | boolean |  | `false` | If true, run a lightweight InDesign script to report version and open documents (and, on the UXP backend, the UXP capability probe) |
+
+### `execute_indesign_code`
+
+Execute custom InDesign ExtendScript code
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `code` | string | yes |  | ExtendScript code to execute |
+
+### `view_document`
+
+View document information and current state
+
+*read-only*
+
+No parameters.
+
+### `get_session_info`
+
+Get current session information including page dimensions and active document
+
+*read-only*
+
+No parameters.
+
+### `clear_session`
+
+Clear all session data including page dimensions and document information
+
+*idempotent*
+
+No parameters.
+
+### `help`
+
+Get help information about available tools and their usage
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tool` | string |  |  | Specific tool name to get help for (optional) |
+| `category` | `document`, `page`, `text`, `graphics`, `styles`, `layout`, `export`, `all` |  | `"all"` | Category of tools to list (optional) |
+| `format` | `summary`, `detailed`, `examples` |  | `"summary"` | Output format |
+
+## Transformations
+<a id="transform"></a>
+
+Rotate, flip, scale, shear and align items, and transform them again.
+
+### `turn_items`
+
+Rotate items 90° clockwise, 90° counter-clockwise or 180°, flip them horizontally or vertically, or clear their transformations (Object > Transform)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `operation` | `rotate_90_cw`, `rotate_90_ccw`, `rotate_180`, `flip_horizontal`, `flip_vertical`, `clear_transformations` | yes |  | What to do to each item |
+
+### `transform_items`
+
+Scale, shear, rotate, move or transform items by exact amounts around a reference point, optionally on a copy (Object > Transform > Scale, Rotate, Shear and Move dialogs; Rotate, Scale, Shear and Free Transform tools; Transform panel)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `scale` | number |  |  | Scale proportionally (%), frame and content together |
+| `scaleX` | number |  |  | Horizontal scale (%), frame and content together (Scale X) |
+| `scaleY` | number |  |  | Vertical scale (%), frame and content together (Scale Y) |
+| `shearAngle` | number |  |  | Shear angle (degrees), as in the Shear dialog |
+| `shearAxis` | `horizontal`, `vertical` |  |  | Axis to shear along (default horizontal) |
+| `rotate` | number |  |  | Rotation angle (degrees, positive counter-clockwise) |
+| `matrix` | array of number |  |  | A transformation matrix [a, b, c, d, tx, ty] applied in pasteboard coordinates; tx and ty in mm |
+| `move` | object |  |  | Move by an offset: { x, y } in mm (Horizontal / Vertical) or { distance, angle } (mm, degrees counter-clockwise from the right) |
+| `moveContent` | boolean |  |  | Move only each frame's content, not the frame (Move dialog > Move Content) |
+| `referencePoint` | `top_left`, `top`, `top_right`, `left`, `center`, `right`, `bottom_left`, `bottom`, `bottom_right` |  |  | Reference point on the bounding box that stays fixed (the reference point proxy); default center |
+| `referenceAt` | object |  |  | A fixed reference point on a page instead of a point of the bounding box (as when clicking with the Rotate, Scale or Shear tool): { pageIndex, x, y }, all required |
+| `each` | boolean |  |  | Transform each item around its own reference point instead of the items together as one selection (default false) |
+| `copy` | boolean |  |  | Transform copies and leave the originals in place (the dialogs' Copy button) |
+| `redefineScaling` | boolean |  |  | Afterwards, apply the items' scaling to them and show it as 100% (Transform panel menu > Redefine Scaling as 100%) |
+
+### `nudge_items`
+
+Nudge items by the keyboard increment, or step their scale or size by 1% or 5%, as the arrow keys and scale shortcuts do (Preferences > Units & Increments > Cursor Key; Object Editing shortcuts)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `action` | `nudge_up`, `nudge_down`, `nudge_left`, `nudge_right`, `scale_up`, `scale_down`, `size_up`, `size_down` | yes |  | Nudge in a direction; scale frame and content up or down; or resize the frame up or down |
+| `step` | `normal`, `fine`, `coarse` |  |  | Nudge: the cursor key increment, a tenth of it, or ten times it. Scale and size: normal 1%, coarse 5%. Default normal |
+| `times` | integer |  |  | How many times to repeat (default 1) |
+| `referencePoint` | `top_left`, `top`, `top_right`, `left`, `center`, `right`, `bottom_left`, `bottom`, `bottom_right` |  |  | Reference point on the bounding box that stays fixed (the reference point proxy); default center |
+
+### `transform_again`
+
+Repeat the last transformation or sequence of transformations on items, together or each individually (Object > Transform Again)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `mode` | `again`, `again_individually`, `sequence_again`, `sequence_again_individually` | yes |  | Transform Again, Transform Again Individually, Transform Sequence Again or Transform Sequence Again Individually |
+| `times` | integer |  |  | How many times to repeat (default 1) |
+
+### `align_items`
+
+Align or distribute items relative to each other, a key object, the margins, the page or the spread, optionally with a fixed spacing (Align panel; Align and Distribute shortcuts)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `align` | `left`, `horizontal_centers`, `right`, `top`, `vertical_centers`, `bottom` |  |  | Align Objects: which edges or centres to line up |
+| `distribute` | `left`, `horizontal_centers`, `right`, `top`, `vertical_centers`, `bottom`, `horizontal_space`, `vertical_space` |  |  | Distribute Objects by edges or centres, or Distribute Spacing (horizontal_space, vertical_space) |
+| `alignTo` | `selection`, `key_object`, `margins`, `page`, `spread` |  |  | Align To: the items themselves (default), a key object, the margins, the page or the spread |
+| `keyObject` | integer |  |  | Id of the key object, for alignTo key_object; defaults to the selection's key object when the target is the selection. With a selection target it also becomes the selection's key object |
+| `spacing` | number |  |  | Use Spacing: a fixed distance between the items (mm) when distributing |
+
+### `set_transform_preferences`
+
+Set how transformations behave and are shown: Transformations are Totals, Dimensions Include Stroke Weight, Show Content Offset, When Scaling options and the reference point (Transform panel menu; Preferences > General)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `transformationsAreTotals` | boolean |  |  | Transformations are Totals (Transform panel menu): rotation and shear are shown relative to the pasteboard, including those of the frame, rather than nested values |
+| `dimensionsIncludeStrokeWeight` | boolean |  |  | Dimensions Include Stroke Weight (Transform panel menu) |
+| `showContentOffset` | boolean |  |  | Show Content Offset (Transform panel menu) |
+| `adjustStrokeWeightWhenScaling` | boolean |  |  | Adjust Stroke Weight when Scaling (Preferences > General > When Scaling) |
+| `adjustEffectsWhenScaling` | boolean |  |  | Adjust Effects when Scaling (Preferences > General > When Scaling) |
+| `whenScaling` | `apply_to_content`, `adjust_scaling_percentage` |  |  | When Scaling: apply to content, or adjust the scaling percentage |
+| `referencePoint` | `top_left`, `top`, `top_right`, `left`, `center`, `right`, `bottom_left`, `bottom`, `bottom_right` |  |  | The reference point of the active layout window (reference point proxy) |
+
+### `get_transform_info`
+
+Read the transform preferences and reference point, and optionally items' rotation, shear, scale, flip and transformation matrix (Transform panel)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true. Optional: without it only the preferences are returned |
+
+## Character formatting
+<a id="character"></a>
+
+Character, OpenType and CJK formatting, type commands, special characters and glyphs, change case, fonts, tabs, GREP styles, and bullets and numbering.
+
+### `set_character_attributes`
+
+Set character formatting on text: font, size, leading, kerning, tracking, scale, baseline shift, skew, rotation, case, position, ligatures, No Break, strikethrough, language, fill and stroke (Character panel, Advanced Character Formats); OpenType options; CJK options (ruby, kenten, warichu, shatai, tate-chu-yoko, mojikumi, kinsoku, aki, tsume, gyoudori); and Middle Eastern options (direction, digits, kashidas, diacritics). Only the attributes you pass change.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `character` | object |  |  | Character panel, Advanced Character Formats and Character Color options |
+| `opentype` | object |  |  | Character panel menu > OpenType options (applied when the font has the feature) |
+| `cjk` | object |  |  | CJK options: ruby, kenten, warichu, shatai, tate-chu-yoko, mojikumi, kinsoku, aki, tsume, gyoudori |
+| `worldReady` | object |  |  | Middle Eastern and Indic options: direction, digits, kashidas, diacritics |
+
+### `apply_type_command`
+
+Run a type keyboard command on text: step size, leading, kerning/tracking, baseline shift or scale; auto leading; reset kerning and tracking or scale; bold, italic, normal; toggle all caps, small caps, superscript, subscript, ligatures, No Break; paragraph alignment (incl. towards/away from spine); toggle align to baseline grid, hyphenation, Ignore Optical Margin; choose or switch composer (Paragraph, Single-line, World-Ready); paragraph direction; reset indents
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `command` | `increase_size`, `decrease_size`, `increase_leading`, `decrease_leading`, `auto_leading`, `increase_kerning_tracking`, `decrease_kerning_tracking`, `reset_kerning_tracking`, `raise_baseline`, `lower_baseline`, `increase_horizontal_scale`, `decrease_horizontal_scale`, `increase_vertical_scale`, `decrease_vertical_scale`, `reset_horizontal_scale`, `reset_vertical_scale`, `bold`, `italic`, `normal`, `toggle_all_caps`, `toggle_small_caps`, `toggle_superscript`, `toggle_subscript`, `toggle_ligatures`, `toggle_no_break`, `align_left`, `align_center`, `align_right`, `justify_left`, `justify_center`, `justify_right`, `justify_all`, `align_towards_spine`, `align_away_from_spine`, `toggle_align_to_grid`, `toggle_hyphenation`, `toggle_ignore_optical_margin`, `paragraph_composer`, `single_line_composer`, `world_ready_paragraph_composer`, `world_ready_single_line_composer`, `switch_composer`, `left_to_right_paragraph`, `right_to_left_paragraph`, `set_up_right_to_left`, `reset_indents` | yes |  | The command. Toggles read the first character and set every chosen character the same way; steps apply run by run |
+| `amount` | number |  |  | Step for increase/decrease commands: points for size, leading and baseline shift (default 2), thousandths of an em for kerning/tracking (default 20), percent for scale (default 5) |
+
+### `set_story_options`
+
+Set story options for the stories holding the chosen text: Optical Margin Alignment and its size, and story direction (Type > Story panel)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `opticalMarginAlignment` | boolean |  |  | Hang punctuation and letter edges outside the frame |
+| `opticalMarginSize` | number |  |  | Type size (points) optical margin alignment is based on |
+| `storyDirection` | `LEFT_TO_RIGHT_DIRECTION`, `RIGHT_TO_LEFT_DIRECTION` |  |  | Story direction |
+
+### `set_type_preferences`
+
+Set type preferences: Type Contextual Controls (alternates and fraction badges on selected text), font locking for Roman and Asian characters, and the HarfBuzz shaping engine for Indic and Latin text. Returns the current values; with no arguments it only reports them
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `showAlternates` | boolean |  |  | Show the contextual badge for OpenType alternates on selected text (Type > Type Contextual Controls > Show Adornment) |
+| `showFractions` | boolean |  |  | Show the contextual badge for fractions |
+| `fontChangeLocking` | boolean |  |  | Font locking: keep Roman fonts off Asian characters (and the reverse) when changing fonts |
+| `fontInputLocking` | boolean |  |  | Font locking while typing |
+| `harfbuzzShaping` | boolean |  |  | Shape Indic and Latin text with the HarfBuzz engine (default shaping engine) |
+| `scope` | `application`, `document` |  | `"application"` | Where harfbuzzShaping is set: the application default or the active document |
+
+### `insert_special_character`
+
+Insert a special character, white space or break character (Type > Insert Special Character / Insert White Space / Insert Break Character), or any glyph by Unicode code point, optionally in a given font (Glyphs panel). Inserts before or after the chosen text, or replaces it (replace characters with a glyph)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `character` | `COLUMN_BREAK`, `FRAME_BREAK`, `PAGE_BREAK`, `ODD_PAGE_BREAK`, `EVEN_PAGE_BREAK`, `FORCED_LINE_BREAK`, `DISCRETIONARY_LINE_BREAK`, `DISCRETIONARY_HYPHEN`, `NONBREAKING_HYPHEN`, `EM_DASH`, `EN_DASH`, `EM_SPACE`, `EN_SPACE`, `NONBREAKING_SPACE`, `FIXED_WIDTH_NONBREAKING_SPACE`, `HAIR_SPACE`, `SIXTH_SPACE`, `THIN_SPACE`, `QUARTER_SPACE`, `THIRD_SPACE`, `PUNCTUATION_SPACE`, `FIGURE_SPACE`, `FLUSH_SPACE`, `DOUBLE_LEFT_QUOTE`, `DOUBLE_RIGHT_QUOTE`, `SINGLE_LEFT_QUOTE`, `SINGLE_RIGHT_QUOTE`, `DOUBLE_STRAIGHT_QUOTE`, `SINGLE_STRAIGHT_QUOTE`, `BULLET_CHARACTER`, `COPYRIGHT_SYMBOL`, `DEGREE_SYMBOL`, `ELLIPSIS_CHARACTER`, `PARAGRAPH_SYMBOL`, `REGISTERED_TRADEMARK`, `SECTION_SYMBOL`, `TRADEMARK_SYMBOL`, `RIGHT_INDENT_TAB`, `INDENT_HERE_TAB`, `END_NESTED_STYLE`, `ZERO_WIDTH_NONJOINER`, `ZERO_WIDTH_JOINER`, `DOTTED_CIRCLE`, `ARABIC_KASHIDA`, `ARABIC_COMMA`, `ARABIC_SEMICOLON`, `ARABIC_QUESTION_MARK`, `HEBREW_MAQAF`, `HEBREW_GERESH`, `HEBREW_GERSHAYIM`, `HEBREW_SOF_PASUK`, `LEFT_TO_RIGHT_MARK`, `RIGHT_TO_LEFT_MARK`, `LEFT_TO_RIGHT_EMBEDDING`, `RIGHT_TO_LEFT_EMBEDDING`, `LEFT_TO_RIGHT_OVERRIDE`, `RIGHT_TO_LEFT_OVERRIDE`, `POP_DIRECTIONAL_FORMATTING` |  |  | The special character (InDesign SpecialCharacters name) |
+| `glyph` | object |  |  | A glyph instead of a special character: { unicode, fontName } |
+| `at` | `end`, `start`, `replace` |  | `"end"` | Insert after the chosen text (end), before it (start), or replace it |
+| `count` | integer |  | `1` | How many to insert |
+
+### `run_glyphs_panel_command`
+
+Run a Glyphs panel menu command: insert one of the five most recently used glyphs at the text selection, sort the panel by Unicode or by glyph ID, or clear the Recently Used row (Type > Glyphs)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `insert_recent_glyph_1`, `insert_recent_glyph_2`, `insert_recent_glyph_3`, `insert_recent_glyph_4`, `insert_recent_glyph_5`, `sort_by_unicode`, `sort_by_glyph_id`, `clear_recently_used` | yes |  | The Glyphs panel command; insert_recent_glyph_N needs a text insertion point or text selection |
+
+### `change_case`
+
+Change the case of text to UPPERCASE, lowercase, Title Case or Sentence case (Type > Change Case)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `mode` | `UPPERCASE`, `LOWERCASE`, `TITLECASE`, `SENTENCECASE` | yes |  | The case to change to |
+
+### `manage_fonts`
+
+Work with fonts: list the fonts used in the document or installed (family, style, type, status, variable axes), replace one font with another throughout the document and its styles (Type > Find Font), rescan font folders for missing fonts, or recompose every story
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `replace`, `update_missing`, `recompose` | yes |  | list fonts; replace a font; update_missing rescans font folders (Update missing font list); recompose recomposes all stories |
+| `scope` | `document`, `application` |  | `"document"` | For list: fonts used in the active document, or every installed font |
+| `missingOnly` | boolean |  |  | For list: only fonts that are not installed, substituted or fauxed |
+| `nameContains` | string |  |  | For list: only fonts whose name contains this text (case-insensitive) |
+| `maxFonts` | integer |  | `200` | For list: the most fonts to return |
+| `from` | string |  |  | For replace: the font to replace, as "Family\tStyle" or a family (every style) |
+| `to` | string |  |  | For replace: the replacement, as "Family\tStyle" or a family (keeps each style) |
+| `includeStyles` | boolean |  | `true` | For replace: also change paragraph and character styles that use the font |
+
+### `manage_cjk_sets`
+
+List, create, update or delete composite fonts (Type > Composite Fonts), mojikumi sets with detailed aki overrides per character class (Type > Mojikumi Settings) and kinsoku sets (Type > Kinsoku Shori Settings) in the active document. Apply them to text with set_character_attributes
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `composite_font`, `mojikumi`, `kinsoku` | yes |  | What to work with |
+| `action` | `list`, `create`, `update`, `delete` | yes |  | What to do |
+| `name` | string |  |  | The set or composite font name (not needed for list) |
+| `entries` | array of object |  |  | Composite font entries to set: name (Kanji, Kana, Full-width Punctuation, Full-width Symbols, Half-width Roman, Half-width Numerals, or a custom set), fontName ("Family\tStyle" or family), relativeSize, baselineShift, horizontalScale, verticalScale (percents and points), scaleOption, customCharacters (for a new custom set) |
+| `basedOn` | string |  |  | Mojikumi: the MojikumiTableDefaults set a new set starts from, e.g. LINE_END_ALL_ONE_HALF_EM_ENUM |
+| `akiOverrides` | array of object |  |  | Mojikumi detailed settings: aki between character classes (yakumono classes), each { targetClass, sideClass, sideIsAfterTarget, minimum, desired, maximum, compressionPriority, akiDoesNotFloat }; replaces the existing overrides |
+| `cantBeginLineChars` | string |  |  | Kinsoku: characters that cannot begin a line |
+| `cantEndLineChars` | string |  |  | Kinsoku: characters that cannot end a line |
+| `hangingPunctuationChars` | string |  |  | Kinsoku: hanging punctuation characters |
+| `cantBeSeparatedChars` | string |  |  | Kinsoku: characters that cannot be separated |
+
+### `set_tab_stops`
+
+Set tab stops on the paragraphs of the chosen text (Type > Tabs): add or replace stops with alignment (left, centre, right, align on a character), leader and align-on character; delete stops; clear all; repeat a stop across the column (Repeat Tab); or list them. Positions are mm from the left edge of the text column
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `action` | `add`, `replace`, `delete`, `clear`, `repeat`, `list` | yes |  | add stops, replace all stops, delete stops at positions, clear all stops, repeat a stop, or list stops |
+| `tabs` | array of object |  |  | For add and replace: stops as { position (mm), alignment (LEFT_ALIGN, CENTER_ALIGN, RIGHT_ALIGN, CHARACTER_ALIGN), leader (up to 8 characters, e.g. "."), alignOn (the character a CHARACTER_ALIGN stop aligns on, e.g. ".") } |
+| `positions` | array of number |  |  | For delete: positions (mm) of the stops to remove |
+| `repeatIndex` | integer |  |  | For repeat: which stop to repeat (0-based; default the last) |
+| `until` | number |  |  | For repeat: add stops up to this position in mm (default: the column width less the right indent) |
+
+### `set_grep_styles`
+
+Add, replace, clear or list GREP styles: character styles applied automatically to text matching a GREP expression (Paragraph panel menu > GREP Styles), on the paragraphs of the chosen text or on a paragraph style
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object |  |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `paragraphStyle` | string |  |  | A paragraph style name to change instead of (or as well as) paragraphs |
+| `action` | `add`, `replace`, `clear`, `list` | yes |  | add to the existing GREP styles, replace them, clear them, or list them |
+| `styles` | array of object |  |  | For add and replace: { expression (GREP), characterStyle (name) } in order |
+
+### `set_bullets_and_numbering`
+
+Apply and format bullets and numbering on the paragraphs of the chosen text (Type > Bulleted & Numbered Lists; Bullets and Numbering dialog): list type, list and level, bullet character and font, number expression and format, text after, character style, start/continue, restart after levels, alignment, indents and tab position; or restart numbering, continue numbering, or convert bullets and numbers to text
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | Which text to act on. Give text frame ids, story ids, or selection: true; optionally narrow each to a character range (start/end) or a paragraph range (paragraphs) |
+| `action` | `set`, `restart`, `continue`, `convert_to_text` |  | `"set"` | set the options below; restart numbering at the first chosen paragraph (at startAt, default 1); continue numbering from the previous list; or convert the bullets and numbers to ordinary text |
+| `listType` | `BULLET_LIST`, `NUMBERED_LIST`, `NO_LIST` |  |  | Bulleted list, numbered list, or no list |
+| `list` | string |  |  | Name of a list (Define Lists) the paragraphs belong to, so numbering runs across frames or stories |
+| `level` | integer |  |  | Level for multi-level lists |
+| `bullet` | object |  |  | Bullet character: { unicode ("2022") or glyphId, fontName ("Family\tStyle" or family; needed with glyphId) } |
+| `textAfter` | string |  |  | Text after the bullet (metacharacters such as ^t for a tab) |
+| `characterStyle` | string |  |  | Character style for the bullet or number |
+| `numberExpression` | string |  |  | Number pattern with placeholders: ^# this level, ^1-^9 the number at that level, ^H chapter number, ^t tab; e.g. "^1.^#.^t" |
+| `numberFormat` | `ARABIC`, `SINGLE_LEADING_ZEROS`, `DOUBLE_LEADING_ZEROS`, `TRIPLE_LEADING_ZEROS`, `UPPER_ROMAN`, `LOWER_ROMAN`, `UPPER_LETTERS`, `LOWER_LETTERS`, `KANJI`, `KATAKANA_MODERN`, `KATAKANA_TRADITIONAL`, `ARABIC_ALIF_BA_TAH`, `ARABIC_ABJAD`, `HEBREW_BIBLICAL`, `HEBREW_NON_STANDARD`, `FORMAT_NONE` |  |  | Numbering format |
+| `mode` | `continue`, `start_at` |  |  | Continue from the previous number, or start at startAt |
+| `startAt` | integer |  |  | Starting number (with mode start_at or action restart) |
+| `restartAfter` | object |  |  | Restart numbers at this level: { enabled (false turns it off), policy (ANY_PREVIOUS_LEVEL, AFTER_SPECIFIC_LEVEL, RANGE_OF_LEVELS), lowerLevel, upperLevel } |
+| `numberAlignment` | `LEFT_ALIGN`, `CENTER_ALIGN`, `RIGHT_ALIGN` |  |  | Bullet or number position: its alignment in its space |
+| `leftIndent` | number |  |  | Left indent in mm |
+| `firstLineIndent` | number |  |  | First line indent in mm (negative for a hanging bullet) |
+| `tabPosition` | number |  |  | Tab position in mm after the bullet or number |
+
+### `manage_numbering_lists`
+
+List, create, update or delete numbering lists (Type > Bulleted & Numbered Lists > Define Lists): named lists whose numbers can continue across stories, or across documents in a book, for running lists of figures and tables
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `create`, `update`, `delete` | yes |  | What to do |
+| `name` | string |  |  | The list name (not needed for list) |
+| `newName` | string |  |  | For update: a new name |
+| `continueAcrossStories` | boolean |  |  | Continue numbers across stories |
+| `continueAcrossDocuments` | boolean |  |  | Continue numbers from the previous document in the book |
+| `replaceWith` | string |  |  | For delete: the list that paragraphs using the deleted list move to |
+
+## Text frames and stories
+<a id="text_frames"></a>
+
+Text Frame Options, text wrap, threading, type on a path, notes, track changes, Story Editor and editorial preferences.
+
+### `set_text_frame_options`
+
+Set Text Frame Options on text frames: columns (fixed number, fixed width or flexible width, count, width, maximum, gutter, balance), inset spacing, vertical justification and paragraph spacing limit, ignore text wrap, baseline options and a custom baseline grid, auto-sizing, footnote overrides and column rules (Object > Text Frame Options)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `columns` | object |  |  | Columns (General tab) |
+| `inset` | object |  |  | Inset Spacing in mm. Give all, or any of top, left, bottom, right (sides not given keep their value) |
+| `verticalJustification` | object |  |  | Vertical Justification (General tab) |
+| `ignoreWrap` | boolean |  |  | Ignore Text Wrap from other objects |
+| `baseline` | object |  |  | Baseline Options tab. Setting any grid option turns on the custom baseline grid unless customGrid is false |
+| `autoSize` | object |  |  | Auto-Size tab |
+| `footnotes` | object |  |  | Footnotes tab. Setting any option turns on Enable Overrides unless enableOverrides is false |
+| `columnRules` | object |  |  | Column Rules tab. Setting any option turns on Insert Column Rule unless enabled is false |
+
+### `get_text_frame_options`
+
+Read the Text Frame Options of text frames: columns, inset, vertical justification, baseline options, auto-sizing, footnotes and column rules (Object > Text Frame Options). Lengths in mm, stroke weight in points
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `set_text_wrap`
+
+Set text wrap on page items: no wrap, wrap around the bounding box, wrap around the object shape, jump object or jump to next column; invert, offsets, wrap to (sides, towards or away from the spine, largest area), contour options and Apply to Parent Page Only (Window > Text Wrap)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `mode` | `none`, `bounding_box`, `object_shape`, `jump_object`, `next_column` |  |  | Wrap type |
+| `offset` | object |  |  | Wrap offset (a wrap around an object shape uses one value: all, or top) in mm. Give all, or any of top, left, bottom, right (sides not given keep their value) |
+| `invert` | boolean |  |  | Invert: wrap text inside the shape |
+| `wrapTo` | `both_sides`, `left_side`, `right_side`, `towards_spine`, `away_from_spine`, `largest_area` |  |  | Wrap To: which sides of the object text wraps on |
+| `contour` | object |  |  | Contour Options, for a wrap around the object shape |
+| `applyToParentPageOnly` | boolean |  |  | Apply to Parent Page Only (items on parent pages) |
+
+### `get_text_wrap`
+
+Read the text wrap of page items: wrap type, invert, offsets, wrap to, contour options and the paths and alpha channels a placed image offers (Window > Text Wrap)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `manage_notes`
+
+Work with notes (Type > Notes, Notes panel, Note tool): add a note at a text position, list notes with author and dates, convert text to a note or a note to text, split a note, expand or collapse notes, remove notes from a story or the document, go to the next, previous, first or last note, or invoke Notes Mode at a text position
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `add`, `list`, `convert_text_to_note`, `convert_to_text`, `split`, `set_collapsed`, `remove`, `select`, `notes_mode` | yes |  | add \| list \| convert_text_to_note \| convert_to_text \| split \| set_collapsed \| remove \| select (go to a note) \| notes_mode |
+| `story` | object |  |  | Which story: frameId (any text frame of the story), storyId (from get_document_stories), or selection: true (the story of the selected text or text frame) |
+| `position` | integer |  |  | Character position in the story (add, notes_mode); defaults to the selection's insertion point, else the end of the story |
+| `text` | string |  |  | Note text (add) |
+| `start` | integer |  |  | First character of the text to convert (convert_text_to_note) |
+| `length` | integer |  |  | Number of characters to convert (convert_text_to_note) |
+| `noteIds` | array of integer |  |  | Note ids from list (convert_to_text, split, set_collapsed, remove, select) |
+| `splitAt` | integer |  |  | Character in the note text where the second note begins (split) |
+| `collapsed` | boolean |  |  | Collapse (true) or expand (false) the notes in Story Editor (set_collapsed); without noteIds, every note in the story |
+| `which` | `next`, `previous`, `first`, `last` |  |  | select: the note after or before the selection, or the first or last note of the story |
+| `all` | boolean |  |  | remove: every note in the document (Remove All Notes) |
+
+### `manage_tracked_changes`
+
+Track changes (Type > Track Changes, Track Changes panel): turn tracking on or off for a story or every story, list tracked changes with type, author and date, accept or reject one change, all changes in a story or document, or only those by one user, and go to the next, previous, first or last change
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `enable`, `disable`, `list`, `accept`, `reject`, `select` | yes |  | enable \| disable \| list \| accept \| reject \| select (go to a change) |
+| `story` | object |  |  | Which story: frameId (any text frame of the story), storyId (from get_document_stories), or selection: true (the story of the selected text or text frame) |
+| `indexes` | array of integer |  |  | accept/reject/select: change indexes within the story, as list reports them (needs story) |
+| `userName` | string |  |  | accept/reject: only changes by this user (Accept/Reject All Changes by This User) |
+| `which` | `next`, `previous`, `first`, `last` |  |  | select: the change after or before the selection, or the first or last change of the story |
+| `limit` | integer |  | `500` | list: most changes to return |
+
+### `get_editorial_preferences`
+
+Read the editorial preferences: Notes, Track Changes, Story Editor Display (font, size, spacing, colours, cursor, style name column, depth ruler) and Type preferences for text editing, plus the user name for notes and changes
+
+*read-only*
+
+No parameters.
+
+### `set_editorial_preferences`
+
+Set editorial preferences (Preferences > Notes, Track Changes, Story Editor Display and Type; View > Story Editor): note colour and tooltips, which changes show and how they are marked, Story Editor font, colours and cursor, the style name column and depth ruler, triple-click and smart cut and paste behaviour, and the user name
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `userName` | string |  |  | User name recorded with notes and tracked changes (File > User) |
+| `notes` | object |  |  | Notes preferences |
+| `trackChanges` | object |  |  | Track Changes preferences |
+| `storyEditor` | object |  |  | Story Editor Display preferences and View > Story Editor options |
+| `typing` | object |  |  | Type preferences |
+
+### `show_text_extras`
+
+Show or hide text extras and editorial panels: text threads (View > Extras > Show Text Threads), note anchors (View > Extras > Show Notes), tracked changes (View > Show Changes), the Notes, Track Changes and Text Wrap panels, and the Text Wrap panel options. Each option is true to show, false to hide
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `notes` | boolean |  |  | Show Notes: note anchors in layout view |
+| `textThreads` | boolean |  |  | Show Text Threads (View > Extras) |
+| `changes` | boolean |  |  | Show Changes (View) |
+| `notesPanel` | boolean |  |  | Notes panel (Window > Editorial) |
+| `trackChangesPanel` | boolean |  |  | Track Changes panel (Window > Editorial) |
+| `textWrapPanel` | boolean |  |  | Text Wrap panel (Window) |
+| `textWrapOptions` | boolean |  |  | Show Options in the Text Wrap panel (the panel must be open) |
+
+### `thread_text_frames`
+
+Thread text frames so a story flows through them, unthread a frame from the next or previous one, flow overset text into new frames on the following pages (adding pages if asked), list a thread, or go to the next, previous, first or last frame in a thread
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `thread`, `unthread`, `flow`, `list`, `select` | yes |  | thread \| unthread \| flow \| list \| select |
+| `frameIds` | array of integer | yes |  | thread: frames in reading order (at least two). Other actions: the frame to act on (the first id) |
+| `side` | `after`, `before` |  | `"after"` | unthread: break the thread after the frame (default) or before it |
+| `which` | `next`, `previous`, `first`, `last` |  |  | select: the frame to go to, relative to frameIds[0] |
+| `addPages` | boolean |  | `false` | flow: add pages at the end of the document when the text runs past the last page |
+| `maxFrames` | integer |  | `50` | flow: most frames to add |
+
+### `get_story_statistics`
+
+Count the words, characters, lines and paragraphs of a story, or of the selected text, including how much is overset (the word and character counts of the Info panel)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `story` | object | yes |  | Which story: frameId (any text frame of the story), storyId (from get_document_stories), or selection: true (the story of the selected text or text frame) |
+
+### `manage_story_editor`
+
+Open a story in Story Editor (Edit > Edit in Story Editor), close Story Editor windows and return to the same place in the layout (Edit > Edit in Layout), or expand/collapse all footnotes in the active Story Editor window
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `open`, `close`, `toggle_footnotes` | yes |  | open \| close (edit in layout) \| toggle_footnotes |
+| `story` | object |  |  | Which story: frameId (any text frame of the story), storyId (from get_document_stories), or selection: true (the story of the selected text or text frame) |
+
+### `fill_with_placeholder_text`
+
+Fill text frames with placeholder text (Type > Fill with Placeholder Text), in Latin, Arabic, Cyrillic, Greek or Hebrew script; existing text in the frames is replaced
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `script` | `latin`, `arabic`, `cyrillic`, `greek`, `hebrew` |  | `"latin"` | Script of the placeholder text |
+
+### `select_text`
+
+Move the text cursor or extend the text selection by characters, words, lines or paragraphs, or to the start or end of the story (the arrow-key and Shift-arrow shortcuts), select the line at the cursor, or select a character range
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `story` | object | yes |  | Which story: frameId (any text frame of the story), storyId (from get_document_stories), or selection: true (the story of the selected text or text frame) |
+| `operation` | `move`, `extend`, `select_line`, `select_range` | yes |  | move (the insertion point) \| extend (the selection) \| select_line \| select_range |
+| `unit` | `character`, `word`, `line`, `paragraph`, `story` |  | `"character"` | move/extend: step by character, word, line or paragraph, or jump to the story start or end |
+| `count` | integer |  | `1` | move/extend: steps forward (positive) or back (negative); with unit story, positive goes to the end, negative to the start |
+| `start` | integer |  |  | select_range: first character; move/extend/select_line: the starting position when the story has no selection |
+| `length` | integer |  |  | select_range: number of characters (0 places the insertion point) |
+
+### `apply_type_on_path`
+
+Put type on a path (Type on a Path tool) or change its options (Type > Type on a Path > Options): effect (rainbow, skew, 3D ribbon, stair step, gravity), what part of the type aligns to which part of the path, spacing and flip. Works on rectangles, ovals, polygons, lines and frames; an item that already has type on its path is updated
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `text` | string |  |  | Text to put on the path (replaces existing path text) |
+| `effect` | `rainbow`, `skew`, `ribbon_3d`, `stair_step`, `gravity` |  |  | Effect |
+| `alignTo` | `baseline`, `ascender`, `descender`, `center`, `em_box_above`, `em_box_below`, `icf_box_above`, `icf_box_below` |  |  | Align: which part of the type sits on the path |
+| `toPath` | `top`, `center`, `bottom` |  |  | To Path: top, centre or bottom of the stroke |
+| `spacing` | number |  |  | Spacing around sharp curves (InDesign's path spacing value) |
+| `flip` | boolean |  |  | Flip the type to the other side of the path |
+
+### `remove_type_on_path`
+
+Delete type from paths, leaving the paths (Type > Type on a Path > Delete Type from Path)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+## Tables
+<a id="tables"></a>
+
+Table and cell options, rows and columns, merging and splitting, converting text and tables, and selecting in tables.
+
+### `get_table_info`
+
+List the tables in the document with their story id, index, frame and size, or describe one table: its rows (type, height, Exactly/At Least), column widths, merged cells, graphic cells, cells holding nested tables, and overset cells (Table panel; the red overset dot in a cell)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object |  |  | Optional: the table to describe in detail; omit to list every table. Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+
+### `set_table_options`
+
+Set Table Options (Table > Table Options): row, column, header and footer counts, the table border, space before and after, stroke drawing order, table direction and alignment in the frame; alternating row and column strokes; alternating fills; and repeating headers and footers, which control how a long table breaks across columns, frames and pages
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object | yes |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `setup` | object |  |  | Table Setup tab |
+| `rowStrokes` | object |  |  | Row Strokes tab: an alternating pattern of two strokes. first.count and next.count set the pattern (1 and 1 = every other row) |
+| `columnStrokes` | object |  |  | Column Strokes tab: an alternating pattern of two strokes. first.count and next.count set the pattern |
+| `fills` | object |  |  | Fills tab: alternating fills by row or by column |
+| `headersFooters` | object |  |  | Headers and Footers tab |
+
+### `set_cell_options`
+
+Set Cell Options (Table > Cell Options) on a block of cells: text insets, vertical justification, paragraph spacing limit, first baseline, clipping, text rotation and writing direction, plus paragraph and character styles, size and alignment of the cell text; graphic cell insets and clipping; strokes on chosen edges and the fill; row height (Exactly or At Least, with a maximum), start row and keep with next; column width; and diagonal lines. Also the sizing and alignment controls of the Table panel
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `text` | object |  |  | Text tab, and formatting of the cell text |
+| `graphic` | object |  |  | Graphic tab (graphic cells) |
+| `strokes` | object |  |  | Strokes and Fills tab: the cell stroke on the chosen edges |
+| `fill` | object |  |  | Cell Fill |
+| `rows` | object |  |  | Rows and Columns tab: applies to every row the cells span |
+| `columns` | object |  |  | Rows and Columns tab: applies to every column the cells span |
+| `diagonal` | object |  |  | Diagonal Lines tab |
+
+### `insert_table`
+
+Insert a new table at a point in existing text (Table > Insert Table), or inside a cell of another table to nest it. To make a table in a new frame, use create_table
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `at` | object |  |  | Where in text: a text frame's story or a story, at characterIndex (default: the end), or selection: true for the text cursor or selected text frame |
+| `inCell` | object |  |  | Nest the new table in this cell, after the cell's text (instead of at) |
+| `bodyRows` | integer |  | `3` | Body rows |
+| `columns` | integer |  | `3` | Columns |
+| `headerRows` | integer |  | `0` | Header rows |
+| `footerRows` | integer |  | `0` | Footer rows |
+| `width` | number |  |  | Table width in mm (default: InDesign's, the width of the frame or cell) |
+
+### `insert_table_rows_columns`
+
+Insert rows or columns before or after a row or column of a table (Table > Insert > Row / Column; also what dragging a table edge with the modifier key does)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object | yes |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `kind` | `rows`, `columns` | yes |  | Insert rows or columns |
+| `count` | integer |  | `1` | How many to insert |
+| `reference` | integer |  |  | The row or column to insert next to (0-based; default: the last one) |
+| `position` | `after`, `before` |  | `"after"` | Below/right of the reference (after) or above/left of it (before) |
+| `size` | number |  |  | Height of each new row or width of each new column in mm (default: like the reference) |
+
+### `delete_table_parts`
+
+Delete rows, columns or the whole table (Table > Delete > Row / Column / Table)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `part` | `rows`, `columns`, `table` | yes |  | What to delete: the rows or the columns the cells span, or the table |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+
+### `edit_table_cells`
+
+Merge or unmerge cells, split cells horizontally or vertically, convert cells to graphic or text cells, or convert rows to header, body or footer rows (Table > Merge Cells, Unmerge Cells, Split Cell Horizontally / Vertically, Convert Cell to Graphic Cell / Text Cell, Convert Rows)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `operation` | `merge`, `unmerge`, `split_horizontally`, `split_vertically`, `to_graphic_cells`, `to_text_cells`, `to_header_rows`, `to_body_rows`, `to_footer_rows` | yes |  | What to do to the cells (row conversions act on every row the cells span) |
+| `keepContents` | boolean |  | `true` | For to_graphic_cells and to_text_cells: keep the content where InDesign can |
+
+### `resize_table_rows_columns`
+
+Resize rows and columns: set row heights or column widths, keep the table width by taking the change from the neighbouring column (as Shift-dragging a column border does), scale the whole table width or height proportionally, or distribute rows or columns evenly (Table > Distribute Rows Evenly / Distribute Columns Evenly)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object |  |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `rowHeight` | number |  |  | New height in mm for every row the cells span (the minimum for At Least rows) |
+| `columnWidth` | number |  |  | New width in mm for every column the cells span |
+| `keepTableWidth` | boolean |  | `false` | With columnWidth: take the change from the next column (or the previous one at the right edge) so the table keeps its width |
+| `tableWidth` | number |  |  | Scale every column proportionally to this total width in mm |
+| `tableHeight` | number |  |  | Scale every row proportionally to this total height in mm |
+| `distribute` | `rows`, `columns`, `both` |  |  | Make the rows and/or columns the cells span equal, keeping their total size |
+
+### `convert_text_to_table`
+
+Convert delimited text to a table (Table > Convert Text to Table): a whole story, a character range of it, or the selected text
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `source` | object | yes |  | The text to convert: a story (by frameId or storyId), optionally a character range of it, or selection: true |
+| `columnSeparator` | string |  | `"tab"` | Column Separator: tab, comma, paragraph, semicolon, space, or any single character |
+| `rowSeparator` | string |  | `"paragraph"` | Row Separator: tab, comma, paragraph, semicolon, space, or any single character |
+| `columns` | integer |  |  | Number of columns; needed when the column and row separators are the same |
+| `headerRows` | integer |  | `0` | Make this many of the first rows header rows |
+
+### `convert_table_to_text`
+
+Convert a table back to delimited text (Table > Convert Table to Text); cell formatting other than text formatting is lost
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object | yes |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `columnSeparator` | string |  | `"tab"` | Column Separator: tab, comma, paragraph, semicolon, space, or any single character |
+| `rowSeparator` | string |  | `"paragraph"` | Row Separator: tab, comma, paragraph, semicolon, space, or any single character |
+
+### `copy_table_cells`
+
+Copy or cut a block of cells with their text formatting into the same or another table: over existing cells, or into new rows or columns inserted before or after a row or column (Edit > Copy / Cut / Paste on table cells, and the Table panel's Paste Before / Paste After). Pasting a whole table after another table's last row and removing the source combines the two tables
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `source` | object | yes |  | The cells to copy |
+| `target` | object |  |  | Where to paste |
+| `placement` | `over`, `rows_before`, `rows_after`, `columns_before`, `columns_after` |  | `"over"` | Paste over existing cells, or into new rows or columns before or after the reference row or column |
+| `cut` | boolean |  | `false` | Clear the source cells after copying (Cut) |
+| `removeSourceTable` | boolean |  | `false` | Delete the source table afterwards (for combining two tables) |
+
+### `select_table_part`
+
+Select a table, cells, rows, columns, or the header, body or footer rows (Table > Select > Cell / Row / Column / Table / Header Rows / Body Rows / Footer Rows), and bring the page into view, which with one row is Table > Go to Row
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `table` | object | yes |  | Which table. Give frameId, storyId or pageIndex with index (which table, 0-based), or selection: true for the table holding the selection. Add nested to reach a table inside a cell. get_table_info lists every table with its storyId and index |
+| `part` | `table`, `cells`, `rows`, `columns`, `header_rows`, `body_rows`, `footer_rows` |  | `"cells"` | What to select; cells, rows and columns use the cells argument |
+| `cells` | object |  |  | Which cells of the table; omitted means every cell. Give rows and/or columns, or region, or selection: true for the selected cells |
+| `reveal` | boolean |  | `true` | Turn the window to the page where the selection starts |
+
+### `run_table_command`
+
+Run a Table keyboard or panel command on the current selection: move the text cursor between cells, extend a cell selection, toggle between selecting the cell and its text, jump to the original header or footer rows (Table > Edit Header / Edit Footer), or set which lines the stroke proxy selects (Table panel menu > Select / Clear Border, Inner, All). Put the text cursor in a cell first, for example with select_table_part
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `next_cell`, `previous_cell`, `first_cell_in_column`, `last_cell_in_column`, `first_cell_in_row`, `last_cell_in_row`, `first_row_in_frame`, `last_row_in_frame`, `move_up`, `move_down`, `move_left`, `move_right`, `extend_selection_up`, `extend_selection_down`, `extend_selection_left`, `extend_selection_right`, `toggle_cell_text_selection`, `edit_header`, `edit_footer`, `proxy_select_border`, `proxy_select_inner`, `proxy_select_all`, `proxy_clear_border`, `proxy_clear_inner`, `proxy_clear_all` | yes |  | The command to run |
+| `times` | integer |  | `1` | How many times to run it (for moving and extending) |
+
+### `place_spreadsheet_table`
+
+Place an Excel workbook (.xlsx or .xls) as a table, with the Microsoft Excel Import Options set without the dialog: sheet, cell range, formatted or unformatted table or tabbed text, cell alignment, decimal places, hidden cells, and whether the placed file stays linked for updates. Places at a point in text, or in a new text frame on a page
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Path to the .xlsx or .xls file |
+| `sheet` | string |  |  | Sheet name (default: the sheet at sheetIndex) |
+| `sheetIndex` | integer |  | `0` | 0-based sheet index, used when sheet is not given |
+| `range` | string |  |  | Cell range such as A1:F20 (default: the used range of the sheet) |
+| `formatting` | `formatted_table`, `unformatted_table`, `unformatted_tabbed_text`, `format_only_once` |  | `"formatted_table"` | Table: formatted table, unformatted table, unformatted tabbed text, or format only once |
+| `cellAlignment` | `spreadsheet`, `left`, `center`, `right` |  |  | Cell Alignment: as in the spreadsheet, or left, center, right |
+| `decimalPlaces` | integer |  |  | Number of decimal places to keep |
+| `includeHiddenCells` | boolean |  | `false` | Include hidden cells |
+| `link` | boolean |  | `false` | Keep the placed spreadsheet linked so the table can be updated from the file (Create Links When Placing Text and Spreadsheet Files) |
+| `at` | object |  |  | Place at a point in text (instead of frame). Where in text: a text frame's story or a story, at characterIndex (default: the end), or selection: true for the text cursor or selected text frame |
+| `frame` | object |  |  | Place in a new text frame (instead of at); x, y, width and height in mm from the page's top-left corner |
+
+## Paragraph formatting
+<a id="paragraph"></a>
+
+Indents, spacing, alignment, justification, hyphenation, keep options, rules, borders, shading, span columns, drop caps and nested styles; underline and strikethrough options.
+
+### `set_paragraph_formatting`
+
+Set paragraph formatting on text: indents and spacing, alignment, justification, hyphenation, keep options, rules above and below, borders and shading, span and split columns, drop caps and nested styles (Paragraph panel and its menu: Justification, Hyphenation, Keep Options, Paragraph Rules, Paragraph Borders and Shading, Span Columns, Drop Caps and Nested Styles). Only the options given change. Distances are mm, line weights points
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which text to act on. Give storyIds (get_document_stories), frameIds (text frame ids from list_page_items), or selection: true; optionally narrow to a range of paragraphs |
+| `indents` | object |  |  | Indents and spacing (Paragraph panel; Paragraph Formatting > Indents and Spacing) |
+| `align` | object |  |  | Alignment and direction (Paragraph panel) |
+| `justification` | object |  |  | Justification (Paragraph panel menu > Justification) |
+| `hyphenation` | object |  |  | Hyphenation (Paragraph panel menu > Hyphenation) |
+| `keep` | object |  |  | Keep options (Paragraph panel menu > Keep Options) |
+| `ruleAbove` | object |  |  | Rule above (Paragraph panel menu > Paragraph Rules) |
+| `ruleBelow` | object |  |  | Rule below (Paragraph panel menu > Paragraph Rules) |
+| `border` | object |  |  | Paragraph border (Paragraph panel menu > Paragraph Borders and Shading) |
+| `shading` | object |  |  | Paragraph shading (Paragraph panel menu > Paragraph Borders and Shading) |
+| `columns` | object |  |  | Span or split columns (Paragraph panel menu > Span Columns) |
+| `dropCap` | object |  |  | Drop caps (Paragraph panel; Paragraph panel menu > Drop Caps and Nested Styles) |
+| `nestedStyles` | array of object |  |  | Nested styles (Drop Caps and Nested Styles); replaces the paragraphs' nested styles, [] clears them |
+| `nestedLineStyles` | array of object |  |  | Nested line styles (Drop Caps and Nested Styles); replaces the paragraphs' nested line styles, [] clears them |
+
+### `get_paragraph_formatting`
+
+Read the paragraph formatting of text, paragraph by paragraph: indents and spacing, alignment, justification, hyphenation, keep options, rules, borders, shading, span and split columns, drop caps and nested styles (Paragraph panel and its menu). Distances are mm, line weights points
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which text to act on. Give storyIds (get_document_stories), frameIds (text frame ids from list_page_items), or selection: true; optionally narrow to a range of paragraphs |
+| `groups` | array of string |  |  | Which groups of settings to read (default: all) |
+| `maxParagraphs` | integer |  | `20` | Read at most this many paragraphs |
+
+### `set_underline_and_strikethrough`
+
+Turn underline and strikethrough on, off or toggle them, and set their options: weight, offset, type, colour, tint, overprint, gap colour, gap tint and gap overprint (Character panel menu > Underline Options and Strikethrough Options; the Underline and Strikethrough shortcuts). Weights and offsets are points
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which text to act on. Give storyIds (get_document_stories), frameIds (text frame ids from list_page_items), or selection: true; optionally narrow to a range of paragraphs |
+| `underline` | object |  |  | Underline (Character panel menu > Underline Options; Type shortcut Shift+Cmd+U) |
+| `strikethrough` | object |  |  | Strikethrough (Character panel menu > Strikethrough Options; Type shortcut) |
+
+## Paths and pathfinder
+<a id="paths"></a>
+
+Drawing and editing paths and anchor points, joining, cutting, compound paths, Pathfinder, Convert Shape, corner options, clipping paths and Create Outlines.
+
+### `draw_path`
+
+Draw a path from anchor points with optional direction handles, open or closed, as with the Pen or Pencil tool; it takes the document's default object style unless colours are given. Returns the new item
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Page to draw on (0-based) |
+| `points` | array of object | yes |  | The anchor points in order (at least two) |
+| `closed` | boolean |  |  | Close the path (default false: an open path) |
+| `fillColor` | string |  |  | A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `strokeColor` | string |  |  | A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `name` | string |  |  | A name for the item (Layers panel) |
+
+### `edit_path`
+
+Edit paths: open, close, reverse or join them, cut them with the scissors, add, move or delete anchor points, and convert points (Object > Paths, Object > Convert Point; Add, Delete and Convert Direction Point tools, Scissors tool)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `action` | `open`, `close`, `reverse`, `set_point_type`, `add_point`, `move_point`, `delete_point`, `cut`, `join` | yes |  | open, close or reverse paths (Object > Paths; reversing a subpath of a compound path fills or empties its holes); set_point_type (Convert Point); add_point, move_point, delete_point (anchor point tools); cut (Scissors tool, at a point); join (Object > Paths > Join: close one open path, or join two open paths at their nearest end points). add_point, move_point, delete_point and cut act on one item |
+| `path` | integer |  |  | Path index within the item (a compound path has several). open, close and reverse: default every path; others: default 0 |
+| `points` | array of integer |  |  | Point indexes: the points to convert (default all), to delete, to move (one) or to cut at (one) |
+| `pointType` | `plain`, `corner`, `smooth`, `symmetrical` |  |  | set_point_type: plain, corner, smooth or symmetrical |
+| `segment` | integer |  |  | add_point: add a point on segment n (from point n to the next), keeping the path's shape |
+| `t` | number |  |  | add_point with segment: where on the segment (0 to 1, default 0.5) |
+| `point` | object |  |  | add_point: a new anchor point with optional handles; move_point: new anchor (handles follow unless given), handles and type |
+| `at` | integer |  |  | add_point with point: insert at this index (default at the end) |
+| `joinMode` | `connect`, `combine` |  |  | join: connect the end points with a segment (default), or combine them into one point |
+
+### `get_path_info`
+
+Read items' paths: whether each is open or closed, and every anchor point with its direction handles and point type
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `combine_paths`
+
+Combine shapes with the Pathfinder (add, subtract, intersect, exclude overlap, minus back), or make or release a compound path (Object > Pathfinder, Object > Paths, Pathfinder panel)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `operation` | `add`, `subtract`, `intersect`, `exclude_overlap`, `minus_back`, `make_compound_path`, `release_compound_path` | yes |  | Pathfinder operation, or make_compound_path / release_compound_path. Pathfinder results follow the stacking order as in the Pathfinder panel (subtract removes front shapes from the backmost; minus back removes back shapes from the frontmost) |
+
+### `convert_shape`
+
+Convert items to another shape: rectangle, rounded, beveled or inverse rounded rectangle, ellipse, triangle, polygon, line or orthogonal line, or an open or closed path (Object > Convert Shape; Pathfinder panel)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `shape` | `rectangle`, `rounded_rectangle`, `beveled_rectangle`, `inverse_rounded_rectangle`, `ellipse`, `triangle`, `polygon`, `line`, `orthogonal_line`, `open_path`, `closed_path` | yes |  | The new shape |
+| `sides` | integer |  |  | polygon: number of sides |
+| `starInset` | number |  |  | polygon: star inset (%) |
+| `cornerRadius` | number |  |  | Rounded, beveled or inverse rounded rectangle: corner size (mm) |
+
+### `set_corner_options`
+
+Set the corner shape and size of items' corners, all at once or individually (Object > Corner Options; live corners)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `shape` | `none`, `rounded`, `inverse_rounded`, `inset`, `bevel`, `fancy` |  |  | Corner shape |
+| `radius` | number |  |  | Corner size (mm) |
+| `corners` | array of string |  |  | Which corners (default all four) |
+
+### `set_clipping_path`
+
+Set an image's clipping path: none, detect edges, an alpha channel or a Photoshop path, with threshold, tolerance, inset and options, or convert the clipping path to a frame (Object > Clipping Path > Options; Convert Clipping Path to Frame)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true: graphic frames, or the placed images themselves |
+| `type` | `none`, `detect_edges`, `alpha_channel`, `photoshop_path` |  |  | Clipping path type |
+| `pathName` | string |  |  | The Photoshop path or alpha channel to use (photoshop_path, alpha_channel) |
+| `threshold` | integer |  |  | Threshold (detect edges, alpha channel) |
+| `tolerance` | number |  |  | Tolerance (detect edges, alpha channel) |
+| `insetFrame` | number |  |  | Inset Frame (mm) |
+| `invertPath` | boolean |  |  | Invert |
+| `includeInsideEdges` | boolean |  |  | Include Inside Edges |
+| `restrictToFrame` | boolean |  |  | Restrict to Frame |
+| `useHighResolutionImage` | boolean |  |  | Use High Resolution Image |
+| `convertToFrame` | boolean |  |  | Afterwards, convert the clipping path to the graphic frame (Object > Clipping Path > Convert Clipping Path to Frame) |
+
+### `create_outlines`
+
+Convert text frames' text to outlines (compound paths), replacing the text or keeping it (Type > Create Outlines)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true: text frames |
+| `keepText` | boolean |  |  | Keep the original text frame and add the outlines over it (default false: the text is replaced) |
+
+## Effects and transparency
+<a id="effects"></a>
+
+Opacity, blending and effects on items, global light, blend space and transparency flattening.
+
+### `set_item_effects`
+
+Set opacity, blending mode, isolate/knockout and effects (drop shadow, inner shadow, outer and inner glow, bevel and emboss, satin, basic, directional and gradient feather) on items' object, stroke, fill or content (Effects panel; Object > Effects). Only the options you pass change
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `on` | `object`, `stroke`, `fill`, `content` |  | `"object"` | Effects panel target: the whole object, its stroke, its fill, or its content (the text of a text frame, the graphic in a frame) |
+| `transparency` | object |  |  | Opacity and blending (Effects dialog > Transparency) |
+| `dropShadow` | object |  |  | Drop Shadow options (Effects dialog > Drop Shadow) |
+| `innerShadow` | object |  |  | Inner Shadow options (Effects dialog > Inner Shadow) |
+| `outerGlow` | object |  |  | Outer Glow options (Effects dialog > Outer Glow) |
+| `innerGlow` | object |  |  | Inner Glow options (Effects dialog > Inner Glow) |
+| `bevelAndEmboss` | object |  |  | Bevel and Emboss options (Effects dialog > Bevel and Emboss) |
+| `satin` | object |  |  | Satin options (Effects dialog > Satin) |
+| `basicFeather` | object |  |  | Basic Feather options (Effects dialog > Basic Feather) |
+| `directionalFeather` | object |  |  | Directional Feather options (Effects dialog > Directional Feather) |
+| `gradientFeather` | object |  |  | Gradient Feather options (Effects dialog > Gradient Feather) |
+
+### `get_item_effects`
+
+Read items' opacity, blending and effects on their object, stroke, fill and content (Effects panel)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `on` | array of string |  |  | Effects panel targets (default: object, stroke, fill and content) |
+| `includeDisabled` | boolean |  |  | Also report the settings of effects that are off (default: only effects that are on) |
+
+### `clear_item_effects`
+
+Remove items' effects (Object > Effects > Clear Effects), or reset opacity, blending and effects on the object, stroke, fill and content (Object > Effects > Clear All Transparency)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `scope` | `effects`, `all_transparency` |  | `"effects"` | effects: turn off every effect on the chosen targets, keeping opacity and blending; all_transparency: also reset opacity to 100%, Normal blending, no isolate or knockout, on all four targets |
+| `on` | array of string |  |  | Effects panel targets (default: object, stroke, fill and content) |
+
+### `set_transparency_preferences`
+
+Set the global light shared by shadows and bevels (Object > Effects > Global Light), the transparency blend space (Edit > Transparency Blend Space) and how transparency is drawn on screen at each display performance level (Preferences > Display Performance)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `scope` | `document`, `application` |  | `"document"` | Where global light and blend space are set: the active document, or the application defaults for new documents |
+| `globalLight` | object |  |  | Global Light |
+| `blendSpace` | `RGB`, `CMYK` |  |  | Transparency Blend Space: Document RGB or Document CMYK |
+| `transparencyDisplay` | object |  |  | Transparency quality on screen per display performance level (application-wide) |
+
+### `get_transparency_settings`
+
+Read global light, transparency blend space, transparency display quality, transparency flattener presets and each spread's flattening (Object > Effects > Global Light; Edit > Transparency Blend Space; Edit > Transparency Flattener Presets; Pages panel > Spread Flattening)
+
+*read-only*
+
+No parameters.
+
+### `manage_flattener_preset`
+
+Create, edit, duplicate or delete transparency flattener presets used when printing or exporting (Edit > Transparency Flattener Presets)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `update`, `duplicate`, `delete` | yes |  | What to do with the preset |
+| `name` | string | yes |  | The preset name (the new name for create; the existing preset otherwise) |
+| `newName` | string |  |  | update: rename the preset; duplicate: the copy's name (required) |
+| `settings` | object |  |  | Flattener settings; only the ones you pass change |
+
+### `set_spread_flattening`
+
+Set how a spread is flattened: the document default, None (Ignore Transparency), or custom flattener settings (Pages panel menu > Spread Flattening)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer | yes |  | The spread (0-based) |
+| `mode` | `default`, `none`, `custom` | yes |  | default: use the output's flattener preset; none: ignore transparency; custom: the settings given here |
+| `settings` | object |  |  | Custom flattener settings (mode: custom); only the ones you pass change |
+
+## XML structure and tags
+<a id="xml"></a>
+
+XML elements, attributes, comments and processing instructions; tags, tagging presets and tag-to-style maps; DTD validation; XML import and export options.
+
+### `list_xml_structure`
+
+List the document's XML structure as a tree with element ids, tags, attributes, comments, processing instructions and what each element is tagged to (Structure pane). Ids are what the other XML tools take
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `from` | object |  |  | An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `maxDepth` | integer |  | `10` | How many levels to descend |
+| `maxElements` | integer |  | `500` | Stop after this many elements |
+| `snippetLength` | integer |  | `40` | Characters of each element's text to include (0: none) |
+| `includeComments` | boolean |  | `true` | Include XML comments and processing instructions |
+
+### `add_xml_element`
+
+Add an XML element to the structure (Structure pane menu > New Element), or wrap existing sibling elements in a new parent element (New Parent Element). The tag is created if the document does not have it
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | yes |  | Tag name of the new element |
+| `parent` | object |  |  | Parent of the new element (default: the root). An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `position` | `end`, `start` |  | `"end"` | Where under the parent: last or first child |
+| `before` | object |  |  | Or: place the new element just before this sibling |
+| `after` | object |  |  | Or: place the new element just after this sibling |
+| `wrap` | array of object |  |  | Wrap these sibling elements, in order, in the new element (New Parent Element) |
+| `contents` | string |  |  | Text content of the new element |
+| `attributes` | object |  |  | Attributes of the new element, as { name: value } |
+
+### `edit_xml_element`
+
+Change an XML element: retag it, replace its text, add, edit or delete attributes (Structure pane menu > New Attribute; Edit and Delete on an attribute), or move it before or after another element or into one
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `element` | object | yes |  | An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `tag` | string |  |  | New tag for the element (created if missing) |
+| `contents` | string |  |  | Replace the element's text content |
+| `setAttributes` | object |  |  | Attributes to add or change, as { name: value } |
+| `removeAttributes` | array of string |  |  | Names of attributes to delete |
+| `move` | object |  |  | Move the element in the structure: give both to and reference |
+
+### `set_xml_comment_or_instruction`
+
+Add an XML comment or processing instruction to an element (Structure pane menu > New Comment, New Processing Instruction), or edit an existing one by id (Edit)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `comment`, `instruction` | yes |  | An XML comment or a processing instruction |
+| `id` | integer |  |  | Edit the comment or instruction with this id (from list_xml_structure) |
+| `parent` | object |  |  | Or: add it to this element (default: the root). An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `value` | string |  |  | Comment text |
+| `target` | string |  |  | Processing instruction target (an XML name) |
+| `data` | string |  |  | Processing instruction data |
+
+### `remove_xml_items`
+
+Delete XML elements, comments or processing instructions (Structure pane menu > Delete), or untag elements, keeping their content in the layout (Untag Element). Deleting an element deletes the content tagged to it, as the Structure pane does
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `mode` | `delete`, `untag` |  | `"delete"` | delete removes the items; untag removes the elements but keeps their content |
+| `ids` | array of integer |  |  | Ids of elements, comments or instructions (from list_xml_structure) |
+| `xpath` | string |  |  | Or also: every element this XPath expression matches |
+| `selection` | boolean |  |  | Or also: the element selected in the Structure pane |
+
+### `tag_xml_content`
+
+Tag frames, stories or text with an XML tag (Tag Element / Tag Frame / Tag Text), autotag frames and tables with the default tags (Tags panel > Autotag), untag frames (Tags panel > Untag), or add every untagged story and graphic to the structure (Structure pane menu > Add Untagged Items)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `tag`, `autotag`, `untag`, `add_untagged` | yes |  | What to do |
+| `tag` | string |  |  | Tag name for action tag (created if missing) |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true. A text frame stands for its story |
+| `text` | object |  |  | Tag a range of text (Tag Text): characters start to end (inclusive, 0-based) of the story in a text frame; give frameId, start and end. An untagged story is first tagged with the default story tag, as InDesign does |
+| `tables` | array of object |  |  | Tables to autotag, by text frame and table index |
+| `parent` | object |  |  | Parent element for newly tagged frames (default: the root). An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+
+### `select_xml_element`
+
+Select an XML element in the Structure pane, or select its content in the layout (Go to Item); select the element of a tagged frame (Select in Structure); or move through the Structure pane with its navigation commands (expand, collapse, next validation error and so on)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `element` | object |  |  | An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `itemId` | integer |  |  | Or: a tagged page item whose element to select (Select in Structure) |
+| `show` | `structure`, `layout` |  | `"structure"` | structure selects the element in the Structure pane; layout selects its frame or text and shows its page (Go to Item) |
+| `paneCommand` | `move_down`, `move_up`, `extend_down`, `extend_up`, `select_first`, `select_last`, `scroll_up`, `scroll_down`, `expand`, `collapse`, `expand_all`, `collapse_all`, `select_through_first`, `select_through_last`, `previous_error`, `next_error` |  |  | A Structure pane navigation command, run after any selection (the pane must be open) |
+| `repeat` | integer |  | `1` | Run the navigation command this many times |
+
+### `set_xml_preferences`
+
+Set or read the XML view and preferences: show the Structure pane, tagged frames, tag markers, text snippets, attributes, comments and processing instructions (View > Structure; Structure pane menu), small rows in the Tags panel, the Tagging Preset Options (default tags and colours for autotagging), and whether deleting content deletes its element. With no options, returns the current settings
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `view` | object |  |  | What is shown |
+| `tagging` | object |  |  | Tagging Preset Options: the tags autotagging applies, and their colours |
+| `deleteElementOnContentDeletion` | boolean |  |  | Delete an element when its content (a frame or text) is deleted (XML preferences) |
+
+### `list_xml_tags`
+
+List the document's XML tags with their colours and how many elements use each, marking unused tags (Tags panel; Select All Unused Tags)
+
+*read-only*
+
+No parameters.
+
+### `set_xml_tag`
+
+Create an XML tag (Tags panel menu > New Tag), or rename or recolour one (Tag Options)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Tag name |
+| `newName` | string |  |  | Rename the tag to this |
+| `color` | string |  |  | Tag colour: a UI colour (BLACK, BLUE, BRICK_RED, BROWN, BURGUNDY, CHARCOAL, CUTE_TEAL, CYAN, DARK_BLUE, DARK_GREEN, FIESTA, GOLD, GRASS_GREEN, GRAY, GREEN, GRID_BLUE, GRID_GREEN, GRID_ORANGE, LAVENDER, LIGHT_BLUE, LIGHT_GRAY, LIGHT_OLIVE, LIPSTICK, MAGENTA, OCHRE, OLIVE_GREEN, ORANGE, PEACH, PINK, PURPLE, RED, SULPHUR, TAN, TEAL, VIOLET, WHITE, YELLOW) or "#RRGGBB" |
+| `create` | boolean |  | `true` | Create the tag if the document does not have it |
+
+### `delete_xml_tags`
+
+Delete XML tags (Tags panel menu > Delete Tag), retagging their elements with a replacement tag, or delete every tag no element uses (Select All Unused Tags, then Delete Tag)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `names` | array of string |  |  | Tags to delete |
+| `replaceWith` | string |  |  | Tag that elements using a deleted tag get instead (needed when a tag is in use) |
+| `unused` | boolean |  |  | Delete every tag no element uses |
+
+### `transfer_xml_tags`
+
+Load XML tags from an XML or DTD file into the document (Tags panel menu > Load Tags), or save the document's tags to an XML file (Save Tags)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `direction` | `load`, `save` | yes |  | load reads tags from the file; save writes the document's tags to it |
+| `filePath` | string | yes |  | Absolute path of the XML or DTD file |
+
+### `map_xml_tags_and_styles`
+
+Map XML tags to paragraph, character, table or cell styles and style the tagged content (Structure pane or Tags panel menu > Map Tags to Styles), or map styles to tags and tag the styled content (Map Styles to Tags). Maps are kept in the document; map_by_name pairs tags and styles of the same name
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `direction` | `tags_to_styles`, `styles_to_tags` | yes |  | Which mapping |
+| `maps` | array of object |  |  | Tag and style pairs to add or change |
+| `mapByName` | boolean |  |  | Also map every tag and paragraph or character style that share a name (Map By Name) |
+| `replace` | boolean |  | `false` | Remove the existing maps of this direction first |
+| `apply` | boolean |  | `true` | Apply the maps now: style the tagged content, or tag the styled content |
+| `includeMasterPageStories` | boolean |  |  | styles_to_tags: include stories on parent (master) pages |
+| `includePasteboardStories` | boolean |  |  | styles_to_tags: include stories on the pasteboard |
+| `includeEmptyStories` | boolean |  |  | styles_to_tags: include empty stories |
+
+### `import_xml`
+
+Import an XML file into the structure (File > Import XML; Structure pane menu > Import XML) with the XML Import Options: merge or append, link to the file, XSLT, clone repeating text elements, only import matching elements, import text into tables, skip whitespace-only elements, delete unmatched content, CALS tables, and import into an element. The options given are kept as the document's XML import settings
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Absolute path of the XML file |
+| `into` | object |  |  | Import under this element instead of the root (Import into Selected Element). An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `mode` | `merge`, `append` |  |  | Merge Content (fill matching placeholders) or Append Content |
+| `createLink` | boolean |  |  | Create Link: link to the XML file so it can be updated |
+| `cloneRepeatingText` | boolean |  |  | Clone Repeating Text Elements (merge only) |
+| `onlyMatching` | boolean |  |  | Only Import Elements That Match Existing Structure (merge only) |
+| `importTextIntoTables` | boolean |  |  | Import Text Elements Into Tables If Tags Match (merge only) |
+| `ignoreWhitespace` | boolean |  |  | Do Not Import Contents Of Whitespace-Only Elements |
+| `deleteUnmatched` | boolean |  |  | Delete Elements, Frames, and Content That Do Not Match Imported XML (merge only) |
+| `importCALSTables` | boolean |  |  | Import CALS Tables as InDesign Tables |
+| `importToSelected` | boolean |  |  | Import into the element selected in the Structure pane (Import into Selected Element) |
+| `xslt` | object |  |  | Apply XSLT (import): a stylesheet file, or the stylesheet named in the XML; enabled: false turns it off |
+
+### `export_xml`
+
+Export the XML structure, or one element of it, to a file with the XML Export Options: include the DTD declaration, view the XML afterwards, export from the selected element, untagged tables as CALS, remap break, whitespace and special characters, XSLT, encoding, ruby, and image copying and conversion (File > Export > XML; Structure pane menu > Export XML). The options given are kept as the document's XML export settings
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Absolute path of the XML file to write |
+| `fromElement` | object |  |  | Export only this element and its children. An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `fromSelection` | boolean |  |  | Export from the element selected in the Structure pane (Export From Selected Element) |
+| `includeDtd` | boolean |  |  | Include DTD Declaration |
+| `viewAfterExport` | boolean |  |  | Open the exported file afterwards (View XML Using) |
+| `viewer` | string |  |  | Path of the application to view the XML with (View XML Using); must be inside the allowed directories |
+| `untaggedTables` | `cals`, `none` |  |  | Export Untagged Tables as CALS XML (cals) or not (none) |
+| `remapCharacters` | boolean |  |  | Remap Break, Whitespace, and Special Characters as character references |
+| `xslt` | object |  |  | Apply XSLT (export): a stylesheet file, or the stylesheet named in the XML; enabled: false turns it off |
+| `encoding` | `UTF8`, `UTF16`, `SHIFT_JIS` |  |  | File encoding |
+| `ruby` | boolean |  |  | Export ruby annotations |
+| `images` | object |  |  | Image options (XML Export Options > Images) |
+
+### `manage_xml_dtd`
+
+Load a DTD for validating the XML structure (Structure pane menu > Load DTD), view it (View DTD), set its root element (DTD Options), or delete it (Delete DTD)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `load`, `view`, `set_root`, `delete` | yes |  | What to do |
+| `filePath` | string |  |  | load: absolute path of the DTD file |
+| `rootTag` | string |  |  | load or set_root: the tag of the root element |
+| `maxLength` | integer |  | `20000` | view: return at most this many characters of the DTD |
+
+### `validate_xml_structure`
+
+Validate the XML structure against the loaded DTD from the root element or from a chosen or selected element (Structure pane menu > Validate from Root Element / Validate from Selected Element), and list the errors (View List of Errors)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `from` | object |  |  | Validate from this element (default: the root). An XML element: its id (from list_xml_structure), its path of child indexes from the root element ([] is the root), the first element an XPath expression matches, or selection: true for the element selected in the Structure pane (or the selected tagged item). Give exactly one |
+| `maxErrors` | integer |  | `50` | Stop after this many errors |
+
+## Long documents
+<a id="long_documents"></a>
+
+Tables of contents, footnotes and endnotes, the index, conditional text, hyperlinks, cross-references, bookmarks, text variables, captions and books.
+
+### `define_toc_style`
+
+Create or change a table of contents style: its title, the paragraph styles it collects, and the level, entry style, page number and separator of each (Layout > Table of Contents Styles). Keep one style per table (contents, figures, tables) to build several.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | TOC style name; created when it does not exist |
+| `newName` | string |  |  | Rename the style |
+| `options` | object |  |  | Style options; only the ones given change |
+| `entries` | array of object |  |  | Paragraph styles to include, in order. An entry for a style the TOC style already includes is updated |
+| `replaceEntries` | boolean |  |  | Remove the style's current entries before adding these |
+| `epubNavigation` | boolean |  |  | Also use this style for EPUB navigation (the TOC style in EPUB export options) |
+
+### `create_toc`
+
+Generate a table of contents from a TOC style and place it on a page, or update the one already in the document (Layout > Table of Contents, Layout > Update Table of Contents). Can take entries from every document of a book and make the table interactive (PDF bookmarks and links).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `style` | string |  |  | TOC style name (default "[Default]") |
+| `replaceExisting` | boolean |  |  | Update (replace) the table of contents already generated with this style |
+| `pageIndex` | integer |  |  | Page to place it on, 0-based (default 0) |
+| `x` | number |  |  | Left edge in mm from the page's left edge (default: the left margin) |
+| `y` | number |  |  | Top edge in mm from the page's top edge (default: the top margin) |
+| `layer` | string |  |  | Layer to place it on (default: the active layer) |
+| `bookPath` | string |  |  | Build the table from every document of this book (.indb); the book is opened if needed |
+| `includeOverset` | boolean |  |  | Include entries from overset text |
+| `interactive` | boolean |  |  | Make the table interactive: PDF bookmarks and anchors to the source paragraphs, and turn on bookmarks and hyperlinks in PDF export |
+
+### `set_note_options`
+
+Set footnote and endnote options: numbering, prefix and suffix, reference and text styles, separator, spacing, rules, and the endnote header, scope and frame (Type > Document Footnote Options, Type > Document Endnote Options); and whether Word footnotes and endnotes come in on import (Word Import Options).
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `footnotes` | object |  |  | Footnote options; only the ones given change |
+| `endnotes` | object |  |  | Endnote options; only the ones given change |
+| `wordImport` | object |  |  | Word and RTF import options for notes (application preferences) |
+
+### `insert_note`
+
+Insert a footnote or an endnote at a point in text, with its text (Type > Insert Footnote, Type > Insert Endnote). The reference number goes at the point; the note text follows the document's note options.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `footnote`, `endnote` | yes |  | Footnote (at the bottom of the column) or endnote (collected at the end) |
+| `at` | object | yes |  | Where the reference goes: after the chosen text unless before is true |
+| `text` | string |  |  | The note text |
+
+### `manage_footnotes`
+
+Work with existing footnotes and endnotes: convert footnotes to endnotes or back (Type > Convert Footnote and Endnote), turn footnotes into ordinary text, delete notes, or go to a note's reference or text (Go to Footnote Reference / Go to Endnote Reference). Note ids come from get_long_document_info.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `convert_to_endnotes`, `convert_to_footnotes`, `convert_to_text`, `delete`, `show_reference`, `show_text` | yes |  | What to do. Conversions move each note's plain text (local formatting is not kept) and keep its reference position |
+| `kind` | `footnote`, `endnote` |  |  | Which notes delete, show_reference and show_text act on |
+| `ids` | array of integer |  |  | Note ids; for conversions and delete, absent means every note in scope |
+| `storyId` | integer |  |  | Limit to the notes of one story |
+
+### `manage_index`
+
+Build the index (Window > Type & Tables > Index): add topics, page references and cross-references (New Page Reference, New Cross-reference), index selected text as a topic or a proper name (Last, First), duplicate, delete or capitalize topics, remove unused topics, import topics from another document, update the preview, go to a page reference's marker, and set sort options.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `add_topic`, `add_page_reference`, `index_text`, `add_cross_reference`, `duplicate_topic`, `delete_topic`, `capitalize`, `remove_unused_topics`, `import_topics`, `update_preview`, `show_page_reference`, `set_sort_options` | yes |  | What to do |
+| `topic` | array of string |  |  | Topic path, top level first, up to 4 levels (e.g. ["Fruit", "Apples"]). Created when missing for add_* actions; for index_text, the parent topic of the new entry |
+| `sortOrder` | string |  |  | add_topic, add_page_reference: sort the new topic as this text instead of its name |
+| `text` | object |  |  | add_page_reference: the text the reference marks (a marker goes before it); index_text: the text to index |
+| `referenceType` | `CURRENT_PAGE`, `TO_NEXT_STYLE_CHANGE`, `TO_NEXT_USE_OF_STYLE`, `TO_END_OF_STORY`, `TO_END_OF_DOCUMENT`, `TO_END_OF_SECTION`, `FOR_NEXT_N_PARAGRAPHS`, `FOR_NEXT_N_PAGES`, `SUPPRESS_PAGE_NUMBERS` |  |  | Page reference range (default CURRENT_PAGE) |
+| `referenceCount` | integer |  |  | FOR_NEXT_N_PARAGRAPHS / FOR_NEXT_N_PAGES: how many |
+| `referenceStyle` | string |  |  | TO_NEXT_USE_OF_STYLE: the paragraph style that ends the range |
+| `pageNumberStyle` | string |  |  | Character style for this reference's page number (number style override) |
+| `properName` | boolean |  |  | index_text: index a name as "Last, First" |
+| `crossReferenceType` | `SEE`, `SEE_ALSO`, `SEE_OR_ALSO_BRACKET`, `SEE_HEREIN`, `SEE_ALSO_HEREIN`, `CUSTOM_CROSS_REFERENCE`, `CUSTOM_CROSS_REFERENCE_BEFORE`, `CUSTOM_CROSS_REFERENCE_AFTER` |  |  | add_cross_reference: the kind (default SEE) |
+| `referencedTopic` | array of string |  |  | add_cross_reference: the topic path referred to (created when missing) |
+| `customText` | string |  |  | add_cross_reference with a CUSTOM_* type: the custom text |
+| `newName` | string |  |  | duplicate_topic: the copy's name (default "<name> copy") |
+| `capitalization` | `ALL_ENTRIES`, `ALL_LEVEL_1_ENTRIES`, `INCLUDE_SUBENTRIES`, `SELECTED_ENTRY` |  |  | capitalize: which entries; with a topic, SELECTED_ENTRY or INCLUDE_SUBENTRIES (default ALL_ENTRIES) |
+| `filePath` | string |  |  | import_topics: an InDesign document whose index topics to import |
+| `referenceIndex` | integer |  |  | show_page_reference: which of the topic's page references, 0-based (default 0) |
+| `sortOptions` | array of object |  |  | set_sort_options: index sort groups to change |
+
+### `generate_index`
+
+Generate the index from its topics and place it on a page, or replace the index already generated (Index panel menu > Generate Index): title and title style, nested or run-in, section headings, level, heading, page number and cross-reference styles, and every separator.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `options` | object |  |  | Generate Index options; only the ones given change |
+| `pageIndex` | integer |  |  | Page to place it on, 0-based (default 0) |
+| `x` | number |  |  | Left edge in mm from the page's left edge (default: the left margin) |
+| `y` | number |  |  | Top edge in mm from the page's top edge (default: the top margin) |
+| `layer` | string |  |  | Layer to place it on (default: the active layer) |
+| `autoflow` | boolean |  |  | Add pages and frames until the whole index is placed |
+| `includeOverset` | boolean |  |  | Include entries in overset text |
+
+### `manage_conditions`
+
+Manage conditional text (Window > Type & Tables > Conditional Text): create, change and delete conditions and their indicators, show or hide all, show, hide or print indicators, load conditions and sets from another document, and create, redefine, activate and delete condition sets.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `edit`, `delete`, `show_all`, `hide_all`, `set_indicators`, `load`, `create_set`, `redefine_set`, `activate_set`, `delete_set` | yes |  | What to do |
+| `name` | string |  |  | The condition (create, edit, delete) or condition set (*_set actions) |
+| `newName` | string |  |  | edit, redefine_set: a new name |
+| `options` | object |  |  | create, edit: condition options |
+| `replaceWith` | string |  |  | delete: give the deleted condition's text this condition instead of none |
+| `indicators` | `SHOW_INDICATORS`, `HIDE_INDICATORS`, `SHOW_AND_PRINT_INDICATORS` |  |  | set_indicators: show, hide, or show and print the indicators |
+| `filePath` | string |  |  | load: an InDesign document to load conditions from |
+| `includeSets` | boolean |  |  | load: also load its condition sets |
+| `visibility` | array of object |  |  | create_set, redefine_set: condition visibility to record in the set; other conditions keep their current visibility |
+
+### `apply_conditions`
+
+Apply conditions to text, add or remove some, or clear them all (Conditional Text panel; Remove Condition from selection). Text whose conditions are all hidden disappears from the layout.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `text` | object | yes |  | The text to change |
+| `conditions` | array of string |  |  | Condition names |
+| `mode` | `apply`, `add`, `remove`, `clear` |  |  | apply: exactly these conditions; add: keep existing ones too; remove: take these off; clear: remove every condition (default apply) |
+
+### `manage_cross_reference_formats`
+
+Create, change, delete or load cross-reference formats and their building blocks: paragraph text or number, page or chapter number, file or bookmark name, custom text, each with an optional character style (Hyperlinks panel menu > Define Cross-Reference Formats, Load Cross-Reference Formats).
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `edit`, `delete`, `load` | yes |  | What to do |
+| `name` | string |  |  | Format name |
+| `newName` | string |  |  | edit: a new name |
+| `characterStyle` | string |  |  | create, edit: character style for the whole cross-reference |
+| `blocks` | array of object |  |  | create, edit: the format's building blocks in order (edit replaces them all), e.g. [{type:"custom_text",text:"see page "},{type:"page_number"}] |
+| `filePath` | string |  |  | load: an InDesign document to load formats from |
+
+### `insert_cross_reference`
+
+Insert a cross-reference at a point in text that points to a paragraph or to a text anchor and shows it through a cross-reference format (Type > Hyperlinks & Cross-References > Insert Cross-Reference).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `at` | object | yes |  | Where the cross-reference text goes: after the chosen text unless before is true |
+| `destination` | object | yes |  | What it points to: one of paragraph or anchor |
+| `format` | string | yes |  | Cross-reference format name (e.g. "Full Paragraph & Page Number", "Page Number") |
+| `name` | string |  |  | Name for the cross-reference in the Hyperlinks panel |
+
+### `manage_hyperlinks`
+
+Change existing hyperlinks and cross-references (Window > Interactive > Hyperlinks): rename, set the appearance, point to a new URL, page, anchor or paragraph (Hyperlink Options, Edit Hyperlink, Relink Cross-Reference), change a cross-reference's format (Cross-Reference Options), reset the source to other text, delete, go to the source or destination, update cross-references, and rename a text anchor (Hyperlink Destination Options).
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `rename`, `set_appearance`, `set_destination`, `set_format`, `reset_source`, `delete`, `show_source`, `show_destination`, `update_cross_references`, `rename_destination` | yes |  | What to do |
+| `name` | string |  |  | The hyperlink or cross-reference name (rename_destination: the text anchor's name) |
+| `id` | integer |  |  | The hyperlink id, instead of name |
+| `newName` | string |  |  | rename, rename_destination: the new name |
+| `appearance` | object |  |  | set_appearance: the source rectangle and highlight |
+| `destination` | object |  |  | set_destination: one of url, pageIndex, anchor or paragraph |
+| `format` | string |  |  | set_format: cross-reference format name |
+| `source` | object |  |  | reset_source: the text that becomes the hyperlink source |
+
+### `manage_bookmarks`
+
+Manage PDF bookmarks (Window > Interactive > Bookmarks): add a bookmark to a page, text anchor or text, nested under another; delete, rename, go to, move (arrange and nest) and sort bookmarks by page order or name.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `add`, `delete`, `rename`, `show`, `move`, `sort` | yes |  | What to do |
+| `name` | string |  |  | The bookmark (add: the new bookmark's name) |
+| `newName` | string |  |  | rename: the new name |
+| `destination` | object |  |  | add: one of pageIndex, anchor or text |
+| `parent` | string |  |  | add, sort: the parent bookmark (default: top level) |
+| `position` | `before`, `after`, `at_beginning`, `at_end` |  |  | move: where to move it, relative to reference |
+| `reference` | string |  |  | move: the bookmark to move it before or after, or into (at_beginning / at_end); absent with at_beginning / at_end means the top level |
+| `sortBy` | `page`, `name` |  |  | sort: page order (as the panel's Sort Bookmarks does) or name (default page) |
+
+### `define_text_variable`
+
+Create or change a text variable (Type > Text Variables > Define): custom text, file name, last page number, chapter number, creation / modification / output date with its format, running header from a paragraph or character style, or a metadata caption; with text before and after.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Variable name; created when it does not exist |
+| `type` | `custom_text`, `file_name`, `last_page_number`, `chapter_number`, `creation_date`, `modification_date`, `output_date`, `running_header_paragraph`, `running_header_character`, `metadata_caption` |  |  | Variable type (required when creating) |
+| `options` | object |  |  | Options for the type; only the ones given change |
+| `newName` | string |  |  | Rename the variable |
+
+### `insert_text_variable`
+
+Insert a text variable at a point in text, such as a running header, chapter number or last page number (Type > Text Variables > Insert Variable).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | The text variable (e.g. "Running Header", "Last Page Number", or one made with define_text_variable) |
+| `at` | object | yes |  | Where it goes: after the chosen text unless before is true |
+
+### `convert_text_variables`
+
+Convert text variables to ordinary text: every instance of one variable, or the instances inside some text (Type > Text Variables > Convert Variable to Text). Optionally delete the variable afterwards.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string |  |  | The variable whose instances to convert (with text: only that variable's instances there) |
+| `text` | object |  |  | Convert only the instances inside this text |
+| `deleteVariable` | boolean |  |  | After converting every instance, delete the variable (needs name, not text) |
+
+### `generate_captions`
+
+Make captions for images from their metadata (Object > Captions > Caption Setup, Generate Live Caption, Generate Static Caption): a text frame beside each item with a live metadata caption variable, or its text; or convert live captions to static text (Convert to Static Caption). Can number captions through a numbering list that runs across stories (Figure 1, Figure 2...).
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `mode` | `live`, `static`, `convert_to_static` |  |  | live: caption follows the metadata; static: plain text; convert_to_static: target is caption frames whose live captions become text |
+| `metadataField` | string |  |  | Metadata field to show (default "Name"; e.g. "Description", "Headline", "Credit", "Copyright") |
+| `textBefore` | string |  |  | Text before the metadata |
+| `textAfter` | string |  |  | Text after the metadata |
+| `position` | `below`, `above`, `left`, `right` |  |  | Where the caption frame goes (default below) |
+| `offset` | number |  |  | Gap between item and caption in mm (default 2) |
+| `size` | number |  |  | Caption frame height (below/above) or width (left/right) in mm (default 10) |
+| `paragraphStyle` | string |  |  | Paragraph style for the caption |
+| `group` | boolean |  |  | Group each caption with its item |
+| `variableName` | string |  |  | Name of the caption variable to use or create (default "Caption: <metadataField>") |
+| `numbering` | object |  |  | Number captions (needs paragraphStyle): the style numbers paragraphs through this list |
+
+### `manage_book_contents`
+
+Work with a book's documents and the book file (Book panel menu): document information (path, size, date, status, pages), remove or replace a document, save the book under a new name (Save Book As), or close the book.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `bookPath` | string | yes |  | Path to the book (.indb); opened if it is not open |
+| `action` | `document_info`, `remove_document`, `replace_document`, `save_as`, `close` | yes |  | What to do |
+| `documentIndex` | integer |  |  | The document's position in the book, 0-based (document_info: absent means every document) |
+| `replacementPath` | string |  |  | replace_document: the InDesign document that takes its place |
+| `outputPath` | string |  |  | save_as: the new book path |
+| `save` | boolean |  |  | close: save changes first (default true) |
+
+### `set_chapter_numbering`
+
+Set a document's chapter number, its style, and whether it continues from or matches the previous document in its book (Book panel menu > Document Numbering Options; Layout > Numbering & Section Options). Acts on the active document, or opens, changes and saves the document at documentPath.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `documentPath` | string |  |  | An InDesign document to change and save (default: the active document, not saved) |
+| `source` | `start_at`, `continue`, `same_as_previous` |  |  | start_at: use chapterNumber; continue: one more than the previous document in the book; same_as_previous: the same number |
+| `chapterNumber` | integer |  |  | Chapter number (with source start_at) |
+| `format` | `ARABIC`, `ARABIC_ABJAD`, `ARABIC_ALIF_BA_TAH`, `DOUBLE_LEADING_ZEROS`, `FORMAT_NONE`, `HEBREW_BIBLICAL`, `HEBREW_NON_STANDARD`, `KANJI`, `KATAKANA_MODERN`, `KATAKANA_TRADITIONAL`, `LOWER_LETTERS`, `LOWER_ROMAN`, `SINGLE_LEADING_ZEROS`, `TRIPLE_LEADING_ZEROS`, `UPPER_LETTERS`, `UPPER_ROMAN` |  |  | Chapter number style |
+
+### `invoke_long_document_command`
+
+Run a long-document panel menu command that has no scripting equivalent: Index panel Show Find Field / Show Unused Topics; Conditional Text panel Show Options / Select All Unused; Hyperlinks panel Update Hyperlink, sort and Small Panel Rows; Book panel Reveal in Finder / Small Panel Rows; Paste as Cross-Reference. Each needs its panel open (or a selection) and fails with what to do when it is not available.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `index_show_find_field`, `index_show_unused_topics`, `conditions_show_options`, `conditions_select_all_unused`, `hyperlinks_update_hyperlink`, `hyperlinks_sort_manually`, `hyperlinks_sort_by_name`, `hyperlinks_sort_by_type`, `hyperlinks_small_panel_rows`, `book_reveal_in_finder`, `book_small_panel_rows`, `paste_as_cross_reference` | yes |  | The command |
+
+### `get_long_document_info`
+
+Report a document's long-document structure: TOC styles, footnotes and endnotes (with ids), index topics and sort options (Index panel), conditions, condition sets and hidden conditional text (Conditional Text panel), cross-reference formats, hyperlinks and text anchors (Hyperlinks and Cross-References panels), bookmarks (Bookmarks panel), text variables and chapter numbering.
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `sections` | array of string |  |  | Which parts to report (default all): toc_styles, notes, index, conditions, cross_references, hyperlinks, bookmarks, text_variables, chapter_numbering |
+| `limit` | integer |  |  | Most items to list per kind (default 200) |
+
+## Import and export formats
+<a id="formats"></a>
+
+Export PDF, interactive PDF, EPUB, HTML, JPEG, PNG, EPS and text with every option; place Word, Excel and text with import options; object export options, articles, and library, preflight, swatch and snippet files.
+
+### `export_pdf_with_options`
+
+Export the document as Adobe PDF (Print) with any option of the Export Adobe PDF dialog: General, Compression, Marks and Bleeds, Output (with Ink Manager), Advanced and Security, optionally starting from a preset and exporting in the background (File > Export > Adobe PDF (Print))
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output PDF file path (inside the allowed directories) |
+| `preset` | string |  |  | Start from this PDF export preset, e.g. "[High Quality Print]" or "[PDF/X-4:2008]"; the options below override it (default: the current settings) |
+| `pages` | string |  | `"all"` | Pages: "all", or page names as in the Pages panel such as "1-3,5"; prefix + for absolute positions ("+1-+3") |
+| `general` | object |  |  | General panel |
+| `compression` | object |  |  | Compression panel |
+| `marksAndBleeds` | object |  |  | Marks and Bleeds panel |
+| `output` | object |  |  | Output panel (colour conversion and PDF/X) |
+| `advanced` | object |  |  | Advanced panel (fonts, OPI, transparency flattener, accessibility) |
+| `security` | object |  |  | Security panel. Passwords are written into the PDF and never returned |
+| `inkManager` | object |  |  | Ink Manager (Output panel): convert spot inks to process or alias them. These are document settings and stay after the export, as in InDesign |
+| `background` | boolean |  | `false` | Export in the background (Background Tasks panel) and return the task; follow it with background_exports |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `manage_pdf_export_presets`
+
+List, read, create or update, delete, import and export Adobe PDF presets (File > Adobe PDF Presets > Define). save takes the same option groups as export_pdf_with_options, without security
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `get`, `save`, `delete`, `import`, `export` | yes |  | list names; get one preset's settings; save (create or update) a preset; delete one; import presets from a .joboptions file; export the presets to a file |
+| `name` | string |  |  | Preset name (get, save, delete). Built-in presets in [brackets] cannot be changed or deleted |
+| `basedOn` | string |  |  | save: copy the settings of this preset first (default: a new preset starts from the current settings) |
+| `filePath` | string |  |  | import / export: the preset file |
+| `general` | object |  |  | General panel |
+| `compression` | object |  |  | Compression panel |
+| `marksAndBleeds` | object |  |  | Marks and Bleeds panel |
+| `output` | object |  |  | Output panel (colour conversion and PDF/X) |
+| `advanced` | object |  |  | Advanced panel (fonts, OPI, transparency flattener, accessibility) |
+
+### `background_exports`
+
+List background export tasks with their status and progress, wait for them to finish, or cancel them (Window > Utilities > Background Tasks)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `wait`, `cancel` |  | `"list"` | list tasks; wait until tasks finish; cancel tasks |
+| `taskId` | integer |  |  | Only this task (the id export_pdf_with_options returned); default all tasks |
+
+### `export_interactive_pdf`
+
+Export the document as an interactive PDF with buttons, forms, media, hyperlinks and page transitions, setting any option of the Export to Interactive PDF dialog (File > Export > Adobe PDF (Interactive))
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output PDF file path (inside the allowed directories) |
+| `pages` | string |  | `"all"` | Pages: "all", or page names as in the Pages panel such as "1-3,5"; prefix + for absolute positions ("+1-+3") |
+| `options` | object |  |  | Export to Interactive PDF options |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `export_epub_with_options`
+
+Export the document as a reflowable or fixed-layout EPUB with any option of the EPUB export dialogs: General, Text, Object and image conversion, CSS and JavaScript, Metadata, accessibility metadata, and fixed-layout range, cover, navigation and spreads (File > Export > EPUB (Reflowable / Fixed Layout))
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output EPUB file path (inside the allowed directories) |
+| `layout` | `reflowable`, `fixed_layout` |  | `"reflowable"` | Reflowable or fixed-layout EPUB |
+| `general` | object |  |  | Reflowable: General and Text panels |
+| `images` | object |  |  | Reflowable: Object panel (image conversion) |
+| `css` | object |  |  | Reflowable: HTML & CSS and JavaScript panels |
+| `fixedLayout` | object |  |  | Fixed layout: General, Conversion Settings, CSS and JavaScript panels |
+| `metadata` | object |  |  | Metadata panel (either layout) |
+| `accessibility` | object |  |  | Accessibility metadata (either layout); alt text and ARIA roles are set per object with set_object_export_options |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `manage_epub_viewing_apps`
+
+List, add or remove the e-reader applications that open an EPUB after export (EPUB export dialog > View EPUB after Exporting > Viewing Apps). Applications must be inside the allowed directories
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `add`, `remove` | yes |  | list the apps; add one; remove one by its index |
+| `appPath` | string |  |  | add: the application (.app on macOS, .exe on Windows) |
+| `reflowable` | boolean |  | `true` | add: use it for reflowable EPUB |
+| `fixedLayout` | boolean |  | `true` | add: use it for fixed-layout EPUB |
+| `appIndex` | integer |  |  | remove: 0-based index from list |
+
+### `export_html`
+
+Export the document or selection as HTML with any option of the HTML Export dialog (content order, lists, images, CSS, JavaScript), or as HTML5 fixed layout (File > Export > HTML / HTML5)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output HTML file path (inside the allowed directories) |
+| `format` | `html`, `html5_fixed_layout` |  | `"html"` | HTML (reflowing content) or HTML5 fixed layout (pages as laid out) |
+| `options` | object |  |  | HTML Export options (format html) |
+| `fixedLayout` | object |  |  | HTML5 fixed-layout options (format html5_fixed_layout) |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `place_with_import_options`
+
+Place a Word, RTF, Excel, text or InDesign Tagged Text file (or any placeable file) with the options of its import dialog, on a page or into a frame; optionally apply a table style to imported tables and generate alt text for placed images (File > Place > Show Import Options)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | The file to place (inside the allowed directories) |
+| `pageIndex` | integer |  | `0` | Page to place on (0-based), unless frameId is given |
+| `x` | number |  | `10` | Left of the placed content, mm from the page's left edge |
+| `y` | number |  | `10` | Top of the placed content, mm from the page's top edge |
+| `frameId` | integer |  |  | Place into this existing frame instead of onto the page |
+| `autoflow` | boolean |  | `false` | Autoflow text, adding pages as needed |
+| `word` | object |  |  | Microsoft Word / RTF Import Options (.docx, .doc, .rtf) |
+| `excel` | object |  |  | Microsoft Excel Import Options (.xlsx, .xls) |
+| `text` | object |  |  | Text Import Options (.txt) |
+| `taggedText` | object |  |  | Tagged Text Import Options |
+| `tableStyle` | string |  |  | Apply this table style to the tables the file brings in (Excel Import Options > Table Style) |
+| `generateAltText` | boolean |  |  | Generate alt text for placed images with Adobe's generative AI (InDesign 2026 (21.5) or later; needs sign-in and network) |
+| `markGeneratedAltText` | boolean |  |  | Tag generated alt text as generated by AI (with generateAltText) |
+| `keepSettings` | boolean |  | `false` | Leave the import options in place for later placing (default: put the previous options back) |
+
+### `export_story`
+
+Export a story or the selected text as Rich Text (.rtf), Text Only (.txt) with a chosen platform and encoding, InDesign Tagged Text, or an InCopy document (.icml) (File > Export with text selected)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output file path (inside the allowed directories) |
+| `format` | `rtf`, `text`, `tagged_text`, `incopy` | yes |  | Rich Text Format, Text Only, InDesign Tagged Text, or InCopy Document |
+| `frameId` | integer |  |  | A text frame of the story to export |
+| `selectedText` | boolean |  |  | Export the selected text instead of a whole story (not for incopy) |
+| `text` | object |  |  | Text Export Options (format text): platform and encoding |
+| `taggedText` | object |  |  | Tagged Text Export Options (format tagged_text) |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `set_object_export_options`
+
+Set or read Object Export Options on items: alt text and its source, PDF tagging and actual text, and EPUB/HTML conversion (custom rasterization, size, resolution, format, alignment and spacing, page breaks, layout, epub:type, ARIA role and label) (Object > Object Export Options). With no option groups, reports the current settings
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `altText` | object |  |  | Alt Text tab |
+| `pdf` | object |  |  | Tagged PDF tab |
+| `epub` | object |  |  | EPUB and HTML tab |
+
+### `manage_articles`
+
+Work with the Articles panel: list articles and their members, create an article, add items or all document content, include or exclude it when exporting, rename, reorder, remove members, delete, and use articles for the reading order of tagged PDF (Window > Articles)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `create`, `add_items`, `add_all_content`, `set_export_status`, `rename`, `move`, `remove_items`, `delete`, `set_reading_order` | yes |  | What to do |
+| `article` | string |  |  | Article name (all actions but list and set_reading_order) |
+| `items` | object |  |  | create / add_items / remove_items: the page items (ids, names or selection: true) |
+| `includeWhenExporting` | boolean |  |  | create / set_export_status: Include When Exporting (default true on create) |
+| `newName` | string |  |  | rename: the new name |
+| `position` | `first`, `last`, `before`, `after` |  |  | move: where the article goes in the panel |
+| `reference` | string |  |  | move with before / after: the other article |
+| `readingOrder` | `USE_ARTICLES`, `USE_XML_STRUCTURE` |  |  | set_reading_order: Use for Reading Order in Tagged PDF (articles) or the XML structure |
+
+### `export_image_file`
+
+Export pages or spreads as JPEG, PNG or EPS with every option of the export dialog: quality, format method, resolution, colour space, profile, anti-aliasing, bleed, overprint, transparent background, PostScript level, preview, fonts, OPI and flattener (File > Export > JPEG / PNG / EPS)
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | Output file (with several pages InDesign numbers the files) path (inside the allowed directories) |
+| `format` | `jpeg`, `png`, `eps` | yes |  | Image format |
+| `pages` | string |  | `"all"` | Pages: "all", or page names as in the Pages panel such as "1-3,5"; prefix + for absolute positions ("+1-+3") |
+| `spreads` | boolean |  | `false` | Export spreads instead of pages |
+| `jpeg` | object |  |  | Export JPEG options (format jpeg) |
+| `png` | object |  |  | Export PNG options (format png) |
+| `eps` | object |  |  | Export EPS options (format eps) |
+| `keepSettings` | boolean |  | `false` | Leave the settings in place after the export, as the dialog does (default: put the previous settings back) |
+
+### `transfer_resource_file`
+
+Open or create an object library (.indl), load or save a preflight profile (.idpp), load or save swatches (.ase), or export items as a snippet (.idms) (Library panel, Preflight panel, Swatches panel, File > Export > InDesign Snippet)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `open_library`, `create_library`, `load_preflight_profile`, `save_preflight_profile`, `load_swatches`, `save_swatches`, `export_snippet` | yes |  | What to do |
+| `filePath` | string | yes |  | The file to read or write (inside the allowed directories) |
+| `profileName` | string |  |  | save_preflight_profile: the profile to save |
+| `swatches` | array of string |  |  | save_swatches: swatch names (default: every swatch except the built-in [bracketed] ones) |
+| `target` | object |  |  | export_snippet: the items to export (ids, names or selection: true) |
+
+## Interactive documents
+<a id="interactive"></a>
+
+Buttons and their actions, form fields, multi-state objects, animation and timing, video and sound, page transitions and interactivity preview.
+
+### `create_button`
+
+Make a button from items (Object > Interactive > Convert to Button) or an empty button at a rectangle, with a name, PDF description and Rollover/Click appearances (Buttons and Forms panel)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | Items to convert: they become the Normal appearance (give this or bounds) |
+| `bounds` | object |  |  | Where to make it: a rectangle on a page, in mm from the page's top-left corner (all five values) |
+| `name` | string |  |  | Button name |
+| `description` | string |  |  | Description: the tooltip and alternative text in the PDF (PDF Options) |
+| `appearances` | array of string |  |  | Appearances to add besides Normal; each starts as a copy of the Normal appearance |
+
+### `set_button_options`
+
+Set button appearances (Normal, Rollover, Click: turn on or off, add items, show one), the PDF description, printing and Hidden Until Triggered (Buttons and Forms panel, PDF Options)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The buttons |
+| `description` | string |  |  | Description: the tooltip and alternative text in the PDF (PDF Options) |
+| `printableInPdf` | boolean |  |  | Printable: print the field with the PDF |
+| `hiddenUntilTriggered` | boolean |  |  | Hidden Until Triggered: hidden in the PDF until a Show/Hide action shows it |
+| `appearances` | object |  |  | Appearance changes by state |
+| `show` | `normal`, `rollover`, `click` |  |  | Appearance to show in the layout (the active state) |
+
+### `create_form_field`
+
+Make a PDF form field: text field, check box, radio button, combo box, list box or signature field, at a rectangle or over items, with its options (Buttons and Forms panel > Type)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `text_field`, `check_box`, `radio_button`, `combo_box`, `list_box`, `signature_field` | yes |  | Field type |
+| `target` | object |  |  | Items whose bounds the field takes; for check boxes and radio buttons they become the appearance (give this or bounds) |
+| `bounds` | object |  |  | Where to make it: a rectangle on a page, in mm from the page's top-left corner (all five values) |
+| `name` | string |  |  | Field name in the PDF |
+| `description` | string |  |  | Description: the tooltip and alternative text in the PDF (PDF Options) |
+| `printableInPdf` | boolean |  |  | Printable: print the field with the PDF |
+| `hiddenUntilTriggered` | boolean |  |  | Hidden Until Triggered: hidden in the PDF until a Show/Hide action shows it |
+| `required` | boolean |  |  | Required: the field must be filled in |
+| `readOnly` | boolean |  |  | Read Only |
+| `password` | boolean |  |  | Password: hide typed characters (text fields) |
+| `multiline` | boolean |  |  | Multiline (text fields) |
+| `scrollable` | boolean |  |  | Scrollable (text fields) |
+| `fontSize` | number |  |  | Font Size in points for text fields, combo boxes and list boxes; 0 is Auto |
+| `rightToLeft` | boolean |  |  | Right-to-left text in the field |
+| `checkedByDefault` | boolean |  |  | Selected by Default (check boxes and radio buttons) |
+| `exportValue` | string |  |  | Export Value submitted when selected (check boxes and radio buttons) |
+| `choices` | array of string |  |  | List Items: the choices of a combo box or list box, replacing the existing ones |
+| `sortChoices` | boolean |  |  | Sort Items alphabetically (combo boxes and list boxes) |
+| `multipleSelection` | boolean |  |  | Multiple Selection (list boxes) |
+| `font` | object |  |  | Font of the field text in the PDF (text fields, combo boxes and list boxes) |
+
+### `set_form_field_options`
+
+Set form field options: description, printable, required, read only, hidden until triggered, password, multiline, scrollable, font and size, selected by default, export value, list items, sort and multiple selection (Buttons and Forms panel)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The form fields |
+| `description` | string |  |  | Description: the tooltip and alternative text in the PDF (PDF Options) |
+| `printableInPdf` | boolean |  |  | Printable: print the field with the PDF |
+| `hiddenUntilTriggered` | boolean |  |  | Hidden Until Triggered: hidden in the PDF until a Show/Hide action shows it |
+| `required` | boolean |  |  | Required: the field must be filled in |
+| `readOnly` | boolean |  |  | Read Only |
+| `password` | boolean |  |  | Password: hide typed characters (text fields) |
+| `multiline` | boolean |  |  | Multiline (text fields) |
+| `scrollable` | boolean |  |  | Scrollable (text fields) |
+| `fontSize` | number |  |  | Font Size in points for text fields, combo boxes and list boxes; 0 is Auto |
+| `rightToLeft` | boolean |  |  | Right-to-left text in the field |
+| `checkedByDefault` | boolean |  |  | Selected by Default (check boxes and radio buttons) |
+| `exportValue` | string |  |  | Export Value submitted when selected (check boxes and radio buttons) |
+| `choices` | array of string |  |  | List Items: the choices of a combo box or list box, replacing the existing ones |
+| `sortChoices` | boolean |  |  | Sort Items alphabetically (combo boxes and list boxes) |
+| `multipleSelection` | boolean |  |  | Multiple Selection (list boxes) |
+| `font` | object |  |  | Font of the field text in the PDF (text fields, combo boxes and list boxes) |
+
+### `add_button_action`
+
+Add an action to buttons or form fields for an event: go to a destination, page, view, URL or state, show/hide fields, play video, sound or animation, open a file, zoom, clear, print or submit the form (Buttons and Forms panel > Actions)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The buttons or form fields |
+| `action` | `go_to_destination`, `go_to_first_page`, `go_to_last_page`, `go_to_next_page`, `go_to_previous_page`, `go_to_next_view`, `go_to_previous_view`, `go_to_page`, `go_to_url`, `go_to_state`, `go_to_next_state`, `go_to_previous_state`, `show_hide_fields`, `video`, `sound`, `animation`, `open_file`, `view_zoom`, `clear_form`, `print_form`, `submit_form` | yes |  | The action |
+| `event` | `MOUSE_UP`, `MOUSE_DOWN`, `MOUSE_ENTER`, `MOUSE_EXIT`, `ON_FOCUS`, `ON_BLUR` |  | `"MOUSE_UP"` | Event: On Release or Tap (MOUSE_UP), On Click (MOUSE_DOWN), On Roll Over (MOUSE_ENTER), On Roll Off (MOUSE_EXIT), On Focus, On Blur |
+| `zoom` | `INHERIT_ZOOM`, `ACTUAL_SIZE`, `FIT_WINDOW`, `FIT_WIDTH`, `FIT_VISIBLE` |  |  | Zoom for go_to_* page, view and destination actions |
+| `pageIndex` | integer |  |  | go_to_page: the page index (0-based) |
+| `destination` | object |  |  | go_to_destination: a text anchor, page destination or bookmark by name, or a page (a page destination is made if none exists); with document, in another open InDesign document (a cross-document jump) |
+| `url` | string |  |  | go_to_url: the URL; submit_form: where to submit (a URL or mailto:) |
+| `multiStateObject` | integer |  |  | go_to_state, go_to_next_state, go_to_previous_state: the multi-state object id |
+| `stateName` | string |  |  | go_to_state: the state to show |
+| `goBackOnRollOff` | boolean |  |  | go_to_state: go back to the previous state on roll off |
+| `loop` | boolean |  |  | go_to_next_state, go_to_previous_state: stop on last/first state when false |
+| `show` | array of integer |  |  | show_hide_fields: ids of buttons and fields to show |
+| `hide` | array of integer |  |  | show_hide_fields: ids of buttons and fields to hide |
+| `mediaItem` | integer |  |  | video, sound: the movie or sound (or its frame) id; animation: the animated item id |
+| `mediaOperation` | `PLAY`, `PAUSE`, `RESUME`, `STOP`, `STOP_ALL`, `PLAY_FROM_NAVIGATION_POINT`, `REVERSE_PLAYBACK` |  |  | video, sound, animation: what to do (default PLAY); PLAY_FROM_NAVIGATION_POINT is video only, REVERSE_PLAYBACK animation only |
+| `navigationPoint` | string |  |  | video with PLAY_FROM_NAVIGATION_POINT: the navigation point name |
+| `autoReverseOnRollOff` | boolean |  |  | animation: reverse the animation on roll off |
+| `filePath` | string |  |  | open_file: the file to open |
+| `viewZoom` | `FULL_SCREEN`, `ZOOM_IN`, `ZOOM_OUT`, `FIT_PAGE`, `ACTUAL_SIZE`, `FIT_WIDTH`, `FIT_VISIBLE`, `SINGLE_PAGE`, `ONE_COLUMN`, `TWO_COLUMN` |  |  | view_zoom: the view |
+
+### `edit_button_actions`
+
+Remove, turn on or off, or change the event of the actions on buttons or form fields (Buttons and Forms panel > Actions); list them with get_interactive_elements
+
+***destructive** · idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The buttons or form fields |
+| `operation` | `remove`, `enable`, `disable`, `set_event` | yes |  | What to do to the actions |
+| `actionIndex` | integer |  |  | The action index (as listed by get_interactive_elements); omit for every action |
+| `event` | `MOUSE_UP`, `MOUSE_DOWN`, `MOUSE_ENTER`, `MOUSE_EXIT`, `ON_FOCUS`, `ON_BLUR` |  |  | set_event: the new event |
+
+### `set_tab_order`
+
+Set the order in which Tab moves between the buttons and form fields of a page in the PDF (Object > Interactive > Set Tab Order)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Page index (0-based) |
+| `order` | array of integer | yes |  | Ids of the page's buttons and form fields, in tab order |
+
+### `convert_interactive_to_object`
+
+Turn buttons or form fields back into ordinary page items, keeping the active appearance (Object > Interactive > Convert to Object)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The buttons or form fields |
+
+### `reset_interactive_states`
+
+Show the Normal appearance of every button and the first state of every multi-state object (Buttons and Forms panel > Reset All Buttons to Normal State; Object States panel > Reset All Multi-state Objects to First State)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `reset` | `all`, `buttons`, `multi_state_objects` |  | `"all"` | What to reset |
+
+### `create_multi_state_object`
+
+Make a multi-state object from items, each item (or list of items) becoming one state (Object States panel > New State); returns its id and states
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | Items that each become one state (give this or states) |
+| `states` | array of object |  |  | The states in order, each from one or more items (give this or target) |
+| `name` | string |  |  | Name of the multi-state object |
+| `hiddenUntilTriggered` | boolean |  |  | Hidden Until Triggered: hidden in the exported file until an action shows it |
+
+### `edit_object_states`
+
+Change a multi-state object: new state, delete, rename, reorder or show a state, add or paste items into a state, release one or all states to objects, Hidden Until Triggered (Object States panel)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `multiStateObject` | integer | yes |  | The multi-state object id |
+| `operation` | `new_state`, `delete_state`, `rename_state`, `move_state`, `show_state`, `add_to_state`, `paste_into_state`, `release_state`, `release_all`, `set_hidden` | yes |  | new_state (from ids, or empty), delete_state, rename_state, move_state, show_state (make it the visible state), add_to_state (move items in: Add Objects to Visible State), paste_into_state (copies of items), release_state (Release State to Objects), release_all (Release All States to Objects), set_hidden (Hidden Until Triggered) |
+| `state` | string |  |  | The state, by name; for add_to_state and paste_into_state the visible state if omitted |
+| `ids` | array of integer |  |  | new_state, add_to_state, paste_into_state: item ids |
+| `name` | string |  |  | new_state, rename_state: the state name |
+| `position` | integer |  |  | move_state: the new position (0-based) |
+| `hidden` | boolean |  |  | set_hidden: hide until triggered |
+
+### `set_animation`
+
+Animate items: motion preset, events (page load, page click, self click, self roll over), duration, plays and loop, speed, animate from/to current appearance, rotate, origin, scale, opacity, visibility, and a motion path drawn as points or converted from a path (Animation panel)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The items to animate |
+| `preset` | string |  |  | Motion preset name, e.g. "fly-in-left" (see manage_motion_presets list) |
+| `events` | array of string |  |  | Event(s) that play the animation: On Page Load, On Page Click, On Click (Self), On Roll Over (Self); replaces the current ones (On Button Event: use add_button_action with action animation) |
+| `reverseOnRollOff` | boolean |  |  | With ON_SELF_ROLLOVER: reverse on roll off |
+| `duration` | number |  |  | Duration in seconds |
+| `plays` | integer |  |  | Play this many times |
+| `loop` | boolean |  |  | Loop |
+| `speed` | `none`, `ease_in`, `ease_out`, `ease_in_out` |  |  | Speed: none (constant), ease in, ease out, ease in and out |
+| `animate` | `from_current_appearance`, `to_current_appearance`, `to_current_location` |  |  | Animate: from current appearance, to current appearance, or to current location |
+| `rotate` | number |  |  | Rotate by this many degrees over the animation |
+| `origin` | `top_left`, `top_center`, `top_right`, `center_left`, `center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right` |  |  | Origin (the reference point) of rotation and scaling |
+| `scale` | object |  |  | Scale to these percentages over the animation (one left out stays 100) |
+| `opacity` | `none`, `fade_in`, `fade_out` |  |  | Opacity: none, fade in or fade out |
+| `hideUntilAnimated` | boolean |  |  | Visibility: Hide Until Animated |
+| `hideAfterAnimating` | boolean |  |  | Visibility: Hide After Animating |
+| `motionPath` | array of array |  |  | Motion path through these [x, y] points (mm from the top-left of the item's page) |
+| `motionPathFrom` | integer |  |  | Convert to Motion Path: the id of a path (line, polygon...) whose shape becomes the motion path |
+| `keepPath` | boolean |  |  | With motionPathFrom: keep the path item (it is deleted by default, as the panel command does) |
+| `remove` | boolean |  |  | Remove the animation (Animation panel > Remove); combine with nothing else |
+
+### `manage_motion_presets`
+
+List, import, export, duplicate, rename and delete motion presets, or save an item's animation as a preset (Animation panel > Save; Manage Presets)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `operation` | `list`, `save_from_item`, `import`, `export`, `duplicate`, `rename`, `delete` | yes |  | What to do |
+| `name` | string |  |  | The preset name (save_from_item: the new preset's name) |
+| `newName` | string |  |  | duplicate, rename: the new name |
+| `itemId` | integer |  |  | save_from_item: the animated item |
+| `filePath` | string |  |  | import: a motion preset file (.xml); export: where to save it |
+| `scope` | `application`, `document` |  | `"application"` | Where the preset lives: InDesign's presets or the active document's |
+
+### `set_timing`
+
+Arrange when animations play: reassign items to On Page Load or On Page Click, remove them, play them together or separately, and set delay, plays and loop (Timing panel)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Animated items (or media and multi-state objects) on one spread |
+| `operation` | `assign`, `remove`, `play_together`, `play_separately`, `set` | yes |  | assign (Reassign to On Page Load / On Page Click), remove (Remove Item), play_together, play_separately, set (delay, plays, loop) |
+| `event` | `ON_PAGE_LOAD`, `ON_PAGE_CLICK` |  |  | assign: the event; other operations: only this event's list (default: the list holding each item, else On Page Load) |
+| `delay` | number |  |  | Delay in seconds after the previous item (assign, play_together, set) |
+| `plays` | integer |  |  | set: play the item's group this many times |
+| `loop` | boolean |  |  | set: loop the item's group |
+
+### `place_media`
+
+Place a video or sound file, or a video from a URL, into a new frame or an existing frame, with its media options (File > Place; Media panel > Video from URL)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string |  |  | Video (MP4, F4V, FLV...) or sound (MP3...) file to place (give this or url) |
+| `url` | string |  |  | URL of a video to play from the web (give this or filePath) |
+| `frame` | integer |  |  | Id of an existing frame to place into (give this or bounds) |
+| `bounds` | object |  |  | Where to make it: a rectangle on a page, in mm from the page's top-left corner (all five values) |
+| `options` | object |  |  | Media options, as set_media_options takes |
+
+### `set_media_options`
+
+Set video and sound options: play on page load, loop, poster, controller, navigation points, floating window and PDF description, embedding, and relink legacy media to a new file (Media panel, PDF Options)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Movies or sounds, or the frames holding them |
+| `playOnPageLoad` | boolean |  |  | Play on Page Load |
+| `loop` | boolean |  |  | Loop (video: loops except in PDF; sound: loops forever) |
+| `stopOnPageTurn` | boolean |  |  | Stop on Page Turn (sound) |
+| `poster` | `none`, `standard`, `from_video`, `image` |  |  | Poster: none, standard, from_video (a frame of the video, video only) or image (posterFile) |
+| `posterFile` | string |  |  | Image file to use as the poster (sets poster to image) |
+| `doNotPrintPoster` | boolean |  |  | Do not print the sound poster (sound) |
+| `controller` | string |  |  | Controller skin name for video, e.g. "SkinOverAllNoFullNoCaption"; "None" for no controller |
+| `showControllerOnRollover` | boolean |  |  | Show the controller on mouse over (video) |
+| `showControls` | boolean |  |  | Show playback controls in the PDF (legacy video option) |
+| `floatingWindow` | boolean |  |  | Play in a floating window in the PDF (video, PDF Options) |
+| `floatingWindowSize` | `ONE_FIFTH`, `ONE_FOURTH`, `ONE_HALF`, `FULL`, `TWICE`, `TRIPLE`, `QUADRUPLE`, `MAX` |  |  | Size of the floating window relative to the video |
+| `floatingWindowPosition` | `UPPER_LEFT`, `UPPER_MIDDLE`, `UPPER_RIGHT`, `CENTER_LEFT`, `CENTER`, `CENTER_RIGHT`, `LOWER_LEFT`, `LOWER_MIDDLE`, `LOWER_RIGHT` |  |  | Position of the floating window on the screen |
+| `embedInPDF` | boolean |  |  | Embed the media in the PDF rather than link to it |
+| `description` | string |  |  | Description: the PDF alternative text (PDF Options) |
+| `url` | string |  |  | Play the video from this URL (Video from URL; video only) |
+| `navigationPoints` | object |  |  | Navigation points of a video (named times to play from) |
+| `relinkTo` | string |  |  | Relink the media to this file, e.g. a legacy FLV or SWF to an MP4 (Links panel > Relink) |
+
+### `set_page_transitions`
+
+Apply a page transition to chosen or all spreads, clear all transitions, and set how an interactive PDF shows them (Page Transitions panel: Apply to All Spreads, Clear All; Export to Interactive PDF: Open in Full Screen Mode, Page Transitions)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreads` | array of integer |  |  | Spread indexes (0-based); omit for all spreads |
+| `transition` | `NONE`, `BLINDS_TRANSITION`, `BOX_TRANSITION`, `COMB_TRANSITION`, `COVER_TRANSITION`, `DISSOLVE_TRANSITION`, `FADE_TRANSITION`, `PUSH_TRANSITION`, `SPLIT_TRANSITION`, `UNCOVER_TRANSITION`, `WIPE_TRANSITION`, `ZOOM_IN_TRANSITION`, `ZOOM_OUT_TRANSITION` |  |  | Transition type; NONE removes it |
+| `direction` | `HORIZONTAL`, `VERTICAL`, `HORIZONTAL_IN`, `HORIZONTAL_OUT`, `VERTICAL_IN`, `VERTICAL_OUT`, `LEFT_TO_RIGHT`, `RIGHT_TO_LEFT`, `UP`, `DOWN`, `LEFT_UP`, `LEFT_DOWN`, `RIGHT_UP`, `RIGHT_DOWN`, `IN`, `OUT`, `NOT_APPLICABLE` |  |  | Direction, one the transition supports |
+| `speed` | `FAST`, `MEDIUM`, `SLOW` |  |  | Speed |
+| `clearAll` | boolean |  |  | Clear All: remove the transitions of every spread |
+| `pdf` | object |  |  | Interactive PDF export settings that show transitions |
+
+### `get_interactive_elements`
+
+List the interactive elements of the document or a page: buttons with appearances and actions, form fields, multi-state objects and states, video and sound, animations, timing, page transitions and tab order (Buttons and Forms, Object States, Media, Animation and Timing panels)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer |  |  | Only this page (0-based); omit for the whole document |
+| `include` | array of string |  |  | What to list (default: all of buttons, form_fields, multi_state_objects, media, animations, timing, page_transitions, tab_order) |
+
+### `preview_interactivity`
+
+Play the selection, spread or document in the EPUB Interactivity Preview panel, or open the panel (Window > Interactive > EPUB Interactivity Preview); the preview shows in InDesign only
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `mode` | `panel`, `selection`, `spread`, `document` | yes |  | panel (open it), selection, spread or document |
+| `target` | object |  |  | selection: items to select and preview (default: the current selection) |
+
+### `place_sample_button`
+
+List or place the ready-made buttons and form fields of InDesign's Sample Buttons and Forms library (Buttons and Forms panel > Sample Buttons and Forms)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string |  |  | The sample to place, by name; omit to list the samples |
+| `pageIndex` | integer |  |  | Page to place it on (0-based) |
+| `x` | number |  |  | Left edge (mm from the page's left) |
+| `y` | number |  |  | Top edge (mm from the page's top) |
+
+## Printing and prepress
+<a id="prepress"></a>
+
+Print and Print Booklet with every option or a preset, to a printer or PostScript file; print and trap presets; preflight profiles, rules and options; inks, separations and overprint preview; print attributes; package report and options.
+
+### `print_document`
+
+Print the active document, or write it to a PostScript file, with any Print dialog option: printer, PPD, copies, pages, paper and scaling, marks and bleed, composite or separations output, trapping, screening, graphics, colour management and advanced options; or only save those settings in the document (File > Print)
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `preset` | string |  |  | Print preset to start from, e.g. "[Default]" or a saved preset (File > Print > Print Preset); settings given here then override it |
+| `settings` | object |  |  | Print dialog options; only the ones you pass change. Separations need colorOutput: SEPARATIONS; set ink plates and screens with set_separation_inks |
+| `output` | `printer`, `postscript_file`, `settings_only` |  | `"printer"` | printer: print now to the chosen printer; postscript_file: write a PostScript file to postscriptFile (File > Print > Printer: PostScript File); settings_only: save the settings in the document without printing |
+| `postscriptFile` | string |  |  | Absolute path of the PostScript file to write (.ps), for output: postscript_file |
+
+### `get_print_settings`
+
+Read the active document's print settings (every Print dialog option), the printers, PPDs, paper sizes and screenings available, whether PDF pass-through is in use, and the saved print presets (File > Print; File > Print Presets)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `booklet` | boolean |  | `false` | Read the Print Booklet settings (booklet setup and its print settings) instead of the Print dialog's |
+
+### `manage_print_preset`
+
+Create, edit, rename, duplicate, delete or read print presets, optionally capturing the active document's current print settings (File > Print Presets > Define; File > Print > Save Preset)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `update`, `duplicate`, `delete`, `get` | yes |  | What to do with the preset |
+| `name` | string | yes |  | The preset name (the new name for create; the existing preset otherwise) |
+| `newName` | string |  |  | New name (update renames; duplicate names the copy, default "<name> copy") |
+| `fromDocument` | boolean |  | `false` | Start from the active document's print settings (create and update), like Save Preset in the Print dialog |
+| `settings` | object |  |  | Print options to store in the preset; only the ones you pass change. Not for this tool: pageRange, preserveColorNumbers |
+
+### `print_booklet`
+
+Print the active document as a booklet (saddle stitch, perfect bound or consecutive printer spreads) with its booklet setup and print settings, to a printer or a PostScript file, or only save those settings (File > Print Booklet)
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `booklet` | object |  |  | Booklet setup; only the options you pass change |
+| `preset` | string |  |  | Print preset to start from, e.g. "[Default]" or a saved preset (File > Print > Print Preset); settings given here then override it |
+| `settings` | object |  |  | Print Settings of the booklet (Print Booklet > Print Settings); only the ones you pass change. Not for this tool: includeSlugToPrint, pageRange, printMasterPages, printSpreads, sequence, thumbnails, thumbnailsPerPage, tile, tilingOverlap, tilingType |
+| `output` | `printer`, `postscript_file`, `settings_only` |  | `"printer"` | printer: print now to the chosen printer; postscript_file: write a PostScript file to postscriptFile (File > Print > Printer: PostScript File); settings_only: save the settings in the document without printing |
+| `postscriptFile` | string |  |  | Absolute path of the PostScript file to write (.ps), for output: postscript_file |
+
+### `get_trap_presets`
+
+List trap presets with all their options, the pages each is assigned to, and which are unused (Window > Output > Trap Presets; panel menu > Select All Unused)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `scope` | `document`, `application` |  | `"document"` | The active document's presets, or the application defaults used by new documents |
+
+### `manage_trap_preset`
+
+Create, edit, rename, duplicate or delete trap presets, load them from another InDesign document, or delete every unused one (Trap Presets panel menu: New Preset, Duplicate Preset, Delete Presets, Preset Options, Load Trap Presets, Select All Unused); assign presets to pages with set_page_properties
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `update`, `duplicate`, `delete`, `load`, `delete_unused` | yes |  | What to do: load copies presets from fromFile; delete_unused deletes presets no page uses |
+| `name` | string |  |  | The preset name (the new name for create; the existing preset for update, duplicate and delete) |
+| `newName` | string |  |  | New name (update renames; duplicate names the copy, default "<name> copy") |
+| `settings` | object |  |  | Trap preset options (Preset Options dialog); only the ones you pass change |
+| `replaceWith` | string |  | `"[Default]"` | For delete and delete_unused: the preset pages using a deleted preset get instead |
+| `fromFile` | string |  |  | For load: absolute path of an InDesign document or template (.indd, .indt) to load the trap presets of |
+| `scope` | `document`, `application` |  | `"document"` | The active document's presets, or the application defaults used by new documents |
+
+### `get_preflight_info`
+
+Read preflight profiles (application and embedded in the document), one profile's rules with their settings, the preflight options, the catalog of rule ids, and the live preflight status of the document (Preflight panel; Define Profiles; Preflight Options; preflight status in the document window)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `profile` | string |  |  | A profile to list the rules of, with each rule's flag and data values |
+| `embedded` | boolean |  | `false` | The profile is the one embedded in the document rather than an application profile |
+| `ruleCatalog` | boolean |  | `false` | Also list every rule id and category preflight knows |
+| `status` | boolean |  | `true` | Also report the document's live preflight result: the profile in use and the problems found |
+| `maxResults` | integer |  | `50` | Most problems to list in the status |
+
+### `manage_preflight_profile`
+
+Create, edit, duplicate or delete preflight profiles and their rules (flag each rule as error, warning or information, or disable it, and set its data values); load a profile from an .idpp file, export one, or embed or unembed it in the active document (Preflight panel menu > Define Profiles, Load Profile, Export Profile, Embed/Unembed Profile)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `create`, `update`, `duplicate`, `delete`, `load`, `export`, `embed`, `unembed` | yes |  | What to do with the profile |
+| `name` | string |  |  | The profile name (the new name for create; not needed for load) |
+| `embedded` | boolean |  | `false` | Act on the profile embedded in the active document rather than the application profile (update, delete, export, unembed) |
+| `newName` | string |  |  | New name (update renames; duplicate names the copy, default "<name> copy") |
+| `description` | string |  |  | Profile description (create, update) |
+| `copyFrom` | string |  |  | Replace the profile's rules with those of this profile (create, update), e.g. "[Basic]" |
+| `rules` | array of object |  |  | Rules to add or change (create, update); a rule not yet in the profile is added |
+| `removeRules` | array of string |  |  | Rule ids to remove from the profile (update) |
+| `filePath` | string |  |  | Absolute .idpp path: the file to load (load) or write (export) |
+
+### `set_preflight_options`
+
+Turn live preflight on or off for the active document or for all documents, choose the working profile and how embedded profiles are used, which layers, pasteboard objects, nonprinting objects and pages are checked, and how many rows per error the Preflight panel lists (Preflight panel menu > Preflight Options, Enable Preflight for All Documents, Limit Rows per Error; preflight status menu)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `scope` | `document`, `application` |  | `"document"` | The active document's options, or the application's (defaults for all documents; enabled here is Enable Preflight for All Documents) |
+| `enabled` | boolean |  |  | Turn live preflight on (true) or off (false) (Preflight panel: On) |
+| `workingProfile` | string |  |  | The profile to preflight with (Working Profile); for a document, its embedded profile is found first |
+| `pages` | string |  |  | Pages to preflight: "all", or a range such as "1-4, 7" (Preflight panel: Pages) |
+| `profilePolicy` | `USE_EMBEDDED_PROFILE`, `USE_WORKING_PROFILE` |  |  | When opening documents: use the embedded profile or the working profile (Use Embedded Profile / Use Working Profile) |
+| `embedWorkingProfile` | boolean |  |  | Embed the working profile into new documents (Embed Working Profile into New Documents) |
+| `layers` | `PREFLIGHT_ALL_LAYERS`, `PREFLIGHT_VISIBLE_LAYERS`, `PREFLIGHT_VISIBLE_PRINTABLE_LAYERS` |  |  | Layers to preflight (Include: Layers) |
+| `includeObjectsOnPasteboard` | boolean |  |  | Include objects on the pasteboard (Include: Objects on Pasteboard) |
+| `includeNonprintingObjects` | boolean |  |  | Include nonprinting objects (Include: Non-printing Objects) |
+| `panelRowsPerError` | `25`, `50`, `100`, `no_limit` |  |  | How many rows the Preflight panel lists per error (Limit Rows per Error); opens the Preflight panel |
+
+### `get_inks`
+
+List the active document's inks as the Ink Manager shows them: process or spot, alias, ink type, neutral density, trapping sequence, whether each prints and converts to process, screen frequency and angle, and whether standard Lab values are used for spots (Swatches panel menu > Ink Manager)
+
+*read-only*
+
+No parameters.
+
+### `set_separation_inks`
+
+Set inks for separations as the Ink Manager does: alias a spot ink to another ink, set ink type, neutral density and trapping sequence, convert spot inks (or all of them) to process, use standard Lab values for spots, and choose which ink plates print with their screen frequency and angle (Ink Manager; Print > Output > Inks)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `inks` | array of object |  |  | Settings per ink; only the options you pass change |
+| `allSpotsToProcess` | boolean |  |  | Convert every spot ink to process (true) or back to spot (false) (All Spots to Process) |
+| `useStandardLabValuesForSpots` | boolean |  |  | Use Lab values for spot colours (Use Standard Lab Values for Spots) |
+
+### `set_output_preview`
+
+Preview output on screen: turn Overprint Preview on or off, open the Separations Preview or Flattener Preview panel, show all plates or a single cyan, magenta, yellow, black or spot plate, and show single plates in black or desaturate black (View > Overprint Preview; Window > Output > Separations Preview and its panel menu; Window > Output > Flattener Preview)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `overprintPreview` | boolean |  |  | Simulate overprinting in the document window (View > Overprint Preview) |
+| `separationsPanel` | boolean |  |  | Open (true) or close (false) the Separations Preview panel |
+| `flattenerPanel` | boolean |  |  | Open (true) or close (false) the Flattener Preview panel, which highlights areas transparency flattening affects |
+| `plate` | `all`, `cyan`, `magenta`, `yellow`, `black`, `spot_1`, `spot_2`, `spot_3`, `spot_4`, `spot_5` |  |  | Show every plate, or one plate alone (spot_1 is the first spot ink) |
+| `singlePlatesInBlack` | boolean |  |  | Show single plates in black rather than their ink colour (Show Single Plates in Black) |
+| `desaturateBlack` | boolean |  |  | Show black as dark grey to tell rich black from plain black (Desaturate Black) |
+
+### `set_print_attributes`
+
+Set how objects and text print: overprint fill, stroke and gap and Nonprinting on items (Window > Output > Attributes), overprint on text fill and stroke and on paragraph rules, overprint of footnote rules, the [Black] overprint preference, and which layers print (Layer Options > Print Layer)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | Items to set item attributes on. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `items` | object |  |  | Attributes panel settings for the target items |
+| `text` | object |  |  | Text to set text overprint on. Which text to act on. Give storyIds (get_document_stories), frameIds (text frame ids from list_page_items), or selection: true; optionally narrow to a range of paragraphs |
+| `textOverprint` | object |  |  | Overprint settings for the chosen text |
+| `footnoteRules` | object |  |  | Overprint of the footnote separator rules (Type > Document Footnote Options > Layout) |
+| `overprintBlack` | boolean |  |  | Overprint the [Black] swatch at 100% (Preferences > Appearance of Black > Overprint [Black] Swatch at 100%) |
+| `layers` | array of object |  |  | Layers to make printable or not (Layer Options > Print Layer) |
+
+### `get_package_report`
+
+Report what packaging the active document involves, as the Package dialog does: a summary with problems flagged, fonts and their status, links and images with status, colour space and resolution, colours and inks, and the print settings (File > Package: Summary, Fonts, Links and Images, Colors and Inks, Print Settings, Report)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `maxItems` | integer |  | `500` | Most fonts and links to list |
+
+### `package_document_for_print`
+
+Package the active document with every Package option: copy fonts, linked graphics and colour profiles, update links, use document hyphenation exceptions only, include hidden-layer content, IDML and PDF (with a PDF preset), write the report, and continue despite preflight errors (File > Package > Package)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `outputPath` | string | yes |  | Absolute path of the package folder (created if missing) |
+| `copyFonts` | boolean |  | `true` | Copy Fonts |
+| `copyLinkedGraphics` | boolean |  | `true` | Copy Linked Graphics |
+| `copyProfiles` | boolean |  | `true` | Copy colour profiles |
+| `updateGraphicLinks` | boolean |  | `true` | Update Graphic Links In Package |
+| `useDocumentHyphenationExceptionsOnly` | boolean |  | `false` | Use Document Hyphenation Exceptions Only: the packaged document does not compose with the user dictionary |
+| `includeHiddenLayers` | boolean |  | `false` | Include Fonts and Links From Hidden and Non-Printing Content |
+| `includeIdml` | boolean |  | `false` | Include IDML |
+| `includePdf` | boolean |  | `false` | Include PDF (Print) |
+| `pdfPreset` | string |  | `"[High Quality Print]"` | PDF preset for the included PDF (Select PDF Preset) |
+| `createReport` | boolean |  | `true` | Write the package report (the Instructions text file) |
+| `ignorePreflightErrors` | boolean |  | `false` | Package even when preflight reports errors |
+| `versionComments` | string |  | `""` | Comments saved with the document if packaging saves it |
+| `forceSave` | boolean |  | `false` | Save the document first if it has unsaved changes |
+
+## Colour
+<a id="color"></a>
+
+Swatches, tints, mixed inks, colour groups, loading and saving swatches, the Ink Manager, gradients, fills and strokes, the eyedropper, colour settings, document profiles, proofing and image colour settings.
+
+### `create_swatch`
+
+Create a swatch (Swatches panel menu > New Color Swatch, New Tint Swatch, New Mixed Ink Swatch, New Mixed Ink Group): a process or spot colour from RGB, CMYK or Lab values, a tint of a colour, a mixed ink from ink percentages, or a mixed ink group stepping ink percentages; optionally named with its colour values and placed in a colour group
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `color`, `tint`, `mixed_ink`, `mixed_ink_group` | yes |  | What to create: a colour, a tint, a mixed ink or a mixed ink group |
+| `name` | string |  |  | Swatch name (colours, unless nameWithColorValue; required for mixed inks and groups; tints are named after their base colour) |
+| `nameWithColorValue` | boolean |  |  | Name the colour from its values, e.g. "C=0 M=100 Y=0 K=0" (Swatch Options > Name with Color Value) |
+| `model` | `process`, `spot` |  |  | Color Type of a colour: process (printed from CMYK) or spot (its own ink plate). Default process |
+| `space` | `rgb`, `cmyk`, `lab` |  |  | Color Mode of a colour: rgb, cmyk or lab |
+| `values` | array of number |  |  | Colour values in the chosen space: RGB 0-255 each; CMYK 0-100 each; Lab L 0-100, a and b -128 to 127 |
+| `baseColor` | string |  |  | Tint: the colour swatch the tint is made from |
+| `tint` | number |  |  | Tint: percentage of the base colour |
+| `inks` | array of object |  |  | Mixed ink or mixed ink group: the inks (at least one spot ink); names as set_inks lists them, e.g. "Process Cyan" or a spot colour name |
+| `group` | string |  |  | Put the new swatch in this colour group (created if it does not exist) |
+
+### `edit_swatch`
+
+Change a swatch's options (Swatch Options, from the Swatches panel menu or a swatch's context menu): rename it or name it with its colour values, switch a colour between process and spot, convert it to RGB, CMYK or Lab (Color panel menu), set its values, change a tint's percentage, change a mixed ink's ink percentages, or convert a mixed ink or mixed ink group to process
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `swatch` | string | yes |  | The swatch to change, by name |
+| `name` | string |  |  | New name |
+| `nameWithColorValue` | boolean |  |  | Rename the colour from its (final) values, e.g. "R=255 G=0 B=0" (Name with Color Value) |
+| `model` | `process`, `spot` |  |  | Color Type: process or spot (colours); process converts a mixed ink or mixed ink group to process colours |
+| `space` | `rgb`, `cmyk`, `lab` |  |  | Color Mode: convert the colour to rgb, cmyk or lab; with values, the space the values are in |
+| `values` | array of number |  |  | Colour values in the chosen space: RGB 0-255 each; CMYK 0-100 each; Lab L 0-100, a and b -128 to 127. Needs space |
+| `tint` | number |  |  | Tint swatches: percentage of the base colour |
+| `inks` | array of object |  |  | Mixed ink swatches: new percentages for some of its inks |
+
+### `manage_swatches`
+
+Swatches panel menu commands: duplicate, delete (replacing with another swatch), merge swatches into the first, list or delete unused swatches (Select All Unused), add unnamed colours to the swatches, add the colours of items to the swatches (Color panel > Add to Swatches), make or add to a colour group (New Color Group), or ungroup a colour group
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `operation` | `duplicate`, `delete`, `merge`, `list_unused`, `delete_unused`, `add_unnamed_colors`, `add_to_swatches`, `group`, `ungroup` | yes |  | What to do |
+| `swatches` | array of string |  |  | Swatch names: duplicate, delete, group, or merge (the first keeps its name and the others merge into it) |
+| `newName` | string |  |  | duplicate: name for the copy (one swatch only) |
+| `replaceWith` | string |  |  | delete, delete_unused: swatch that replaces the deleted ones where used (default: InDesign leaves the colour applied unnamed) |
+| `group` | string |  |  | group, ungroup: the colour group name |
+| `target` | object |  |  | add_to_swatches: Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `on` | `fill`, `stroke`, `both` |  |  | add_to_swatches: which colour of each item (default both) |
+
+### `load_swatches`
+
+Load swatches into the active document (Swatches panel menu > Load Swatches) from an InDesign document or template or an Adobe Swatch Exchange (.ase) file, and/or import named colours from Adobe colour books such as PANTONE as spot or process colours
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `file` | string |  |  | Path of an .indd, .indt or .ase file to load swatches from |
+| `spotColors` | array of string |  |  | Colour-book colour names to import as spot colours, e.g. "PANTONE 185 C" |
+| `processColors` | array of string |  |  | Colour-book colour names to import as process colours |
+
+### `save_swatches`
+
+Save swatches to an Adobe Swatch Exchange (.ase) file for other documents and applications (Swatches panel menu > Save Swatches); by default every named colour and tint
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `file` | string | yes |  | Path of the .ase file to write (replaced if it exists) |
+| `swatches` | array of string |  |  | Swatch names to save (default: every named colour and tint except [None], [Paper] and [Registration]) |
+
+### `set_inks`
+
+Ink Manager (Swatches panel menu > Ink Manager): set each ink's type, neutral density, trapping sequence, alias and conversion to process, convert all spot inks to process, and use standard Lab values for spots; returns every ink with its settings and solidity. With no options, lists the inks
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `inks` | array of object |  |  | Settings per ink |
+| `allSpotsToProcess` | boolean |  |  | All Spots to Process: true converts every spot ink to process, false keeps every spot ink as a spot (applied before per-ink settings) |
+| `useStandardLabForSpots` | boolean |  |  | Use Standard Lab Values for Spots, for more accurate display and output of spot colours |
+
+### `set_gradient_swatch`
+
+Create or edit a gradient swatch (Swatches panel menu > New Gradient Swatch, Gradient panel): its type (linear or radial) and its colour stops with their locations and midpoints. Creates the gradient when no swatch has the name
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Gradient swatch name |
+| `newName` | string |  |  | Rename the gradient |
+| `type` | `LINEAR`, `RADIAL` |  |  | Gradient type |
+| `stops` | array of object |  |  | Colour stops in order, replacing the existing ones (needed when creating) |
+
+### `set_fill_stroke`
+
+Apply fills and strokes to items, to the text in text frames, or to placed grayscale and bitmap images (colourise): a colour, a gradient or None (Apply Color, Apply Gradient, Apply None), tint, overprint, and the gradient's angle, length and start as set with the Gradient panel or Gradient Swatch tool, or reverse it; or swap fill and stroke, or reset them to the defaults (Tools panel)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `applyTo` | `item`, `text`, `content` |  |  | item: the frame or shape (Formatting affects container); text: the text of text frames, or selected text (Formatting affects text); content: the placed graphic inside the frame, colourising a grayscale or bitmap image. Default item |
+| `swap` | boolean |  |  | Swap Fill and Stroke: exchange the fill and stroke colours and tints (before fill and stroke options) |
+| `defaults` | boolean |  |  | Default Fill and Stroke: fill None and stroke Black (text: fill Black and stroke None), before fill and stroke options |
+| `fill` | object |  |  | Fill options |
+| `stroke` | object |  |  | Stroke options |
+
+### `copy_fill_stroke`
+
+Copy fill and stroke attributes from one item to others, as the Eyedropper tool does: colour, tint, overprint and gradient angle and length of the fill, and colour, tint, weight, type, alignment, overprint and gradient of the stroke; between items or between the texts of text frames
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `source` | integer | yes |  | Page item id to copy from |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `copy` | `both`, `fill`, `stroke` |  |  | Which attributes to copy (default both) |
+| `applyTo` | `item`, `text` |  |  | item: the frames themselves; text: from the source frame's text to the target frames' text. Default item |
+
+### `set_color_panel_options`
+
+Set the colour controls of the interface: which of fill or stroke is active and whether formatting affects the container or the text (Tools panel fill/stroke proxy), the Swatches panel view (Name, Small Name, Small Swatch, Large Swatch) and Show/Hide Options, and the Color panel's Lab, CMYK or RGB sliders and Show/Hide Options
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `active` | `fill`, `stroke` |  |  | Which of fill or stroke colour changes apply to (Toggle Fill and Stroke) |
+| `affects` | `container`, `text` |  |  | Formatting Affects Container or Formatting Affects Text |
+| `swatchesView` | `name`, `small_name`, `small_swatch`, `large_swatch` |  |  | Swatches panel menu view |
+| `colorPanelMode` | `lab`, `cmyk`, `rgb` |  |  | Color panel menu: show Lab, CMYK or RGB sliders |
+| `toggleSwatchesOptions` | boolean |  |  | Swatches panel menu > Show/Hide Options (toggles; the result gives the command's new title) |
+| `toggleColorOptions` | boolean |  |  | Color panel menu > Show/Hide Options (toggles; the result gives the command's new title) |
+
+### `get_color_settings`
+
+Read colour management (Edit > Color Settings, Appearance of Black): the application's settings, working spaces, policies and conversion options; with a document open, its assigned profiles, policies and rendering intents (Edit > Assign Profiles) and the proofing of its window (View > Proof Setup, Proof Colors, Overprint Preview); optionally the presets, profiles and engines to choose from
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `includeLists` | boolean |  |  | Also list the colour settings presets, working-space and document profiles, and engines that can be chosen |
+
+### `set_color_settings`
+
+Change the application's colour management (Edit > Color Settings): load a preset or a .csf settings file, turn colour management on or off, set the RGB and CMYK working spaces and policies, the profile mismatch and missing profile prompts, the engine, intent and black point compensation, accurate Lab spots, and the Appearance of Black preferences
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `preset` | string |  |  | Settings: a colour settings preset name from get_color_settings (lists.presets), applied before the other options |
+| `presetFile` | string |  |  | Load: path of a colour settings (.csf) file, applied before the other options |
+| `enableColorManagement` | boolean |  |  | Enable Color Management |
+| `rgbWorkingSpace` | string |  |  | Working Spaces > RGB: a profile name from get_color_settings (lists.rgbWorkingSpaces) |
+| `cmykWorkingSpace` | string |  |  | Working Spaces > CMYK: a profile name from get_color_settings (lists.cmykWorkingSpaces) |
+| `rgbPolicy` | `COLOR_POLICY_OFF`, `PRESERVE_EMBEDDED_PROFILES`, `CONVERT_TO_WORKING_SPACE`, `COMBINATION_OF_PRESERVE_AND_SAFE_CMYK` |  |  | Color Management Policies > RGB: off, preserve embedded profiles, convert to working space, or (CMYK) preserve numbers |
+| `cmykPolicy` | `COLOR_POLICY_OFF`, `PRESERVE_EMBEDDED_PROFILES`, `CONVERT_TO_WORKING_SPACE`, `COMBINATION_OF_PRESERVE_AND_SAFE_CMYK` |  |  | Color Management Policies > CMYK: off, preserve embedded profiles, convert to working space, or (CMYK) preserve numbers |
+| `profileMismatchAskWhenOpening` | boolean |  |  | Profile Mismatches: Ask When Opening |
+| `profileMismatchAskWhenPasting` | boolean |  |  | Profile Mismatches: Ask When Pasting |
+| `missingProfileAskWhenOpening` | boolean |  |  | Missing Profiles: Ask When Opening |
+| `engine` | string |  |  | Conversion Options > Engine: a name from get_color_settings (lists.engines) |
+| `intent` | `PERCEPTUAL`, `SATURATION`, `RELATIVE_COLORIMETRIC`, `ABSOLUTE_COLORIMETRIC` |  |  | Conversion Options > Intent |
+| `blackPointCompensation` | boolean |  |  | Use Black Point Compensation |
+| `accurateLabSpots` | boolean |  |  | Use Lab values to display and convert spot colours (Accurate LAB Spots) |
+| `richBlackOnScreen` | boolean |  |  | Appearance of Black > On Screen: true = Display All Blacks as Rich Black, false = Display All Blacks Accurately |
+| `richBlackOnExport` | boolean |  |  | Appearance of Black > Printing/Exporting: true = Output All Blacks as Rich Black, false = Output All Blacks Accurately |
+
+### `assign_document_profiles`
+
+Assign the active document's RGB and CMYK profiles without converting colour values, set its colour policies, and set its rendering intents for solid colours, images and after blending (Edit > Assign Profiles)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `rgbProfile` | string |  |  | RGB profile name from get_color_settings (document.rgbProfiles, with includeLists), or "working" for the current RGB working space |
+| `cmykProfile` | string |  |  | CMYK profile name from get_color_settings (document.cmykProfiles, with includeLists), or "working" for the current CMYK working space |
+| `rgbPolicy` | `COLOR_POLICY_OFF`, `PRESERVE_EMBEDDED_PROFILES`, `CONVERT_TO_WORKING_SPACE`, `COMBINATION_OF_PRESERVE_AND_SAFE_CMYK` |  |  | The document's RGB colour policy |
+| `cmykPolicy` | `COLOR_POLICY_OFF`, `PRESERVE_EMBEDDED_PROFILES`, `CONVERT_TO_WORKING_SPACE`, `COMBINATION_OF_PRESERVE_AND_SAFE_CMYK` |  |  | The document's CMYK colour policy |
+| `solidColorIntent` | `USE_COLOR_SETTINGS`, `PERCEPTUAL`, `SATURATION`, `RELATIVE_COLORIMETRIC`, `ABSOLUTE_COLORIMETRIC` |  |  | Solid Color Intent (vector art and native objects) |
+| `defaultImageIntent` | `USE_COLOR_SETTINGS`, `PERCEPTUAL`, `SATURATION`, `RELATIVE_COLORIMETRIC`, `ABSOLUTE_COLORIMETRIC` |  |  | Default Image Intent (bitmap images) |
+| `afterBlendingIntent` | `USE_COLOR_SETTINGS`, `PERCEPTUAL`, `SATURATION`, `RELATIVE_COLORIMETRIC`, `ABSOLUTE_COLORIMETRIC` |  |  | After-Blending Intent (colours from transparency) |
+
+### `set_proofing`
+
+Soft-proof the active document's window: choose the output condition to simulate and turn Proof Colors on or off (View > Proof Setup, View > Proof Colors), with paper white, ink black and preserve numbers for a custom profile, and turn Overprint Preview on or off
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `proofing` | `off`, `document_cmyk`, `working_cmyk`, `custom` |  |  | off turns Proof Colors off; document_cmyk, working_cmyk or custom proof against that profile |
+| `profile` | string |  |  | Custom proof: the device profile to simulate (sets proofing to custom) |
+| `simulatePaperWhite` | boolean |  |  | Custom proof: Simulate Paper Color |
+| `simulateInkBlack` | boolean |  |  | Custom proof: Simulate Black Ink |
+| `preserveColorNumbers` | boolean |  |  | Custom proof: Preserve CMYK Numbers |
+| `overprintPreview` | boolean |  |  | View > Overprint Preview |
+
+### `set_image_color_settings`
+
+Override the colour profile and rendering intent of placed images (Object > Image Color Settings)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Frames holding images, or the images themselves. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `profile` | string |  |  | A profile name from the image's profile list (an unknown name is refused with the list), or "USE_DOCUMENT" for Use Document Default |
+| `renderingIntent` | `USE_COLOR_SETTINGS`, `PERCEPTUAL`, `SATURATION`, `RELATIVE_COLORIMETRIC`, `ABSOLUTE_COLORIMETRIC` |  |  | Rendering intent; USE_COLOR_SETTINGS is Use Document Image Intent |
+
+## Frames and objects
+<a id="frames"></a>
+
+Frames, shapes and lines; strokes and stroke styles; frame content type; stacking order; frame fitting; anchored objects; object library items; QR codes and math expressions.
+
+### `draw_shape`
+
+Draw a rectangle, ellipse or polygon frame, or a straight line, on a page (Rectangle Frame, Ellipse Frame, Polygon Frame and Line tools). Frames are graphic placeholders by default; content "unassigned" draws a plain shape and "text" a text frame. Returns the new item's id
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageIndex` | integer | yes |  | Page index (0-based) |
+| `shape` | `rectangle`, `ellipse`, `polygon`, `line` | yes |  | What to draw |
+| `x` | number |  |  | Left edge in mm from the page's left (not for lines) |
+| `y` | number |  |  | Top edge in mm from the page's top (not for lines) |
+| `width` | number |  |  | Width in mm (not for lines) |
+| `height` | number |  |  | Height in mm (not for lines) |
+| `content` | `graphic`, `text`, `unassigned` |  |  | Frame content: graphic placeholder (default), text frame, or unassigned (a plain shape) |
+| `sides` | integer |  |  | Polygon: number of sides (default: the Polygon Settings value) |
+| `starInset` | number |  |  | Polygon: star inset (%); 0 draws a regular polygon (default: the Polygon Settings value) |
+| `from` | array of number |  |  | Line: start point [x, y] in mm from the page's top-left |
+| `to` | array of number |  |  | Line: end point [x, y] in mm from the page's top-left |
+| `name` | string |  |  | Name for the new item (Layers panel) |
+
+### `set_frame_content_type`
+
+Change frames' content type to graphic, text or unassigned (Object > Content). For the Attributes panel (Nonprinting, overprint) use set_print_attributes
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `contentType` | `graphic`, `text`, `unassigned` | yes |  | The new content type |
+
+### `arrange_objects`
+
+Change stacking order within each item's layer: Bring to Front, Bring Forward, Send Backward or Send to Back (Object > Arrange)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `order` | `bring_to_front`, `bring_forward`, `send_backward`, `send_to_back` | yes |  | Where to move the items |
+
+### `reveal_spread_items`
+
+Unlock every locked object and/or show every hidden object on a spread (Object > Unlock All on Spread, Show All on Spread)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreadIndex` | integer |  |  | Spread index (0-based); default: the spread in the active window |
+| `unlock` | boolean |  | `true` | Unlock All on Spread |
+| `show` | boolean |  | `true` | Show All on Spread |
+
+### `set_object_preferences`
+
+Set the Polygon Settings used by the polygon tools (number of sides, star inset; double-click the Polygon tool) and Prevent Selection of Locked Objects (Preferences > General). Returns the current values; give nothing to read them
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `polygonSides` | integer |  |  | Polygon Settings: Number of Sides |
+| `starInset` | number |  |  | Polygon Settings: Star Inset (%) |
+| `preventSelectingLocked` | boolean |  |  | Prevent Selection of Locked Objects |
+
+### `set_item_stroke`
+
+Set Stroke panel options on items: weight, type (stroke style), colour and tint, cap, join and miter limit, stroke alignment, start and end arrowheads with their scale and alignment, gap colour and tint, dash corner adjustment and custom dash/gap lengths (Window > Stroke). Weights and lengths are points
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `weight` | number |  |  | Stroke weight (points); 0 removes the stroke |
+| `type` | string |  |  | Stroke type: a stroke style name such as "Solid", "Dashed", "Dotted", "Thick - Thin" or a custom style |
+| `color` | string |  |  | Stroke colour: A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `tint` | number |  |  | Stroke tint (%) |
+| `cap` | `butt`, `round`, `projecting` |  |  | Cap: the shape of open path ends |
+| `join` | `miter`, `round`, `bevel` |  |  | Join: the shape of corners |
+| `miterLimit` | number |  |  | Miter limit (times the stroke weight) |
+| `align` | `center`, `inside`, `outside` |  |  | Align Stroke: centred on, inside or outside the path |
+| `start` | `none`, `simple`, `simple_wide`, `triangle`, `triangle_wide`, `barbed`, `curved`, `circle`, `circle_solid`, `square`, `square_solid`, `bar` |  |  | Start: arrowhead at the start of an open path |
+| `end` | `none`, `simple`, `simple_wide`, `triangle`, `triangle_wide`, `barbed`, `curved`, `circle`, `circle_solid`, `square`, `square_solid`, `bar` |  |  | End: arrowhead at the end of an open path |
+| `startScale` | number |  |  | Scale of the start arrowhead (%) |
+| `endScale` | number |  |  | Scale of the end arrowhead (%) |
+| `arrowAlignment` | `inside`, `outside` |  |  | Align arrowheads inside or outside the path end |
+| `gapColor` | string |  |  | Gap Color of dashed, dotted and striped strokes: A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `gapTint` | number |  |  | Gap Tint (%) |
+| `cornerAdjustment` | `none`, `dashes`, `gaps`, `dashes_and_gaps` |  |  | Corners: how dashes and gaps adjust to meet at corners |
+| `dashAndGap` | array of number |  |  | Dashed stroke: dash, gap, dash, gap... lengths in points (2, 4 or 6 values) |
+
+### `manage_stroke_styles`
+
+List, create, delete, save (export) and load (import) custom stroke styles: dashed, dotted and striped patterns (Stroke panel menu > Stroke Styles)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `create`, `delete`, `export`, `import` | yes |  | list every stroke style; create, delete, export (Save) or import (Load) custom styles |
+| `name` | string |  |  | create, delete: the style name |
+| `kind` | `dashed`, `dotted`, `striped` |  |  | create: the kind of style |
+| `pattern` | array of number |  |  | create: dashed, dash and gap lengths in points, in pairs; dotted, dot centre distances in points; striped, pairs of [top, bottom] stripe edges as % of the stroke weight |
+| `cornerAdjustment` | `none`, `dashes`, `gaps`, `dashes_and_gaps` |  |  | create: Corners for a dashed or dotted style |
+| `cap` | `butt`, `round`, `projecting` |  |  | create: Cap of a dashed style's dashes |
+| `replaceWith` | string |  |  | delete: the stroke style applied where the deleted one was used (default "Solid") |
+| `names` | array of string |  |  | export: the styles to save (default: every custom style) |
+| `path` | string |  |  | export, import: a stroke styles file (.inst) |
+
+### `get_object_options`
+
+Read items' Stroke panel options, Attributes panel options (nonprinting, overprint) and content type, Frame Fitting Options, and Anchored Object Options. Stroke weights and dash lengths are points; crops and offsets mm
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `include` | array of string |  |  | What to read (default: all of stroke, attributes, fitting, anchored) |
+
+### `set_frame_fitting`
+
+Set Frame Fitting Options (Object > Fitting > Frame Fitting Options: fitting on empty frame, reference point, Auto-Fit and crop amounts), clear them (Clear Frame Fitting Options), and fit the content now, including Content-Aware Fit
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `fitting` | `none`, `content_to_frame`, `proportionally`, `fill_proportionally` |  |  | Fitting on Empty Frame: how content placed later is fitted |
+| `referencePoint` | `top_left`, `top_center`, `top_right`, `left_center`, `center`, `right_center`, `bottom_left`, `bottom_center`, `bottom_right` |  |  | Align From: the reference point for fitting and cropping |
+| `autoFit` | boolean |  |  | Auto-Fit: refit the content whenever the frame is resized |
+| `crop` | object |  |  | Crop Amount (mm; negative adds space around the content) |
+| `clear` | boolean |  |  | Clear Frame Fitting Options first |
+| `fitNow` | `content_aware`, `proportionally`, `fill_proportionally`, `content_to_frame`, `frame_to_content`, `center_content`, `apply_frame_fitting_options` |  |  | Fit the content now (Object > Fitting): content_aware is Content-Aware Fit |
+
+### `insert_anchored_object`
+
+Anchor an object in text (Object > Anchored Object > Insert): either a new rectangle, ellipse, polygon, text frame or line created at a text position, or an existing item moved into the text. Set its Anchored Object Options in the same call
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `at` | object | yes |  | Where in text to anchor: a text frame's story or a story at characterIndex (default: the end), or selection: true for the text cursor |
+| `itemId` | integer |  |  | Anchor this existing item (instead of creating one) |
+| `create` | object |  |  | Create a new anchored object (instead of itemId); shape is required |
+| `options` | object |  |  | Anchored Object Options (Object > Anchored Object > Options) |
+
+### `set_anchored_object_options`
+
+Set Anchored Object Options on anchored items (Object > Anchored Object > Options), rotate and scale them within their anchor settings, or release them so they no longer move with the text (Object > Anchored Object > Release)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `options` | object |  |  | Anchored Object Options (Object > Anchored Object > Options) |
+| `transform` | object |  |  | Transform the anchored objects |
+| `release` | boolean |  |  | Release the anchored objects (after any options and transform) |
+
+### `set_anchored_object_defaults`
+
+Set the defaults for new anchored objects in the document: content type, object style, paragraph style and initial size (the Insert Anchored Object defaults). Returns the current values; give nothing to read them
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `content` | `graphic`, `text`, `unassigned` |  |  | Content of new anchored objects |
+| `objectStyle` | string |  |  | Object style for new anchored objects |
+| `paragraphStyle` | string |  |  | Paragraph style for new anchored text frames |
+| `width` | number |  |  | Initial width (mm) |
+| `height` | number |  |  | Initial height (mm) |
+
+### `manage_object_library`
+
+List the items of an open object library (id, name, type, description; optionally filtered), close a library (Library panel menu > Close Library), and set the Library panel's view (thumbnails, large thumbnails, list) and sort order (Sort Items). To open or create a library use transfer_resource_file
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `close`, `view`, `sort` | yes |  | What to do |
+| `library` | string |  |  | Name of an open library, as the Library panel tab shows it (e.g. "Parts.indl"); default: the first open library |
+| `filter` | object |  |  | list: only items matching all given criteria (case-insensitive) |
+| `view` | `thumbnails`, `large_thumbnails`, `list` |  |  | view: Thumbnail View, Large Thumbnail View or List View |
+| `sort` | `name`, `newest`, `oldest`, `type` |  |  | sort: Sort Items by name, newest, oldest or type |
+
+### `manage_library_items`
+
+Work with items in an object library: Add Item (store page items as one item), Add Items on Page (as one item or each separately), Place Item(s) into the document, Update Library Item with page items, Item Information (name, type, description), and Delete Item(s) (Library panel menu)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `add`, `add_page`, `place`, `update`, `info`, `delete` | yes |  | What to do |
+| `library` | string |  |  | Name of an open library, as the Library panel tab shows it (e.g. "Parts.indl"); default: the first open library |
+| `target` | object |  |  | add, update: the page items to store. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `items` | object |  |  | place, update, info, delete: Which library items: ids or names (manage_object_library with action "list" shows both) |
+| `pageIndex` | integer |  |  | add_page: the page whose items are stored (0-based) |
+| `separately` | boolean |  |  | add_page: store each item on the page as its own library item |
+| `name` | string |  |  | add, add_page, info: Item Name |
+| `description` | string |  |  | add, add_page, info: Description |
+| `type` | `eps`, `geometry`, `image`, `indesign_file`, `page`, `pdf`, `structure`, `text` |  |  | add, info: Object Type |
+
+### `create_qr_code`
+
+Generate a QR code for a URL, plain text, email, text message or business card (vCard), in a new frame or in an existing frame; giving the frame of an existing QR code edits it (Object > Generate QR Code, Edit QR Code)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `url`, `text`, `email`, `sms`, `vcard` | yes |  | What the code encodes |
+| `data` | object | yes |  | The content. url: url. text: text. email: address, subject, body. sms: number, message. vcard: firstName, lastName, jobTitle, cellPhone, phone, email, organisation, streetAddress, city, state, country, postalCode, website |
+| `color` | string |  |  | Colour of the code (default Black): A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `frameId` | integer |  |  | Put the code in this frame, replacing an existing code (Edit QR Code) |
+| `pageIndex` | integer |  |  | New frame: page index (0-based) |
+| `x` | number |  |  | New frame: left edge in mm from the page's left |
+| `y` | number |  |  | New frame: top edge in mm from the page's top |
+| `size` | number |  |  | New frame: width and height in mm (default 30) |
+
+### `manage_math_objects`
+
+Math expressions (InDesign 2025 and later): add a MathML expression to a page, list the document's expressions, edit an expression's MathML, size or colour (Edit MathML), and set the document defaults for size, colour and whether EPUB export writes MathML or SVG (Export Math Objects, 2026). Takes MathML, not LaTeX
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `add`, `list`, `edit`, `settings` | yes |  | What to do |
+| `mathml` | string |  |  | add, edit: the expression as a MathML <math> element |
+| `id` | integer |  |  | edit: the math object id (from list) |
+| `pageIndex` | integer |  |  | add: page index (0-based) |
+| `x` | number |  |  | add: left edge in mm from the page's left (default 0) |
+| `y` | number |  |  | add: top edge in mm from the page's top (default 0) |
+| `fontSize` | number |  |  | add, edit, settings: font size (points) |
+| `color` | string |  |  | add, edit, settings: colour of the expression: A swatch name in the document, or "#RRGGBB" (creates an RGB colour swatch) |
+| `exportAsMathML` | boolean |  |  | settings: EPUB export writes math objects as MathML (true) or SVG (false); InDesign 2026 |
+
+## Layout tools
+<a id="layout_tools"></a>
+
+Liquid, alternate and flex layouts, named grids, frame grids and the layout grid, linked content and the Content Collector, rulers and units, guides, measuring, gaps and accessible context breaks.
+
+### `set_liquid_layout`
+
+Set how items adapt when their page is resized under the object-based liquid page rule: resize with the page (width, height) and pin to the page edges, plus Auto-Fit of frame content (Liquid Layout panel). The page rule itself is set with set_page_properties (layoutRule).
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `resizeWidth` | boolean |  |  | Resize with Page: Width (the width is flexible) |
+| `resizeHeight` | boolean |  |  | Resize with Page: Height (the height is flexible) |
+| `pinTop` | boolean |  |  | Pin: Top (the top margin stays fixed) |
+| `pinBottom` | boolean |  |  | Pin: Bottom (the bottom margin stays fixed) |
+| `pinLeft` | boolean |  |  | Pin: Left (the left margin stays fixed) |
+| `pinRight` | boolean |  |  | Pin: Right (the right margin stays fixed) |
+| `autoFit` | boolean |  |  | Auto-Fit: refit the frame content when the frame resizes (graphic frames) |
+
+### `create_alternate_layout`
+
+Create an alternate layout: copy the pages of a layout to a new page size and orientation in the same document, with a liquid page rule, linked stories and copied text styles (Layout > Create Alternate Layout)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Name of the new layout |
+| `from` | string |  |  | From Source Pages: the layout to copy (default the first page's layout); see manage_alternate_layouts |
+| `width` | number | yes |  | Page width of the new layout (mm) |
+| `height` | number | yes |  | Page height of the new layout (mm) |
+| `orientation` | `portrait`, `landscape` |  |  | Orientation; swaps width and height when they do not match it |
+| `liquidPageRule` | `OFF`, `SCALE`, `RECENTER`, `GUIDE_BASED`, `OBJECT_BASED`, `PRESERVE_EXISTING` |  | `"PRESERVE_EXISTING"` | Liquid Page Rule applied to the new pages |
+| `linkStories` | boolean |  | `true` | Link Stories: the new stories are linked copies of the source stories |
+| `copyTextStyles` | boolean |  | `true` | Copy Text Styles to New Style Group |
+| `smartTextReflow` | boolean |  |  | Smart Text Reflow: add or remove pages as text reflows (the document's Type preference, which covers every layout) |
+
+### `manage_alternate_layouts`
+
+List the document's layouts (alternate layouts) with their page counts and page sizes, or delete an alternate layout and its pages (Pages panel > Alternate Layout menu > Delete Alternate Layout)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `delete` | yes |  | list the layouts, or delete one |
+| `name` | string |  |  | delete: the layout to delete |
+
+### `create_flex_layout`
+
+Put items in a flex layout container that arranges them in rows or columns which resize and reflow together, for example a wrapping grid of profile cards for team pages; a group is converted (Flex Layout > Convert to Flex Layout / Add to Flex Layout). Needs InDesign 2026 (21.0) or later.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The items to arrange, in order; a group's items are taken out of the group (Convert to Flex Layout) |
+| `container` | integer |  |  | Add the items to this existing flex container (its id) instead of creating one |
+| `layout` | object |  |  | Flex layout settings (Object > Flex Layout); only the ones you pass change |
+| `itemSizing` | object |  |  | Sizing of each item in the container |
+| `ungroup` | boolean |  | `true` | Take the items out of a chosen group and add them one by one (false adds the group as one item) |
+
+### `set_flex_layout`
+
+Set a flex layout container's direction, wrapping, alignment, gaps, padding and sizing, and how its items size (Object > Flex Layout). Needs InDesign 2026 (21.0) or later.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The flex containers (ids from create_flex_layout or get_flex_layout) |
+| `layout` | object |  |  | Flex layout settings (Object > Flex Layout); only the ones you pass change |
+| `items` | array of object |  |  | Sizing for individual items in the containers |
+
+### `get_flex_layout`
+
+Read flex layout containers: their settings, their items and how each sizes, and the liquid layout settings that also act on them and can conflict with the flex layout (Object > Flex Layout). Needs InDesign 2026 (21.0) or later.
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | The flex containers to read (default every container on the page, or in the document) |
+| `pageIndex` | integer |  |  | Read the containers on this page (0-based) |
+
+### `manage_named_grids`
+
+List, create, edit or delete named grids (frame grid formats), or load all named grids from another InDesign document (Named Grids panel: New Named Grid, Named Grid Options, Delete Named Grids, Load All Named Grids)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `create`, `update`, `delete`, `load` | yes |  | What to do |
+| `name` | string |  |  | create, update, delete: the named grid |
+| `newName` | string |  |  | update: rename the grid |
+| `grid` | object |  |  | create, update: grid format options (Named Grid Options); only the ones you pass change |
+| `filePath` | string |  |  | load: the InDesign document (.indd) to load named grids from |
+| `replace` | boolean |  | `false` | load: replace grids with the same name (otherwise they are skipped) |
+
+### `set_frame_grid`
+
+Set frame grid options (font, size, scale, aki, alignment, view and character count), apply a named grid, or apply the grid format to the text so it matches the grid (Object > Frame Grid Options, Edit > Apply Grid Format)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The frame grids (text frames) |
+| `namedGrid` | string |  |  | Apply this named grid to the frames' stories |
+| `grid` | object |  |  | Frame Grid Options; only the ones you pass change |
+| `applyGridFormat` | boolean |  |  | Apply Grid Format: set the stories' font, size and scaling to the grid's |
+
+### `set_layout_grid`
+
+Set the document's layout grid (font, size, scale and aki of its character cells) and which grids show: layout grid, frame grids, character counts, and snapping to the layout grid (Layout > Layout Grid; View > Grids & Guides). Layout and frame grids are part of the Japanese (CJK) feature set.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `grid` | object |  |  | Layout Grid options; only the ones you pass change |
+| `view` | object |  |  | Grid display (View > Grids & Guides) |
+
+### `place_linked_copies`
+
+Place copies of items or stories on a page, in this or another open document, as linked content that updates when the source changes (Edit > Place and Link; the Content Placer tool)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The source items (text frames place their stories) |
+| `pageIndex` | integer | yes |  | The page to place on (0-based) |
+| `toDocument` | string |  |  | Name of another open document to place into (default the active document) |
+| `x` | number |  |  | mm from the left of the page (default the source's position on its own page) |
+| `y` | number |  |  | mm from the top of the page (default the source's position on its own page) |
+| `linkItems` | boolean |  | `true` | Create Link for page items: the copies stay linked to their source |
+| `linkStories` | boolean |  | `true` | Create Link for stories: the copied stories stay linked to their source |
+| `mapStyles` | boolean |  | `false` | Map Styles: apply the custom style mappings (manage_style_mappings) to the copies |
+| `layer` | string |  |  | Layer to place on (default the source's layer, if the target document has it) |
+
+### `set_link_options`
+
+Set the link options of linked items and linked stories, or the document defaults: update when saving, warn before overwriting local edits, which local edits to preserve, removing forced line breaks and applying style mappings (Links panel > Link Options). Pass no options to read them.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object |  |  | The linked items; text frames set their story's options |
+| `documentDefaults` | boolean |  |  | Set the document's default link options instead of (or as well as) items' |
+| `updateWhileSaving` | boolean |  |  | Update Link When Saving Document (items and stories) |
+| `warnOnUpdate` | boolean |  |  | Warn if Link Update Will Overwrite Local Edits (items and stories) |
+| `preserveAppearance` | boolean |  |  | Preserve Local Edits: Appearance (fill, stroke, effects) (page items) |
+| `preserveSizeAndShape` | boolean |  |  | Preserve Local Edits: Size and Shape (page items) |
+| `preserveInteractivity` | boolean |  |  | Preserve Local Edits: Interactivity (page items) |
+| `preserveFrameContent` | boolean |  |  | Preserve Local Edits: Frame Content (page items) |
+| `preserveOthers` | boolean |  |  | Preserve Local Edits: Others (page items) |
+| `removeForcedLineBreaks` | boolean |  |  | Remove Forced Line Breaks from Story (linked stories) (stories) |
+| `mapStyles` | boolean |  |  | Apply the custom style mappings to linked stories (Define Custom Style Mapping; see manage_style_mappings) (stories) |
+
+### `manage_style_mappings`
+
+List, add or remove the document's custom style mappings, which map source styles to other styles when linked content is placed or updated with style mapping on (Link Options > Define Custom Style Mapping; Content Placer > Edit Custom Style Mapping)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `add`, `remove` | yes |  | add (or change) a mapping, remove one, or list them |
+| `kind` | `paragraph`, `character`, `table`, `cell` |  |  | add, remove: paragraph, character, table or cell styles |
+| `source` | string |  |  | add, remove: the source style (or style group) name |
+| `destination` | string |  |  | add: the style (or style group) it maps to |
+| `rule` | `style`, `group`, `style_to_group`, `group_to_style` |  | `"style"` | add: map style to style, group to group, style to group, or group to style |
+
+### `load_content_conveyor`
+
+Collect items onto the Content Collector conveyor, ready to place with the Content Placer, optionally as linked copies with style mapping (Content Collector tool; Load Conveyor)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | The items to collect |
+| `linkItems` | boolean |  | `false` | Create Link: page items placed from the conveyor stay linked to the source |
+| `linkStories` | boolean |  | `false` | Create Link for stories placed from the conveyor |
+| `mapStyles` | boolean |  | `false` | Map Styles when placing from the conveyor |
+
+### `set_content_placer_options`
+
+Set the Content Collector and Content Placer options: show the conveyor, create links and map styles when placing (Content Placer options, View > Extras > Show Conveyor). Pass no options to read them.
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `showConveyor` | boolean |  |  | Show the conveyor when the Content Collector or Placer tool is chosen |
+| `createLinks` | boolean |  |  | Create Link: placed items stay linked to their source |
+| `mapStyles` | boolean |  |  | Map Styles: apply custom style mappings to placed items |
+
+### `set_rulers`
+
+Show or hide the rulers and set their units, for both rulers or each one, or step both to the next unit (View > Show/Hide Rulers; ruler context menu; Preferences > Units & Increments). Pass no options to read them.
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `show` | boolean |  |  | Show (true) or hide (false) the rulers |
+| `units` | `POINTS`, `PICAS`, `INCHES`, `INCHES_DECIMAL`, `MILLIMETERS`, `CENTIMETERS`, `CICEROS`, `AGATES`, `PIXELS`, `AMERICAN_POINTS`, `BAI`, `HA`, `MILS`, `Q`, `U` |  |  | Units for both rulers |
+| `horizontalUnits` | `POINTS`, `PICAS`, `INCHES`, `INCHES_DECIMAL`, `MILLIMETERS`, `CENTIMETERS`, `CICEROS`, `AGATES`, `PIXELS`, `AMERICAN_POINTS`, `BAI`, `HA`, `MILS`, `Q`, `U` |  |  | Units for the horizontal ruler |
+| `verticalUnits` | `POINTS`, `PICAS`, `INCHES`, `INCHES_DECIMAL`, `MILLIMETERS`, `CENTIMETERS`, `CICEROS`, `AGATES`, `PIXELS`, `AMERICAN_POINTS`, `BAI`, `HA`, `MILS`, `Q`, `U` |  |  | Units for the vertical ruler |
+| `cycle` | boolean |  |  | Step both rulers to the next unit (points, picas, inches, inches decimal, millimetres, centimetres, ciceros, agates, pixels) |
+
+### `manage_guides`
+
+List ruler guides, move them, lock or unlock them, make them liquid or ruler guides, or delete them, including every guide on a spread (select guides and drag, Lock Guide, View > Grids & Guides > Delete All Guides on Spread). Positions are mm from the top or left of the guide's page.
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `move`, `set`, `delete` | yes |  | What to do with the guides |
+| `guideIds` | array of integer |  |  | The guides (ids from action list) |
+| `pageIndex` | integer |  |  | All guides on this page (0-based) |
+| `spreadIndex` | integer |  |  | All guides on this spread (0-based); delete with only spreadIndex is Delete All Guides on Spread |
+| `to` | number |  |  | move: the new position, mm from the top (horizontal guide) or left (vertical guide) of its page |
+| `by` | number |  |  | move: distance to move (mm; down or right is positive) |
+| `locked` | boolean |  |  | set: lock or unlock the guides |
+| `type` | `liquid`, `ruler` |  |  | set: liquid guides tell the guide-based liquid rule what may stretch; ruler guides are plain guides |
+
+### `measure_between`
+
+Measure the distance and angle between two points, items or an item and a point, as the Measure tool shows them in the Info panel; for two items also the gaps between their edges
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `from` | object | yes |  | Where to measure from: an item (id, and which point of it) or a point on a page (pageIndex, x, y) |
+| `to` | object | yes |  | Where to measure to: an item (id, and which point of it) or a point on a page (pageIndex, x, y) |
+
+### `adjust_gap`
+
+Change the gap between items as the Gap tool does: resize the gap (the facing edges move apart or together and the items resize), move the gap (both facing edges move the same way), or move the items on one side so the gap is a set size
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `before` | object | yes |  | Items on the left of the gap (side_by_side) or above it (stacked) |
+| `after` | object | yes |  | Items on the right of the gap (side_by_side) or below it (stacked) |
+| `arrangement` | `side_by_side`, `stacked` | yes |  | side_by_side: the gap runs up and down between items left and right of it; stacked: it runs across between items above and below |
+| `mode` | `resize_gap`, `move_gap`, `move_items` | yes |  | resize_gap: make the gap `size` wide by moving both facing edges (items resize); move_gap: shift the gap `by` mm (items on both sides resize); move_items: move the after items so the gap is `size` |
+| `size` | number |  |  | resize_gap, move_items: the new gap (mm) |
+| `by` | number |  |  | move_gap: how far to move the gap (mm; right or down is positive) |
+
+### `set_context_break_styles`
+
+Mark paragraph styles as accessible context breaks: their paragraphs export to EPUB as thematic breaks (<hr>), or remove the mark (Layout > Accessible context breaks; Paragraph Style Options > Export Tagging)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `styles` | array of string | yes |  | Paragraph style names, e.g. the style of a "* * *" separator paragraph |
+| `remove` | boolean |  | `false` | Remove the context-break mark instead of adding it |
+| `exportClass` | string |  |  | CSS class to give the exported break |
+
+## Images and links
+<a id="images"></a>
+
+Links panel: list, relink, update, embed and unembed links, open and reveal originals, InCopy check-in and check-out; placing images, PDF, InDesign pages, EPS and SVG with import options; image import and object layer options, cropping and moving frame content, contact sheets and the place cursor.
+
+### `list_document_links`
+
+List the document's links as the Links panel shows them: name, status, full and platform-style path, URL links, size, date, the item that holds each link, image resolution, InCopy lock state, and optionally the linked file's XMP metadata (Links panel; Link Info; Utilities > XMP File Info; Copy Full Path / Copy Platform Style Path)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `links` | object |  |  | Which links to act on (rows of the Links panel): link ids or names from list_document_links, the page items whose placed content is linked, the links of the selected items, or every link; status narrows the choice. Default: every link |
+| `includeXmp` | boolean |  | `false` | Include each linked file's XMP metadata (title, author, description, keywords, copyright, dates) |
+| `xmpProperties` | array of object |  |  | Further XMP properties to read, as { namespace, path } (for example namespace "http://ns.adobe.com/photoshop/1.0/", path "City") |
+| `limit` | integer |  | `500` | Most links to return |
+
+### `relink_document_links`
+
+Point links at other files: relink one link to a file or a web URL, relink links to files of the same name in a folder (optionally searching subfolders or with another extension), relink to the same names with another extension, or copy the linked files to a folder and relink to the copies (Links panel menu > Relink, Relink to Folder, Relink File Extension, Copy Link(s) To)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `links` | object | yes |  | Which links to act on (rows of the Links panel): link ids or names from list_document_links, the page items whose placed content is linked, the links of the selected items, or every link; status narrows the choice |
+| `mode` | `file`, `url`, `folder`, `extension`, `copy_to_folder` | yes |  | file: one link to filePath; url: one link to a web URL; folder: same names in folder; extension: same names with another extension beside the original; copy_to_folder: copy files into folder and relink |
+| `filePath` | string |  |  | The new file (mode file) |
+| `url` | string |  |  | An http or https URL (mode url) |
+| `folder` | string |  |  | The folder (modes folder and copy_to_folder; created for copy_to_folder if missing) |
+| `extension` | string |  |  | The extension to relink to, such as "psd" (mode extension; in mode folder, match the same name with this extension) |
+| `searchSubfolders` | boolean |  | `false` | Also look in subfolders of folder (mode folder) |
+
+### `run_document_link_action`
+
+Act on links: update modified links or all of them, embed or unembed, open the original in its editor, reveal the file in Finder/Explorer or Bridge, select the linked item on its page, go to the source of a shared-content link, and check InCopy content out, in, or cancel the check-out (Links panel menu > Update Link, Update All Links, Embed Link, Unembed Link, Edit Original, Reveal in Finder, Reveal in Bridge, Go To Link, Go to Source, Check Out, Check In, Cancel Check Out; Edit > Edit Original)
+
+***destructive** · external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `update`, `update_all`, `embed`, `unembed`, `edit_original`, `reveal_in_system`, `reveal_in_bridge`, `go_to_link`, `go_to_source`, `check_out`, `check_in`, `cancel_check_out` | yes |  | What to do; update_all needs no links and updates every out-of-date link. cancel_check_out discards changes made since the check-out |
+| `links` | object |  |  | Which links to act on (rows of the Links panel): link ids or names from list_document_links, the page items whose placed content is linked, the links of the selected items, or every link; status narrows the choice. Not used by update_all |
+| `folder` | string |  |  | unembed: write the files into this folder and link to them (default: link back to the original files) |
+| `comment` | string |  |  | check_in: version comment |
+
+### `run_links_panel_command`
+
+Run a Links panel menu command: Search for Missing Links, copy link information as text (Utilities > Copy All Link Information, Copy Info for Selected Links), or change the panel display (Show Link Information Pane, Auto-Size Link Information, Hide Thumbnail). Optionally select items first so the command acts on their links
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `search_for_missing_links`, `copy_all_link_information`, `copy_info_for_selected_links`, `show_link_information_pane`, `auto_size_link_information`, `hide_thumbnail` | yes |  | The command to run |
+| `target` | object |  |  | Optional items to select first. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `place_graphic_with_options`
+
+Place an image, PDF or Illustrator page, InDesign page, EPS or SVG with its import options set without the dialog, on a page or into an existing frame (replacing its content), then optionally fit it and add a static caption (File > Place > Show Import Options: Image Import Options, Place PDF, Place InDesign Document, EPS Import Options; Replace Selected Item; Create Static Captions)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `filePath` | string | yes |  | The file to place (inside the allowed directories) |
+| `pageIndex` | integer |  | `0` | Page to place on (0-based), unless frameId or intoSelection is given |
+| `x` | number |  | `10` | Left of the placed graphic, mm from the page's left edge |
+| `y` | number |  | `10` | Top of the placed graphic, mm from the page's top edge |
+| `frameId` | integer |  |  | Place into this frame, replacing its content (Replace Selected Item) |
+| `intoSelection` | boolean |  |  | Place into the selected frame, replacing its content (Replace Selected Item) |
+| `pdf` | object |  |  | Place PDF / Illustrator options |
+| `indesignPage` | object |  |  | Place InDesign document options |
+| `eps` | object |  |  | EPS Import Options |
+| `image` | object |  |  | Image Import Options, also used for EPS clipping paths (applyClippingPath) |
+| `fit` | `PROPORTIONALLY`, `FILL_PROPORTIONALLY`, `CONTENT_TO_FRAME`, `FRAME_TO_CONTENT`, `CENTER_CONTENT`, `APPLY_FRAME_FITTING_OPTIONS` |  |  | Fit the placed graphic in its frame afterwards (Object > Fitting) |
+| `staticCaption` | boolean |  |  | Add a static caption from the image's metadata after placing (Create Static Captions) |
+
+### `get_placed_graphic_options`
+
+Read the import and display options of placed graphics: type (image, PDF, InDesign page, EPS, SVG), link, resolution, colour profile and the profiles available, rendering intent, clipping path and alpha channels, layers and their visibility, the PDF or InDesign page and crop placed, and display quality (Object > Image Import Options, Object Layer Options, Display Performance)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Frames or graphics to read. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `set_placed_graphic_options`
+
+Change the import options of placed graphics without the dialog: Photoshop clipping path, alpha channel, which layers are visible and what happens to them when the link updates, and the item's display quality (Object > Image Import Options, Object > Object Layer Options, Object > Display Performance). For colour profile and rendering intent use set_image_color_settings
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Frames holding the graphics, or the graphics. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `applyClippingPath` | boolean |  |  | Apply Photoshop Clipping Path saved in the image |
+| `alphaChannel` | string |  |  | Alpha Channel to mask the image with, by name |
+| `layers` | array of object |  |  | Show Layers: layer visibility by name; a nested layer as "Group/Layer" |
+| `whenUpdatingLink` | `KEEP_OVERRIDES`, `APPLICATION_SETTINGS` |  |  | When Updating Link: keep these layer visibility overrides, or use the file's own visibility |
+| `displayQuality` | `DEFAULT_VALUE`, `HIGH_QUALITY`, `TYPICAL`, `OPTIMIZED` |  |  | Display Performance for these items: DEFAULT_VALUE (use the view setting), HIGH_QUALITY, TYPICAL or OPTIMIZED (fast) |
+
+### `adjust_frame_content`
+
+Crop a placed graphic by moving its frame's edges while the graphic stays put, move the graphic inside its frame, or scale it within the frame, as with the Direct Selection tool or content grabber
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Frames holding graphics. Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `crop` | object |  |  | Move each frame edge inward by this many mm (negative moves it outward, uncovering more of the graphic) |
+| `moveContent` | object |  |  | Move the graphic inside the frame by an offset |
+| `scaleContent` | object |  |  | Scale the graphic inside the frame |
+
+### `place_contact_sheet`
+
+Place many images as a contact sheet: an evenly spaced grid of frames, one file in each, fitted, flowing onto further pages as needed, optionally captioned (the place cursor's grid placing)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `files` | array of string |  |  | The files to place, in order |
+| `folder` | string |  |  | Place every image in this folder instead (sorted by name) |
+| `extensions` | array of string |  |  | With folder: the extensions to take (default: jpg, jpeg, png, tif, tiff, psd, gif, bmp, pdf, ai, eps, svg, indd, heic, webp) |
+| `pageIndex` | integer |  | `0` | First page to fill (0-based) |
+| `columns` | integer |  | `3` | Columns in the grid |
+| `rows` | integer |  | `3` | Rows in the grid |
+| `gutter` | number |  | `4` | Space between cells (mm) |
+| `area` | object |  |  | The area to fill on each page, mm from the page's top-left, with all four of x, y, width and height (default: inside the margins) |
+| `fit` | `PROPORTIONALLY`, `FILL_PROPORTIONALLY`, `CONTENT_TO_FRAME`, `FRAME_TO_CONTENT`, `CENTER_CONTENT`, `APPLY_FRAME_FITTING_OPTIONS` |  | `"PROPORTIONALLY"` | How each image fits its cell |
+| `addPages` | boolean |  | `true` | Add pages at the end when the files outrun the pages (otherwise stop and report the rest) |
+| `caption` | `none`, `live`, `static` |  | `"none"` | Caption each image from its metadata (Caption Setup settings) |
+
+### `manage_place_cursor`
+
+Load files into the place cursor (loaded graphics) so they can be placed by clicking in InDesign, see what it holds, rotate through its contents, or empty it (File > Place with several files; the place cursor)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `load`, `status`, `rotate`, `clear` | yes |  | load files, report its status, rotate to the next or previous file, or clear it |
+| `files` | array of string |  |  | load: the files to load |
+| `direction` | `FORWARD`, `BACKWARD` |  | `"FORWARD"` | rotate: which way |
+
+## Documents and windows
+<a id="documents"></a>
+
+New documents with every New Document option, document presets, Save a Copy, Save All, Revert, Close All, IDML for earlier versions, File Info, window arrangement, and margins and columns.
+
+### `create_document_with_options`
+
+Create a document with the options of the New Document dialog (File > New > Document): start from a document preset, set the intent (Print / Web / Mobile preset category), ruler units, page size, pages, facing pages, Start #, primary text frame, columns and gutter, margins (or one value for all sides), bleed and slug, and optionally save the settings as a document preset. With no options it makes a new default document without the dialog
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `preset` | string |  |  | Document preset to start from, e.g. "[Default]" or a saved preset name |
+| `settings` | object |  |  | New Document / Document Preset settings, by object-model name (DocumentPreset); measurements in mm |
+| `margin` | number |  |  | One margin for all four sides, mm ("Make all settings the same"); not together with top/bottom/left/right |
+| `units` | `MILLIMETERS`, `CENTIMETERS`, `INCHES`, `INCHES_DECIMAL`, `POINTS`, `AMERICAN_POINTS`, `PICAS`, `PIXELS`, `CICEROS`, `AGATES`, `Q`, `HA`, `BAI`, `MILS`, `U` |  |  | Ruler units for the new document (horizontal and vertical) |
+| `savePreset` | string |  |  | Save these settings as a new document preset with this name (Save Document Preset) |
+
+### `manage_document_presets`
+
+List, read, save (create or update), delete document presets, or save the active document's setup as a preset (File > Document Presets > Define)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `get`, `save`, `delete`, `save_from_document` | yes |  | list every preset; get one; save creates or updates one from settings; delete one; save_from_document stores the active document's page size, pages, columns, margins, bleed and slug |
+| `name` | string |  |  | Preset name (for get, save, delete and save_from_document) |
+| `settings` | object |  |  | New Document / Document Preset settings, by object-model name (DocumentPreset); measurements in mm |
+| `margin` | number |  |  | One margin for all four sides, mm ("Make all settings the same"); not together with top/bottom/left/right |
+
+### `run_file_command`
+
+File menu commands on documents: Save a Copy (the open document keeps its name), Save All (every open document that has a file), Revert (back to the last save), Close All (saving or discarding changes), save for earlier InDesign versions as IDML, or remove a file from File > Open Recent (the recent list itself cannot be read by scripts)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `save_a_copy`, `save_all`, `revert`, `close_all`, `save_for_earlier_versions`, `remove_from_recent` | yes |  | The command to run |
+| `filePath` | string |  |  | For save_a_copy: an .indd or .indt file; for save_for_earlier_versions: an .idml file; for remove_from_recent: the file to drop from the recent list |
+| `saving` | `discard`, `save` |  | `"discard"` | For close_all: discard unsaved changes, or save every document first (documents never saved to a file are refused) |
+
+### `manage_file_info`
+
+Read or set the document's File Info metadata (File > File Info): title, author, description, keywords, job name and copyright. Reading also reports the file, whether it is modified, converted from another version, or was opened from document recovery data after a crash
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `get`, `set` | yes |  | Read the metadata, or set the fields given |
+| `metadata` | object |  |  | File Info fields to set (MetadataPreference) |
+| `keywords` | array of string |  |  | Keywords (replace the existing list) |
+
+### `arrange_document_windows`
+
+Arrange document windows (Window > Arrange): open a new window on the active document, tile or cascade windows, minimise the active window, consolidate all windows into tabs, bring the next or previous document window to the front, or list the open windows
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `new_window`, `tile`, `cascade`, `minimize`, `consolidate_all`, `next_window`, `previous_window` | yes |  | The arrangement to apply |
+
+### `set_margins_and_columns`
+
+Read or set margins and columns (Layout > Margins and Columns) on document pages, on the pages of parent spreads, or as the document default for new pages: each margin or one value for all sides ("Make all settings the same"), columns, gutter, direction, and custom column positions (column guides moved by hand)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `get`, `set` |  | `"set"` | Read the settings, or set the ones given |
+| `pages` | array of integer |  |  | Document page indexes (0-based) |
+| `parents` | array of string |  |  | Parent (master) spread names, e.g. "A-Parent"; every page of each is changed |
+| `documentDefault` | boolean |  |  | Change the document default used for new pages |
+| `margins` | object |  |  | Margins and columns to set (MarginPreference); measurements in mm |
+| `margin` | number |  |  | One margin for all four sides, mm ("Make all settings the same") |
+| `columnsPositions` | array of number |  |  | Custom column guide positions in mm from the left margin, in the form InDesign reports them (read them with action get first); sets customColumns |
+
+## Pages, spreads and parents
+<a id="pages_spreads"></a>
+
+Multi-page and split spreads, hidden spreads, page and spread navigation, Rotate Spread View, page number and section markers, parent page commands, page numbering and ruler views, and the Pages and Layers panels.
+
+### `arrange_spread_pages`
+
+Build multi-page spreads (gatefolds and fold-outs, up to 10 pages) and split pages out of spreads, as dragging pages in the Pages panel does: keep a spread together (Allow Selected Spread to Shuffle off) or let it shuffle again, move a page into a spread, or split a page into a spread of its own
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `keep_together`, `allow_shuffle`, `add_page_to_spread`, `split_page` | yes |  | keep_together / allow_shuffle change a spread; add_page_to_spread moves pageIndex into spreadIndex; split_page moves pageIndex to a new spread of its own after its spread |
+| `spreadIndex` | integer |  |  | The spread (for keep_together, allow_shuffle and add_page_to_spread) |
+| `pageIndex` | integer |  |  | The page to move (for add_page_to_spread and split_page) |
+| `position` | `end`, `beginning` |  | `"end"` | Where the page goes in the spread |
+
+### `set_spread_visibility`
+
+Hide spreads from output and export or unhide them (Pages panel menu > Hide Spread / Unhide Spread, InDesign 2024 or later), and show or hide hidden spreads in the layout (View > Show Hidden Spreads, InDesign 2025 or later)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `spreads` | array of integer |  |  | Spread indexes to hide or unhide |
+| `hidden` | boolean |  |  | true hides the spreads, false unhides them |
+| `showHiddenSpreads` | boolean |  |  | Show hidden spreads in the layout view |
+
+### `go_to_page`
+
+Move the document window through the layout as the Layout menu does: First / Last / Next / Previous Page, First / Last / Next / Previous Spread, and Go Back / Go Forward through the pages viewed
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `first_page`, `last_page`, `next_page`, `previous_page`, `first_spread`, `last_spread`, `next_spread`, `previous_spread`, `go_back`, `go_forward` | yes |  | Where to go |
+
+### `rotate_spread_view`
+
+Rotate how a spread is shown, to edit rotated content without changing output: 90° clockwise, 90° counter-clockwise, 180°, or clear the rotation (View > Rotate Spread; Pages panel menu > Rotate Spread View)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `rotation` | `cw_90`, `ccw_90`, `rotate_180`, `clear` | yes |  | The view rotation |
+| `spreadIndex` | integer |  |  | The spread (default: the active spread) |
+
+### `insert_page_marker`
+
+Insert a page number or section marker (Type > Insert Special Character > Markers): Current Page Number (usually on a parent page), Next or Previous Page Number for jump lines, or Section Marker; optionally set the section marker text of the page's section
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `marker` | `current_page_number`, `next_page_number`, `previous_page_number`, `section_marker` | yes |  | The marker to insert |
+| `place` | object | yes |  | Where to insert: a text frame by id (on a document or parent page) at the start or end of its text, or the text selection / insertion point |
+| `markerText` | string |  |  | For section_marker: set the marker text of the section the frame's page belongs to (Numbering & Section Options > Section Marker) |
+
+### `manage_parent_pages`
+
+Parent page commands (Pages panel menu > Parent Pages): base a parent on another parent, save a document spread as a parent, load parent pages from another document, select unused parents (and list them), copy a parent to another open document (Move Parent), allow or prevent overrides of parent items, or offset the parent page overlay on a resized page
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `based_on`, `save_as_parent`, `load`, `select_unused`, `move_to_document`, `allow_overrides`, `parent_overlay` | yes |  | The command |
+| `parent` | string |  |  | Parent spread full name, e.g. "A-Parent" (for based_on and move_to_document) |
+| `basedOn` | string |  |  | For based_on: the parent to base it on, or "None" |
+| `spreadIndex` | integer |  |  | For save_as_parent: the document spread |
+| `filePath` | string |  |  | For load: the InDesign document (.indd or .indt) to load parents from |
+| `clash` | `rename`, `overwrite` |  | `"rename"` | For load: when a parent of the same name exists, rename the loaded one or replace the existing one |
+| `toDocument` | string |  |  | For move_to_document: name of the open document to copy the parent into |
+| `itemIds` | array of integer |  |  | For allow_overrides: ids of items on parent spreads |
+| `allow` | boolean |  |  | For allow_overrides: allow (true) or prevent (false) overriding the items on document pages |
+| `pageIndex` | integer |  |  | For parent_overlay: the document page |
+| `offsetX` | number |  |  | For parent_overlay: horizontal offset of the parent page, mm (0 with offsetY 0 clears it) |
+| `offsetY` | number |  |  | For parent_overlay: vertical offset of the parent page, mm |
+
+### `set_layout_view_options`
+
+Set how the layout is numbered and measured: page numbering view by section or absolute (Preferences > General > Page Numbering View), the content grabber on graphic frames (View > Extras > Show/Hide Content Grabber), the ruler origin per page, spread or on the spine, and the zero point (Preferences > Units & Increments; the ruler zero point). With no options it reads them
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pageNumbering` | `section`, `absolute` |  |  | Show section numbering or absolute page positions in the interface |
+| `showContentGrabber` | boolean |  |  | Show the content grabber in graphic frames |
+| `rulerOrigin` | `page`, `spread`, `spine` |  |  | Where the horizontal ruler starts |
+| `zeroPoint` | array of number |  |  | Ruler zero point [x, y] in mm, relative to the current origin ([0, 0] resets it) |
+
+### `show_document_panels`
+
+Show or hide the Pages panel (Window > Pages) and the Layers panel (Window > Layers)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `pages` | boolean |  |  | Show (true) or hide (false) the Pages panel |
+| `layers` | boolean |  |  | Show (true) or hide (false) the Layers panel |
+
+## Layers
+<a id="layers"></a>
+
+Layer Options, Layers panel commands, moving items between layers, and the objects on each layer.
+
+### `set_layer_options`
+
+Set Layer Options (Layers panel > Layer Options): rename, colour, show, lock, Print Layer, Suppress Text Wrap When Layer Is Hidden, Show Guides and Lock Guides
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `layer` | string | yes |  | Layer name |
+| `options` | object |  |  | Layer options to set |
+| `newName` | string |  |  | Rename the layer |
+| `color` | string |  |  | Layer colour: BLACK, BLUE, BRICK_RED, BROWN, BURGUNDY, CHARCOAL and the other UIColors names, or "#RRGGBB" |
+
+### `run_layer_command`
+
+Layers panel menu commands: Duplicate Layer, Show All Layers, Hide Others, Lock Others, Unlock All Layers, Select Item(s) on Layer (on a spread), and Small Panel Rows
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `duplicate`, `show_all`, `hide_others`, `lock_others`, `unlock_all`, `select_items`, `small_panel_rows` | yes |  | The command |
+| `layer` | string |  |  | The layer (for duplicate, hide_others, lock_others and select_items) |
+| `newName` | string |  |  | For duplicate: name of the copy (default: InDesign's "<name> copy") |
+| `spreadIndex` | integer |  |  | For select_items: the spread (default: the active spread) |
+| `on` | boolean |  |  | For small_panel_rows: turn small rows on or off |
+
+### `send_items_to_layer`
+
+Move items to another layer, as dragging the selection square in the Layers panel does; optionally create the layer first
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `layer` | string | yes |  | Destination layer name |
+| `create` | boolean |  | `false` | Create the layer if it does not exist |
+
+### `manage_layer_objects`
+
+List the objects under each layer for a spread, as the Layers panel shows them when a layer is expanded, or rename, show, hide, lock or unlock individual objects there
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `update` |  | `"list"` | List the objects, or change the given items |
+| `layer` | string |  |  | For list: only this layer (default: every layer) |
+| `spreadIndex` | integer |  |  | For list: the spread (default: the active spread) |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `name` | string |  |  | For update: new name (one item only) |
+| `visible` | boolean |  |  | For update: show or hide the items |
+| `locked` | boolean |  |  | For update: lock or unlock the items |
+
+## Selection and clipboard
+<a id="selection"></a>
+
+Select commands, selection tools, cut, copy and paste variants, duplicating and Step and Repeat, and clipboard and drag-and-drop preferences.
+
+### `select_layout_objects`
+
+Change the selection: select items, Select All, Deselect All (Edit menu); Container, Content, Previous / Next Object in Group, First Object Above, Next Object Above, Next Object Below, Last Object Below (Object > Select and the object context menu); the whole group an item is in (Group Selection); a parent item on a document page, overriding it so it can be edited; or every ruler guide on a spread
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `items`, `all`, `none`, `container`, `content`, `group`, `previous_in_group`, `next_in_group`, `next_object_above`, `next_object_below`, `first_object_above`, `last_object_below`, `parent_item`, `all_guides` | yes |  | What to select. container, content, group and the Object > Select commands start from target if given, else from the current selection |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `mode` | `replace`, `add`, `remove` |  | `"replace"` | For items: replace the selection, add to it, or remove from it |
+| `pageIndex` | integer |  |  | For parent_item: the document page |
+| `parentItemId` | integer |  |  | For parent_item: id of the item on the parent spread |
+| `spreadIndex` | integer |  |  | For all_guides: the spread (default: the active spread) |
+
+### `set_active_tool`
+
+Choose the active tool in the Tools panel, such as the Selection or Direct Selection tool (which selects frame contents, path points and items inside groups), or toggle between the Selection and Direct Selection tools as the keyboard shortcut does
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tool` | `toggle_selection_tools`, `SELECTION_TOOL`, `DIRECT_SELECTION_TOOL`, `PAGE_TOOL`, `GAP_TOOL`, `TYPE_TOOL`, `TYPE_ON_PATH_TOOL`, `LINE_TOOL`, `PEN_TOOL`, `ADD_ANCHOR_POINT`, `DELETE_ANCHOR_POINT`, `CONVERT_DIRECTION_POINT`, `PENCIL_TOOL`, `SMOOTH_TOOL`, `ERASE_TOOL`, `RECTANGLE_FRAME_TOOL`, `ELLIPSE_FRAME_TOOL`, `POLYGON_FRAME_TOOL`, `RECTANGLE_TOOL`, `ELLIPSE_TOOL`, `POLYGON_TOOL`, `SCISSORS_TOOL`, `FREE_TRANSFORM_TOOL`, `ROTATE_TOOL`, `SCALE_TOOL`, `SHEAR_TOOL`, `GRADIENT_SWATCH_TOOL`, `GRADIENT_FEATHER_TOOL`, `NOTE_TOOL`, `EYE_DROPPER_TOOL`, `MEASURE_TOOL`, `HAND_TOOL`, `ZOOM_TOOL`, `TABLE_TOOL` | yes |  | The tool (UITools name), or toggle_selection_tools |
+
+### `run_clipboard_command`
+
+Cut, Copy, Paste, Paste without Formatting, Paste Into (into the selected frame, as a mask) or Paste in Place (Edit menu). Acts on the current selection, or selects target first; paste text at an insertion point chosen with select_text
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `cut`, `copy`, `paste`, `paste_without_formatting`, `paste_into`, `paste_in_place` | yes |  | The Edit menu command |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+
+### `step_and_repeat_items`
+
+Duplicate items with an offset, as Alt/Option-dragging or nudging with the duplicate modifier does, or make several copies at a fixed offset, optionally as a grid (Edit > Step and Repeat). The copies are made as one undoable step by default (script undo mode)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `target` | object | yes |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `mode` | `offset`, `nudge`, `step_and_repeat` |  | `"offset"` | offset: one copy moved by dx/dy; nudge: one copy moved by the keyboard increment; step_and_repeat: count copies, or a rows x columns grid |
+| `dx` | number |  |  | Horizontal offset, mm (offset and step_and_repeat) |
+| `dy` | number |  |  | Vertical offset, mm (offset and step_and_repeat) |
+| `direction` | `up`, `down`, `left`, `right` |  |  | For nudge: the arrow key direction |
+| `factor` | `normal`, `times_10`, `tenth` |  | `"normal"` | For nudge: the keyboard increment, ten times it (Shift) or a tenth of it |
+| `count` | integer |  |  | For step_and_repeat: number of copies (ignored when rows or columns is given) |
+| `rows` | integer |  |  | For step_and_repeat as a grid: rows (dy is the vertical step) |
+| `columns` | integer |  |  | For step_and_repeat as a grid: columns (dx is the horizontal step) |
+| `undoMode` | `entire_script`, `fast_entire_script`, `auto_undo`, `script_request` |  | `"entire_script"` | How the copies are recorded for Undo: entire_script (one step), fast_entire_script (one step, faster, no partial undo), auto_undo (merged into the previous step), script_request (each copy is its own step) |
+
+### `set_clipboard_preferences`
+
+Set Clipboard Handling preferences (Preferences > Clipboard Handling: prefer PDF when pasting, copy PDF to clipboard, preserve PDF data at quit, paste text as all information or text only), Paste Remembers Layers (Layers panel menu), and drag-and-drop text editing in layout view and Story Editor (Preferences > Type). With no options it reads them
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `clipboard` | object |  |  | Clipboard preferences (ClipboardPreference) |
+| `dragAndDrop` | object |  |  | Drag and Drop Text Editing (TextEditingPreference) |
+
+## Undo and history
+<a id="history"></a>
+
+Undo, redo, stepping through and listing the document history.
+
+### `manage_undo_history`
+
+Undo or redo changes to the active document, one or more steps (Edit > Undo / Redo; History panel > Step Backward / Step Forward), or list the states the History panel shows: what can be undone and redone, most recent first
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `undo`, `redo` | yes |  | List the history, undo or redo |
+| `steps` | integer |  | `1` | How many steps to undo or redo |
+
+## Preferences
+<a id="preferences"></a>
+
+Read and change the Preferences panes for the application or the active document: General, Interface, Type, Advanced Type, Composition, Units & Increments, Display Performance, GPU, File Handling, Clipboard, Guides & Pasteboard, Spelling, Autocorrect, Dictionary, Japanese layout and Generative AI.
+
+### `get_indesign_preferences`
+
+Read the Preferences panes (Edit > Preferences, or InDesign > Settings on macOS): General, Interface, Type, Advanced Type, Composition, Units & Increments, Display Performance, GPU Performance, File Handling, Clipboard Handling, Guides & Pasteboard, Spelling, Autocorrect, Dictionary, Japanese layout grids and mojikumi, and Generative AI; for the application or the active document
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `panes` | array of string |  |  | Which panes to read (default: all) |
+| `scope` | `application`, `document` |  | `"application"` | application: the defaults InDesign uses for new documents and for itself; document: the active document. Settings InDesign keeps only application-wide (most of General, Interface, Display Performance, GPU, File Handling, Clipboard, Spelling, Autocorrect and Generative AI) are always application-wide |
+
+### `set_indesign_preferences`
+
+Change Preferences (Edit > Preferences, or InDesign > Settings on macOS), pane by pane: General (page numbering, scaling, locked objects, temporary folder), Interface (theme, tool tips, panels, hand tool, live screen drawing), Type and smart text reflow, Advanced Type, Composition highlighting and text wrap, Units & Increments, Display Performance (default view and each view level), GPU Performance, File Handling (previews, recent items, links, content placer, snippets), Clipboard Handling, Guides & Pasteboard (bleed, slug and preview colours, pasteboard size, snap zone), Spelling, Autocorrect, Dictionary, Japanese layout grids and mojikumi sets, and Generative AI. Returns the panes it changed. Notes, Track Changes, Story Editor and typing options are in set_editorial_preferences; document and baseline grids in set_document_grid_settings
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `scope` | `application`, `document` |  | `"application"` | application: the defaults InDesign uses for new documents and for itself; document: the active document. Settings InDesign keeps only application-wide (most of General, Interface, Display Performance, GPU, File Handling, Clipboard, Spelling, Autocorrect and Generative AI) are always application-wide |
+| `general` | object |  |  | General preferences |
+| `interface` | object |  |  | Interface preferences |
+| `type` | object |  |  | Type preferences |
+| `advancedType` | object |  |  | Advanced Type preferences |
+| `composition` | object |  |  | Composition preferences |
+| `units` | object |  |  | Units & Increments preferences |
+| `displayPerformance` | object |  |  | Display Performance preferences |
+| `gpuPerformance` | object |  |  | GPU Performance preferences |
+| `fileHandling` | object |  |  | File Handling preferences |
+| `clipboard` | object |  |  | Clipboard Handling preferences |
+| `guidesPasteboard` | object |  |  | Guides & Pasteboard preferences |
+| `spelling` | object |  |  | Spelling preferences |
+| `autocorrect` | object |  |  | Autocorrect preferences |
+| `dictionary` | object |  |  | Dictionary preferences |
+| `japaneseLayout` | object |  |  | Japanese layout: Grids (layout and frame grids) and Mojikumi Display preferences |
+| `generativeAi` | object |  |  | Generative AI preferences |
+
+## Data merge
+<a id="data_merge"></a>
+
+Data merge placeholders for text, images and QR codes; update, remove and preview the data source; layout and content placement options; merge to PDF.
+
+### `add_data_merge_placeholder`
+
+Set up the target document for a data merge: insert a text field placeholder into a text frame, or make a graphic frame an image or QR code field placeholder (Data Merge panel). The document needs a data source first (data_merge with mergeRecords: false); returns every placeholder in the document
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `text`, `image`, `qr` | yes |  | text inserts the field into text; image fills a frame with the image the record names; qr fills a frame with a QR code made from the record |
+| `field` | string | yes |  | Data merge field name (a column of the data source) |
+| `frameId` | integer | yes |  | For text: the text frame to insert into; for image and qr: the frame to use as the placeholder |
+| `offset` | integer |  |  | For text: the insertion point within the frame text, 0-based (default: the end of the frame text) |
+
+### `manage_data_merge`
+
+Work with a document's data merge: report the fields, placeholders and options; update or remove the data source; preview a record in the placeholders; update the content of data fields in a merged document; or write a report of image files the records name that cannot be found (Data Merge panel menu: Update Data Source, Remove Data Source, Preview, Update Content in Data Fields)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `info`, `update_source`, `remove_source`, `preview`, `update_content`, `missing_images_report` | yes |  | What to do |
+| `recordNumber` | integer |  |  | For preview: the record to show (1-based) |
+| `show` | boolean |  | `true` | For preview: turn Preview on (default) or off |
+| `reportPath` | string |  |  | For missing_images_report: the text file to write the report to |
+
+### `set_data_merge_options`
+
+Set the data merge layout and content placement options and return them: Layout of Records (rows or columns first), margins and spacing between columns and rows for multiple records per page, image fitting, Center in Frame, Link Images, Remove Blank Lines and the record limit per document (Create Merged Document > Multiple Record Layout and Options; Content Placement Options)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `layout` | object |  |  | Multiple Record Layout |
+| `placement` | object |  |  | Content Placement Options |
+
+### `export_data_merge_pdf`
+
+Merge records straight to a PDF file without creating a merged document (Data Merge panel menu > Export to PDF), with a PDF export preset and an optional overset text report
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `path` | string | yes |  | The PDF file to write |
+| `preset` | string |  | `"[High Quality Print]"` | PDF export preset name |
+| `records` | object |  |  | Records to Merge (default: all records) |
+| `recordsPerPage` | `single`, `multiple` |  |  | One record per page, or multiple records per page (see set_data_merge_options layout) |
+| `oversetReportPath` | string |  |  | A text file for the report of records whose text is overset |
+
+## Find and change
+<a id="find_change"></a>
+
+Text, GREP, glyph, object, colour and transliterate find/change with formats, options and scope; saved queries; Find Next and load-selection commands.
+
+### `run_find_change`
+
+Find, or find and change, with the Find/Change dialog's full criteria: text, GREP, glyph, object, colour or transliterate searches; Find Format and Change Format attributes; search scope (document, all documents, story, to end of story, selection); and the search options (locked, hidden and parent-page items, footnotes, case, whole word, kana, width, diacritics, kashidas, backwards). A saved query can supply the criteria. Returns the count and the first matches
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `mode` | `text`, `grep`, `glyph`, `object`, `color`, `transliterate` | yes |  | The search: text, grep, glyph, object (frames by attributes), color (a swatch on text and objects, Edit > Find/Change for colour) or transliterate (Japanese character types and digits) |
+| `action` | `find`, `change` |  | `"find"` | find only counts and lists matches; change replaces them (Change All) |
+| `find` | object |  |  | What to find. Fields by mode: text and grep take text and format; transliterate takes characterType and format; glyph takes font, fontStyle and glyphId; object takes objectStyle, fillColor, strokeColor, fillTint, strokeTint and strokeWeight; color takes swatch and tint |
+| `change` | object |  |  | What to change matches to. Fields by mode: text and grep take text and format; transliterate takes characterType and format; glyph takes font, fontStyle and glyphId; object takes objectStyle, fillColor, strokeColor, fillTint, strokeTint and strokeWeight; color takes swatch and tint |
+| `options` | object |  |  | Search options (the Find/Change dialog buttons); each applies only to the modes that have it |
+| `scope` | `document`, `all_documents`, `story`, `story_to_end`, `selection` |  | `"document"` | Search: document, all_documents, story (storyId, frameId, or the selection's story), story_to_end (from frameId's text or the cursor), or selection (the selected text). Object and color searches take document or all_documents |
+| `storyId` | integer |  |  | For scope story: the story id |
+| `frameId` | integer |  |  | For scope story or story_to_end: a text frame of the story |
+| `query` | object |  |  | Load a saved query (user or Adobe-supplied) of this mode as the criteria; find, change and options given here are added on top |
+| `keepCriteria` | boolean |  | `false` | Leave the criteria and options in Find/Change afterwards (for Find Next and the other run_find_change_command commands); default resets them |
+| `maxResults` | integer |  | `20` | How many matches to describe |
+
+### `manage_find_change_queries`
+
+Saved Find/Change queries: list the user and Adobe-supplied queries by mode, save criteria as a named query, load a query into Find/Change (ready for Find Next), or delete a saved query (Find/Change dialog > Query menu, Save Query, Delete Query)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `save`, `load`, `delete` | yes |  | What to do |
+| `name` | string |  |  | For save, load and delete: the query name |
+| `mode` | `text`, `grep`, `glyph`, `object`, `color` |  |  | For save, load and delete: which kind of query |
+| `find` | object |  |  | What to find. Fields by mode: text and grep take text and format; transliterate takes characterType and format; glyph takes font, fontStyle and glyphId; object takes objectStyle, fillColor, strokeColor, fillTint, strokeTint and strokeWeight; color takes swatch and tint |
+| `change` | object |  |  | What to change matches to. Fields by mode: text and grep take text and format; transliterate takes characterType and format; glyph takes font, fontStyle and glyphId; object takes objectStyle, fillColor, strokeColor, fillTint, strokeTint and strokeWeight; color takes swatch and tint |
+| `options` | object |  |  | Search options (the Find/Change dialog buttons); each applies only to the modes that have it |
+
+### `run_find_change_command`
+
+Run an Edit menu Find/Change command on the current selection and the criteria in Find/Change (set them with run_find_change keepCriteria: true or a loaded query): Find Next, load the selected text into Find What or Change To, load it and find the next match, or replace the selection with the Change To text (and find the next). Returns the new selection
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `command` | `find_next`, `load_find_with_selection`, `load_find_and_find_next`, `load_change_with_selection`, `replace_with_change_to`, `replace_and_find_next` | yes |  | find_next (Edit > Find Next); load_find_with_selection (selected text into Find What); load_find_and_find_next; load_change_with_selection (selected text into Change To); replace_with_change_to (replace the selection); replace_and_find_next |
+
+## Dictionaries and languages
+<a id="proofing"></a>
+
+Autocorrect word pairs, user dictionaries and hyphenation exceptions, word lists, languages and their dictionary vendors, and applying a language.
+
+### `manage_autocorrect`
+
+List, add, replace or remove the Autocorrect misspelled-word / correction pairs for a language, and report whether Autocorrect is on (Preferences > Autocorrect > Misspelled Word / Correction; turn Autocorrect on with set_indesign_preferences)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `language` | string | yes |  | The language whose word pairs to list or edit |
+| `action` | `list`, `add`, `remove` |  | `"list"` | For the word pairs of language: list them, add (or replace) pairs, or remove pairs by misspelled word |
+| `pairs` | array of array |  |  | For add: [misspelled, correction] pairs; for remove: [misspelled] or [misspelled, correction] |
+
+### `manage_user_dictionary`
+
+Edit a language's user dictionary or the document's hyphenation exceptions: list the added and removed words, add or remove words (with ~ marking hyphenation points, e.g. "data~base"), or import or export a word list as a text file with one word per line (Edit > Spelling > User Dictionary; Import and Export)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `add`, `remove`, `import`, `export` | yes |  | What to do |
+| `language` | string | yes |  | Language name as InDesign shows it, such as "English: USA" or "German: 2006 Reform" |
+| `target` | `user_dictionary`, `document` |  | `"user_dictionary"` | The user dictionary, or the hyphenation exception list stored in the active document |
+| `list` | `added`, `removed` |  | `"added"` | Added words, or removed words (words marked as not words, so they are flagged) |
+| `words` | array of string |  |  | For add and remove: the words |
+| `path` | string |  |  | For import and export: a .txt word list, one word per line |
+
+### `manage_languages`
+
+List the languages InDesign knows with their spelling, hyphenation and thesaurus vendors (such as Hunspell, Proximity or Duden), quotation marks and dictionary paths, or set a language's vendors, double and single quotes, and add or remove Hunspell dictionary folders (Preferences > Dictionary)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `set` |  | `"list"` | list languages, or set one language's options |
+| `nameContains` | string |  |  | For list: only languages whose name contains this text (case-insensitive) |
+| `language` | string |  |  | For set: the language |
+| `spellingVendor` | string |  |  | For set: spelling vendor, one of the language's spellingVendorList (e.g. "Hunspell") |
+| `hyphenationVendor` | string |  |  | For set: hyphenation vendor, one of the language's hyphenationVendorList (e.g. "Duden") |
+| `thesaurusVendor` | string |  |  | For set: thesaurus vendor |
+| `doubleQuotes` | string |  |  | For set: opening and closing double quotes, two characters such as "“”" |
+| `singleQuotes` | string |  |  | For set: opening and closing single quotes, two characters |
+| `addDictionaryPath` | string |  |  | For set: a folder of Hunspell dictionary files to add for the language |
+| `removeDictionaryPath` | string |  |  | For set: a dictionary folder to remove |
+
+### `apply_language`
+
+Assign a language to text, to paragraph or character styles, or to the document or application defaults (the application default applies to new documents: the default language dictionary), so the right spelling and hyphenation dictionaries and quotation marks are used; optionally set the Duden hyphenation style (Character panel > Language)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `language` | string | yes |  | Language name as InDesign shows it, such as "English: USA" or "German: 2006 Reform" |
+| `target` | object | yes |  | Where to apply it; give one or more |
+| `hyphenationStyle` | `aesthetic`, `preferred_aesthetic`, `all_but_unaesthetic`, `all` |  |  | Duden hyphenation style for the text, paragraph styles or defaults |
+
+## Scripting and automation
+<a id="automation"></a>
+
+Scripts panel, script preferences and labels, menu actions and script menus, event listeners, idle tasks, preference objects, performance metrics, workspaces, IDML schema and XML rules.
+
+### `manage_scripts_panel`
+
+Work with the Scripts panel: list the application and user scripts (optionally with files the panel cannot run, Display Unsupported Files), run a script file (ExtendScript .jsx/.js/.jsxbin or UXP .idjs) with name/value script arguments and an undo mode, reveal a script in Finder or Explorer, or delete a script file listed in the panel (Window > Utilities > Scripts; panel menu Run Script, Reveal in Finder, Delete Script File)
+
+***destructive** · external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `run`, `reveal`, `delete` | yes |  | What to do |
+| `includeUnsupported` | boolean |  | `false` | For list: also list files in the Scripts Panel folders that are not scripts |
+| `path` | string |  |  | For run, reveal and delete: the script file |
+| `arguments` | object |  |  | For run: name/value pairs set in app.scriptArgs before the script runs; the values are also passed as the script's arguments, in order |
+| `undoMode` | `entire_script`, `fast_entire_script`, `script_request`, `auto_undo` |  | `"entire_script"` | For run: how the script's changes are undone (entire_script is a single undo step) |
+| `undoName` | string |  |  | For run: the name of the undo step |
+
+### `set_script_preferences`
+
+Set script preferences and return them: Enable Redraw while scripts run, whether scripts may show dialogs and alerts (user interaction level) and the measurement unit scripts use; also reports the object-model version scripts target and the Scripts folder (Scripts panel menu > Enable Redraw; Application.scriptPreferences)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enableRedraw` | boolean |  |  | Enable Redraw: redraw the screen while scripts run |
+| `userInteractionLevel` | `interact_with_all`, `interact_with_alerts`, `never_interact` |  |  | Whether scripts run later may show dialogs and alerts. This server's own tools always run with never_interact |
+| `measurementUnit` | `points`, `picas`, `inches`, `inches_decimal`, `millimeters`, `centimeters`, `ciceros`, `agates`, `pixels`, `q`, `ha`, `american_points`, `bai`, `mils`, `u` |  |  | The measurement unit scripts use (this server's own tools always use millimetres) |
+
+### `manage_script_labels`
+
+Read or write the script labels scripts use to find objects: get, set or clear an item's label, read or write a keyed label (insertLabel / extractLabel), or find the items whose label contains some text (Window > Utilities > Script Label)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `get`, `set`, `clear`, `find` | yes |  | What to do |
+| `target` | object |  |  | Which items to act on. Give ids (from list_page_items, or the id a create tool returns), names, or selection: true |
+| `label` | string |  |  | For set: the label text; for find: text the label contains |
+| `key` | string |  |  | For get and set: read or write the keyed label with this key instead of the Script Label text |
+
+### `run_menu_action`
+
+Look up and invoke InDesign menu actions: search the menu actions by name or area (id, title, area, enabled, checked), read one by id, invoke one by id when it is enabled and opens no dialog, or convert between localised UI strings and language-independent $ID/ key strings (Application.menuActions, findKeyStrings, translateKeyString)
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `search`, `get`, `invoke`, `find_key_strings`, `translate_key_string` | yes |  | What to do |
+| `nameContains` | string |  |  | For search: text in the action name (case-insensitive) |
+| `areaContains` | string |  |  | For search: text in the area, such as "Panel Menus:Layers" (case-insensitive) |
+| `id` | integer |  |  | For get and invoke: the menu action id |
+| `text` | string |  |  | For find_key_strings: a localised string; for translate_key_string: a $ID/ key string |
+| `maxResults` | integer |  | `50` | For search: the most actions to return |
+
+### `manage_script_menus`
+
+Extend InDesign's menus with scripts: list a menu's submenus and items, add a menu item that runs a script file (a script menu action placed in a menu or a new submenu), list the script menu actions, or remove one by title (Application.menus, scriptMenuActions)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list_menu`, `list_actions`, `add`, `remove` | yes |  | What to do |
+| `menu` | string |  | `"$ID/Main"` | The top-level menu by name, such as "$ID/Main" (the menu bar) or "$ID/RtMouseText" (a context menu) |
+| `submenus` | array of string |  |  | Path of submenu titles under the menu, such as ["Window", "Utilities"] or ["$ID/&Window"]; add creates missing submenus |
+| `title` | string |  |  | For add and remove: the menu item title |
+| `scriptPath` | string |  |  | For add: the script file to run when the item is chosen (.jsx, .js or .jsxbin) |
+
+### `manage_event_listeners`
+
+Attach script files to application or document events, such as open, save, export, place, selection changes and before or after printing (print events); list the attached listeners or remove one by id (Application/Document addEventListener)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `add`, `remove` | yes |  | What to do |
+| `target` | `application`, `document` |  | `"application"` | Listen on the application (every document) or the active document |
+| `eventType` | `beforeOpen`, `afterOpen`, `beforeNew`, `afterNew`, `beforeSave`, `afterSave`, `beforeSaveAs`, `afterSaveAs`, `beforeSaveACopy`, `afterSaveACopy`, `beforeClose`, `afterClose`, `beforeRevert`, `afterRevert`, `beforePrint`, `afterPrint`, `beforeExport`, `afterExport`, `beforeImport`, `afterImport`, `beforePlace`, `afterPlace`, `beforeQuit`, `afterQuit`, `afterActivate`, `beforeDeactivate`, `afterSelectionChanged`, `afterSelectionAttributeChanged`, `afterContextChanged`, `afterLinksChanged`, `afterAttributeChanged`, `beforeUpdate`, `afterUpdate` |  |  | For add: the event, such as beforePrint, afterPrint, afterOpen, beforeSave or afterSelectionChanged |
+| `handlerPath` | string |  |  | For add: the script file run when the event happens (.jsx, .js or .jsxbin) |
+| `id` | integer |  |  | For remove: the listener id (from list) |
+
+### `manage_idle_tasks`
+
+Idle tasks: script files InDesign runs when it is idle, after a delay in milliseconds. List them, add one, change a task's delay (0 stops it, -1 runs it once) or remove it (Application.idleTasks)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `add`, `set_sleep`, `remove` | yes |  | What to do |
+| `name` | string |  |  | For add, set_sleep and remove: the task name |
+| `sleep` | integer |  |  | For add and set_sleep: milliseconds to wait before the task runs when idle (0 stops it) |
+| `handlerPath` | string |  |  | For add: the script file to run (.jsx, .js or .jsxbin) |
+
+### `edit_preference_object`
+
+Read or change any preference object of the application or the active document by name, such as textPreferences, guidePreferences or pasteboardPreferences: every preferences pane and default setting is one. get lists its properties; set changes properties given as booleans, numbers, strings, lists or { enum: "Enum.MEMBER" }. Lengths are millimetres (Application/Document preference objects)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `get`, `set` |  | `"get"` | Read the properties, or set some |
+| `target` | `application`, `document` |  | `"application"` | The application's preferences (defaults for new documents) or the active document's |
+| `preference` | string | yes |  | The preference object's property name, such as "textPreferences", "viewPreferences" or "storyPreferences" |
+| `values` | object |  |  | For set: property name to value, e.g. { "typographersQuotes": true, "smallCap": 70, "baselineGridColor": { "enum": "UIColors.LIGHT_BLUE" } } |
+
+### `get_performance_metrics`
+
+Read InDesign diagnostics: performance metrics such as CPU time, memory size, thread and handle counts and composition counts, with their long names, and the memory statistics where available (Application.performanceMetric)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `metrics` | array of string |  |  | Which metrics (PerformanceMetricOptions names); default a common set |
+| `includeMemoryStatistics` | boolean |  | `false` | Also return memoryStatistics() |
+
+### `apply_ui_customization`
+
+Switch the active menu set, keyboard shortcut set or workspace by name (Edit > Menus, Edit > Keyboard Shortcuts, Window > Workspace)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `menuSet` | string |  |  | Menu customization set name |
+| `shortcutSet` | string |  |  | Keyboard shortcut set name, such as "Default" |
+| `workspace` | string |  |  | Workspace name, such as "Essentials" |
+
+### `generate_idml_schema`
+
+Write the RELAX NG schema that describes IDML into a folder, for a single-file IDML or the package (multi-file) format (Application.generateIDMLSchema)
+
+*idempotent*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `folder` | string | yes |  | The folder to write the schema files into |
+| `packageFormat` | boolean |  | `false` | Schema for the IDML package format (several files) instead of a single file |
+
+### `find_xml_rule_matches`
+
+Run XML rules over the document's structure: match XPath expressions (such as "//Story/Head" or "//*[@type='note']") with an XML rule processor and return each match with the rules it matched, its tag and text (XML rules, XMLRuleProcessor)
+
+*read-only*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `xpaths` | array of string | yes |  | XPath expressions (the subset XML rules support), one per rule |
+| `maxMatches` | integer |  | `200` | The most matches to return |
+
+## InCopy and Creative Cloud
+<a id="incopy"></a>
+
+InCopy assignments and content, Creative Cloud Libraries assets and PDF comments.
+
+### `manage_assignments`
+
+InCopy assignments (Assignments panel): list them with their content and status; create an assignment file with a user name, colour and what it includes; edit its options; add text frames' stories to it (exporting them for InCopy first); delete it; write changes to selected, all or out-of-date assignment files (optionally saving the layout first so geometry changes reach InCopy users); package it for InCopy or cancel a package; or reveal its file in Finder or Explorer
+
+***destructive***
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `list`, `create`, `edit`, `add_content`, `delete`, `update`, `package`, `cancel_package`, `reveal` | yes |  | What to do |
+| `name` | string |  |  | The assignment name (for create, the new name) |
+| `newName` | string |  |  | For edit: rename the assignment |
+| `path` | string |  |  | For create: the assignment file (.icma); for package: the package file (.icap) |
+| `userName` | string |  |  | For create and edit: the InCopy user it is assigned to |
+| `frameColor` | string |  |  | For create and edit: the frame colour that marks its content: a colour name such as "red" or "light_blue", or "#RRGGBB" |
+| `content` | `assigned_spreads`, `empty_frames`, `everything` |  |  | For create and edit: what the assignment file includes: placeholder frames only, the assigned spreads, or every spread |
+| `includeLinksWhenPackage` | boolean |  |  | For create and edit: include linked image files in packages |
+| `frameIds` | array of integer |  |  | For create and add_content: text frames whose stories to add |
+| `which` | `named`, `all`, `out_of_date` |  | `"named"` | For update: the named assignments (names), all, or the out-of-date ones |
+| `names` | array of string |  |  | For update with which named: the assignments |
+| `saveDocument` | boolean |  | `false` | For update: save the document first, so layout changes reach InCopy users |
+| `submit` | boolean |  | `true` | For package: check in (submit) the assigned content before packaging |
+
+### `manage_incopy_content`
+
+InCopy content in the layout: export stories for InCopy (chosen frames, a layer's frames, or all stories), check in all checked-out content, save checked-out content without checking it in, or report each story's workflow status (available, checked out, out of date, missing) as the workflow icons show it (Edit > InCopy > Export, Check In All, Save Content). Check out, check in, cancel a check-out, update, embed and go to content are run_document_link_action
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `export`, `check_in_all`, `save_content`, `status` | yes |  | What to do |
+| `frameIds` | array of integer |  |  | Text frames, each standing for its story: for export the stories to export (default: all stories), for save_content the content to save, for status the content to report (default: all managed stories) |
+| `layer` | string |  |  | For export: export the stories of this layer's text frames |
+| `folder` | string |  |  | For export: the folder for the InCopy (.icml) files |
+| `comment` | string |  |  | For check_in_all: the version comment |
+
+### `manage_cc_library_assets`
+
+Creative Cloud Libraries: place a library asset in the document (linked to the library when its data says so, so library edits update the layout), export the selection as the files a library asset needs, with a thumbnail size, or choose whether new swatches, paragraph styles and character styles are added to the current library automatically (CC Libraries panel: Place Linked; Add Content; Add to CC Libraries in the New Swatch and New Style dialogs)
+
+*external*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `place`, `export_selection`, `auto_add` | yes |  | What to do; auto_add sets and returns the automatic adding options |
+| `assetData` | string |  |  | For place: the asset description JSON from Creative Cloud Libraries (as the CC Libraries panel passes to InDesign) |
+| `path` | string |  |  | For export_selection: the file to export the selection to |
+| `thumbnailWidth` | integer |  |  | For export_selection: maximum thumbnail width in pixels |
+| `thumbnailHeight` | integer |  |  | For export_selection: maximum thumbnail height in pixels |
+| `swatches` | boolean |  |  | For auto_add: add new swatches to the current CC Library |
+| `paragraphStyles` | boolean |  |  | For auto_add: add new paragraph styles to the current CC Library |
+| `characterStyles` | boolean |  |  | For auto_add: add new character styles to the current CC Library |
+
+### `manage_pdf_comments`
+
+Import comments from a reviewed PDF into the document (File > PDF Comments > Import PDF Comments), list them with type, text, reviewer, date, status and replies, mark them open or resolved, or delete them (PDF Comments panel)
+
+*modifies document*
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `action` | `import`, `list`, `set_status`, `delete` | yes |  | What to do |
+| `path` | string |  |  | For import: the PDF file with comments |
+| `ids` | array of integer |  |  | For set_status and delete: comment ids (from list) |
+| `status` | `open`, `resolved` |  |  | For set_status: the new status |
+| `maxComments` | integer |  | `500` | For list: the most comments to return |

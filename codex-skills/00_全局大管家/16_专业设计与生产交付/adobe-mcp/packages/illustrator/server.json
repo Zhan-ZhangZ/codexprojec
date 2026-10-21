@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.zachshallbetter/adobe-mcp-illustrator",
+  "title": "Illustrator MCP Server",
+  "description": "Drive Adobe Illustrator from any MCP client: artwork, type, colour, effects, data and export.",
+  "repository": {
+    "url": "https://github.com/zachshallbetter/adobe-mcp",
+    "source": "github",
+    "subfolder": "packages/illustrator"
+  },
+  "version": "0.9.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "adobe-mcp-illustrator",
+      "version": "0.9.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ILLUSTRATOR_APP_NAME",
+          "description": "macOS only: address a specific copy, e.g. \"Adobe Illustrator 2025\". Default: Illustrator by bundle id",
+          "isRequired": false
+        },
+        {
+          "name": "ILLUSTRATOR_ALLOWED_DIRS",
+          "description": "Extra directories allowed for file operations (':' on macOS, ';' on Windows)",
+          "isRequired": false
+        },
+        {
+          "name": "ILLUSTRATOR_SCRIPT_TIMEOUT_MS",
+          "description": "How long to wait for Illustrator before reporting that a dialog may be open. Default 120000",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

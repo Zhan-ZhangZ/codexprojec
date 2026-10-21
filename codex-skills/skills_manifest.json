@@ -4903,5 +4903,99 @@
       "file_count": 78,
       "total_bytes": 4351448
     }
+  },
+  {
+    "name": "adobe-mcp",
+    "description": "Adobe 桌面应用 MCP 套件。通过独立或聚合的 npm MCP 服务驱动 InDesign、Illustrator、Photoshop、After Effects 与 Premiere Pro，覆盖文档与画板、图层、路径、文字、样式、色彩、特效、3D、动画、渲染队列和导出发布流程。适合需要从 AI 客户端直接自动化 Adobe 应用、或在多个 Adobe 应用之间交接设计资产的场景。",
+    "category": "16_专业设计与生产交付",
+    "folder": "adobe-mcp",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/adobe-mcp",
+    "aliases": [
+      "Adobe MCP",
+      "Adobe自动化",
+      "InDesign MCP",
+      "Illustrator MCP",
+      "Premiere MCP"
+    ],
+    "tags": [
+      "Adobe",
+      "InDesign",
+      "Illustrator",
+      "Photoshop",
+      "After Effects",
+      "Premiere Pro",
+      "设计自动化",
+      "MCP"
+    ],
+    "updated_at": "2026-10-21T16:53:59+08:00",
+    "file_index": {
+      "path": ".catalog/f0d30c954108977aa5aec1496a1bc6f8f074a6431383dbb1707aa700555ab710.json",
+      "sha256": "f0d30c954108977aa5aec1496a1bc6f8f074a6431383dbb1707aa700555ab710",
+      "file_count": 33,
+      "total_bytes": 549778
+    }
+  },
+  {
+    "name": "photoshop-mcp",
+    "description": "Adobe Photoshop MCP 自动化技能。通过已发布的 npm MCP 服务，用自然语言或 Agent 工具检查 Photoshop 文档状态，执行选区、蒙版、图层、文字、调整、滤镜、生成式 AI、批量配方、社媒导出和预览验证。适用于抠图、人像修饰、批量水印、样机替换、颜色分级、网页与社媒交付，以及需要可撤销 Photoshop 自动化的任务。",
+    "category": "16_专业设计与生产交付",
+    "folder": "photoshop-mcp",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/photoshop-mcp",
+    "aliases": [
+      "Photoshop MCP",
+      "PS MCP",
+      "Photoshop自动化",
+      "抠图MCP",
+      "Photoshop AI"
+    ],
+    "tags": [
+      "Photoshop",
+      "Adobe",
+      "图像编辑",
+      "抠图",
+      "人像修饰",
+      "批量水印",
+      "社媒导出",
+      "MCP"
+    ],
+    "updated_at": "2026-10-21T16:53:59+08:00",
+    "file_index": {
+      "path": ".catalog/af1125f4d87f24ed73dddf7ac3e450ea1f961bd4140795e371558f6c327ccd87.json",
+      "sha256": "af1125f4d87f24ed73dddf7ac3e450ea1f961bd4140795e371558f6c327ccd87",
+      "file_count": 22,
+      "total_bytes": 149820
+    }
+  },
+  {
+    "name": "after-effects-mcp",
+    "description": "Adobe After Effects MCP 动效自动化技能。通过 ae-mcp 服务和 CEP 面板创建或编辑合成、文字与形状、路径、蒙版、关键帧、缓动、表达式、特效、粒子、3D、摄像机、灯光、片头、字幕条、转场、Logo Reveal 和渲染队列。适用于从自然语言生成可编辑的 After Effects 动画并交付视频或单帧预览。",
+    "category": "16_专业设计与生产交付",
+    "folder": "after-effects-mcp",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/after-effects-mcp",
+    "aliases": [
+      "AE MCP",
+      "AE自动化",
+      "After Effects动画",
+      "动效MCP",
+      "motion graphics"
+    ],
+    "tags": [
+      "After Effects",
+      "Adobe",
+      "动效",
+      "关键帧",
+      "表达式",
+      "粒子",
+      "3D",
+      "渲染队列",
+      "MCP"
+    ],
+    "updated_at": "2026-10-21T16:53:59+08:00",
+    "file_index": {
+      "path": ".catalog/febcf636fbf021614de3fd901605802d7306fbd66609967e917a94b8a250c980.json",
+      "sha256": "febcf636fbf021614de3fd901605802d7306fbd66609967e917a94b8a250c980",
+      "file_count": 16,
+      "total_bytes": 79849
+    }
   }
 ]

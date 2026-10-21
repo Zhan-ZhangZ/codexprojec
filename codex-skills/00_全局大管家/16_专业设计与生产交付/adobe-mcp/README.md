@@ -1,0 +1,89 @@
+# adobe-mcp
+
+MCP servers for Adobe applications. Install one application's server on its
+own, or the suite: one server for every application, with tools that work
+across them.
+
+The InDesign server was published as `indesign-mcp-server` up to 2.3.0. It is
+now `adobe-mcp-indesign`, with the same tools; replace the package name in your
+client configuration.
+
+| Package | What it drives | npm |
+|---|---|---|
+| [adobe-mcp-indesign](packages/indesign) | Adobe InDesign: documents, pages, text, styles, tables, books, PDF and EPUB export (423 tools) | [`adobe-mcp-indesign`](https://www.npmjs.com/package/adobe-mcp-indesign) |
+| [adobe-mcp-illustrator](packages/illustrator) | Adobe Illustrator: documents, artboards, layers, shapes and paths, typography, colour and swatches, effects and 3D, symbols, patterns, Image Trace, images and links, variables and data sets, actions, export, prepress and printing (308 tools) | `adobe-mcp-illustrator` |
+| [adobe-mcp-photoshop](packages/photoshop) | Adobe Photoshop: documents and formats, image and canvas, layers, masks, smart objects and layer styles, selections and channels, adjustments and fill layers, filters, painting and retouching, type and paths, video timeline, actions and batch, artboards, export, printing and preferences (205 tools) | `adobe-mcp-photoshop` |
+| [adobe-mcp-aftereffects](packages/aftereffects) | Adobe After Effects: projects and footage, compositions, layers and time, keyframes and expressions, every effect and its controls, text animators, masks and shape layers, paint and roto, 3D, tracking, colour, render queue and Essential Graphics (164 tools) | `adobe-mcp-aftereffects` |
+| [adobe-mcp-premiere](packages/premiere) | Adobe Premiere Pro: projects and bins, sequences, timeline edits, markers, effects, keyframes and transitions, transcripts, metadata and export, through a UXP plugin (96 tools; not yet tested against Premiere Pro) | `adobe-mcp-premiere` |
+| [adobe-mcp-suite](packages/suite) | InDesign, Illustrator, Photoshop, After Effects and Premiere Pro in one server, plus cross-application tools: Illustrator artwork into InDesign layouts, swatches with exact values | `adobe-mcp-suite` |
+Each server runs on the machine where the Adobe application is installed and
+talks to it through ExtendScript, the scripting interface the applications ship
+with. Premiere Pro has no outside scripting route, so its server talks to a
+UXP plugin inside Premiere Pro instead. macOS and Windows are supported.
+
+## Install one application
+
+Claude Code:
+
+```bash
+claude mcp add indesign -- npx -y adobe-mcp-indesign
+```
+
+```bash
+claude mcp add illustrator -- npx -y adobe-mcp-illustrator
+```
+
+Any client that reads an `mcpServers` block:
+
+```json
+{
+  "mcpServers": {
+    "indesign": { "command": "npx", "args": ["-y", "adobe-mcp-indesign"] },
+    "illustrator": { "command": "npx", "args": ["-y", "adobe-mcp-illustrator"] }
+  }
+}
+```
+
+## Install everything
+
+```bash
+claude mcp add adobe -- npx -y adobe-mcp-suite
+```
+
+The suite offers every application's tools, prefixed with the application
+(`indesign_…`, `illustrator_…`), and the cross-application tools. Load only some
+applications with `--apps indesign` or `ADOBE_MCP_APPS`.
+
+Each package's README covers its tools, conventions and configuration.
+
+## How the repository is organised
+
+```
+packages/
+  core/          adobe-mcp-core           shared by every server
+  indesign/      adobe-mcp-indesign
+  illustrator/   adobe-mcp-illustrator
+  photoshop/     adobe-mcp-photoshop
+  aftereffects/  adobe-mcp-aftereffects
+  premiere/      adobe-mcp-premiere       with its UXP plugin in uxp/plugin
+  suite/         adobe-mcp-suite          every application in one server
+```
+
+The servers share their infrastructure through `adobe-mcp-core`, so a fix to
+escaping, path checks, result handling or the script runner reaches every
+server. What differs between applications stays in each package: its tools,
+its instructions, and how the application is told to run a script. Each
+application package exports a module (its tools, handlers, instructions and
+script runner); its own server and the suite are both built from it, so a tool
+is written once.
+
+## Development
+
+The source tree, CI, tests and development handbook are intentionally not
+included in this skill package. For development and release work, use the
+[upstream repository](https://github.com/zachshallbetter/adobe-mcp/tree/bd855b746b1ac3a64011bbc92bdf5fd9320fade3)
+and its [contribution guide](https://github.com/zachshallbetter/adobe-mcp/blob/bd855b746b1ac3a64011bbc92bdf5fd9320fade3/CONTRIBUTING.md).
+
+## Licence
+
+MIT. See each package's LICENSE.

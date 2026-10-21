@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE-MCP</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>AE-MCP</h1>
+      <p class="subtitle">After Effects MCP Bridge</p>
+    </header>
+
+    <section class="status-section">
+      <h2>Status</h2>
+      <pre id="status">Loading...</pre>
+    </section>
+
+    <section class="controls">
+      <button id="startBtn" class="btn btn-primary">Start</button>
+      <button id="stopBtn" class="btn btn-secondary" disabled>Stop</button>
+      <button id="cleanupBtn" class="btn btn-secondary">Cleanup</button>
+    </section>
+
+    <section class="log-section">
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+  </div>
+
+  <!-- CSInterface library -->
+  <script src="./lib/CSInterface.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

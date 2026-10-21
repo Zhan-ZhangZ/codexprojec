@@ -1,0 +1,102 @@
+# AI / Prompt Layer for Photoshop
+
+The photoshop-mcp server exposes 111 atomic `photoshop_*` tools plus 17 recipe
+`photoshop_recipe_*` tools (128 total), along with a thin
+AI/prompt layer ported from TTT: server-level instructions, MCP prompt templates,
+recipe tools, state/preview tools, version-aware capabilities, and structured
+error envelopes.
+
+## 1. Server `instructions`
+
+Source: [upstream server instructions](https://github.com/alisaitteke/photoshop-mcp/blob/ba36d8f2a28ecc56686568f3c0191e388336d498/src/prompts/instructions.ts)
+
+Advertised on MCP `initialize` for every host, including plain `mcp.json` installs.
+Covers session bootstrap, the remove-background hard rule, recipe-over-atomic
+selection, `~/.photoshop-mcp/exports` conventions, and the error recovery contract.
+
+The phrase-to-tool glossary, degrade paths, disambiguation, and guide-prompt
+names live in plugin skills so they load only when the request matches:
+
+| Skill | Path |
+|-------|------|
+| `photoshop-remove-background` | [`skills/photoshop-remove-background/SKILL.md`](../skills/photoshop-remove-background/SKILL.md) |
+| `photoshop-recipes` | [`skills/photoshop-recipes/SKILL.md`](../skills/photoshop-recipes/SKILL.md) |
+
+Cursor and Claude Code plugin manifests live in the
+[upstream repository](https://github.com/alisaitteke/photoshop-mcp/tree/ba36d8f2a28ecc56686568f3c0191e388336d498).
+An `npx` stdio install does not ship those plugin files; the short hard rule stays in `instructions`.
+
+## 2. MCP `prompts` primitive
+
+Twenty-four templates in the [upstream prompt templates](https://github.com/alisaitteke/photoshop-mcp/tree/ba36d8f2a28ecc56686568f3c0191e388336d498/src/prompts/templates), registered via the
+[upstream prompt registry](https://github.com/alisaitteke/photoshop-mcp/blob/ba36d8f2a28ecc56686568f3c0191e388336d498/src/prompts/registry.ts).
+
+### Recipe prompts (17 — 1:1 with `photoshop_recipe_*`)
+
+| Prompt | Recipe tool |
+|--------|-------------|
+| `ps.enhance_portrait` | `photoshop_recipe_enhance_portrait` |
+| `ps.remove_background` | `photoshop_recipe_remove_background` |
+| `ps.prepare_for_web` | `photoshop_recipe_prepare_for_web` |
+| `ps.export_social_variants` | `photoshop_recipe_export_social_variants` |
+| `ps.apply_color_grade` | `photoshop_recipe_apply_color_grade` |
+| `ps.frequency_separation` | `photoshop_recipe_frequency_separation` |
+| `ps.batch_mockup_replace` | `photoshop_recipe_batch_mockup_replace` |
+| `ps.organize_layers` | `photoshop_recipe_organize_layers` |
+| `ps.gradient_fade` | `photoshop_recipe_gradient_fade` |
+| `ps.sky_blend` | `photoshop_recipe_sky_blend` |
+| `ps.dodge_burn` | `photoshop_recipe_dodge_burn` |
+| `ps.remove_distraction` | `photoshop_recipe_remove_distraction` |
+| `ps.split_carousel` | `photoshop_recipe_split_carousel` |
+| `ps.batch_watermark` | `photoshop_recipe_batch_watermark` |
+| `ps.passport_photo` | `photoshop_recipe_passport_photo` |
+| `ps.csv_to_cards` | `photoshop_recipe_csv_to_cards` |
+| `ps.sticker_outline` | `photoshop_recipe_sticker_outline` |
+
+### Guide prompts (7 — no recipe pair)
+
+| Prompt | Purpose |
+|--------|---------|
+| `ps.gradient_blend` | Fade subject into background via mask gradient (atomic chain) |
+| `ps.color_correct` | Tone / contrast fix chain |
+| `ps.dodge_burn_guide` | 50% gray overlay retouch setup |
+| `ps.composite_blend` | Place asset + mask + blend mode |
+| `ps.generative_fill` | Firefly generative fill workflow |
+| `ps.generative_remove` | AI Remove workflow |
+| `ps.generative_expand` | Generative Expand workflow |
+
+Each template uses arg coercion helpers from the [upstream prompt shared module](https://github.com/alisaitteke/photoshop-mcp/blob/ba36d8f2a28ecc56686568f3c0191e388336d498/src/prompts/_shared.ts)
+and returns a `GetPromptResult` with `description` + structured Goal/Plan/End state text
+(guide prompts also include an Intent line).
+
+## 3. Recipe tools
+
+Seventeen recipes in the [upstream recipe tools](https://github.com/alisaitteke/photoshop-mcp/tree/ba36d8f2a28ecc56686568f3c0191e388336d498/src/tools/recipes), sharing
+the [shared recipe runtime](https://github.com/alisaitteke/photoshop-mcp/blob/ba36d8f2a28ecc56686568f3c0191e388336d498/src/tools/recipes/_shared.ts) (`executeRecipe`,
+`executeStandaloneRecipe`, `suspendHistory`, uniform `{ ok, summary, ... }` envelope).
+
+Export recipes write to `~/.photoshop-mcp/exports` (or `~/.photoshop-mcp/exports/<chat-id>`
+when the standalone UI passes `PHOTOSHOP_EXPORT_CHAT_ID` to the MCP child).
+
+## 4. State & preview tools
+
+| Tool | File |
+|------|------|
+| `photoshop_get_state` | [upstream state tools](https://github.com/alisaitteke/photoshop-mcp/blob/ba36d8f2a28ecc56686568f3c0191e388336d498/src/tools/state-tools.ts) |
+| `photoshop_get_preview` | same. JPEG plus document size, color mode, and up to 40 top-level layer names. Declares MCP App `ui://photoshop/preview`. |
+| `photoshop_get_capabilities` | same |
+
+The preview app reads a previous frame from `photoshop://preview/previous/{documentId}` (process memory). That JPEG is not copied into the tool text the model sees. Long-edge buttons call `photoshop_recipe_prepare_for_web`.
+
+## 5. Verification
+
+```bash
+npm run verify:photoshop-prompts
+```
+
+Strict **17↔17** recipe/prompt parity plus separate guide prompt registration check.
+
+## Backwards compatibility
+
+All original `photoshop_*` tool names and schemas are unchanged; this expansion
+added 4 atomics + 4 recipes + 8 prompt templates (additive only).

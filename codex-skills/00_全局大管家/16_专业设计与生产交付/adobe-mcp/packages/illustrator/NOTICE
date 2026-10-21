@@ -1,0 +1,89 @@
+adobe-mcp-illustrator
+Copyright (c) 2026 Zach Shallbetter. MIT licence: see LICENSE.
+
+src/data/menu-commands.json lists Illustrator executeMenuCommand names and
+their menu locations, and src/data/tools.json lists app.selectTool tool ids,
+compiled from:
+
+  AiCommandPalette, data/menu_commands.csv
+  https://github.com/joshbduncan/AiCommandPalette
+  Copyright (c) 2022 Josh Duncan. MIT licence.
+
+  AiMenuObject, AiMenu_v23.jsxinc
+  https://github.com/ten-A/AiMenuObject
+  Copyright (c) 2019 Ten Agata. MIT licence.
+
+src/tools/path-edit.js plays Simplify and the Pathfinder compound shape
+commands as generated Actions, with the event names and parameter codes
+recorded in:
+
+  Extend_Script_experimentals, simplify.jsx
+  https://github.com/ten-A/Extend_Script_experimentals
+  Ten Agata. MIT licence.
+
+  Greyprint, Illustrator/Greyprint Actions.aia
+  https://github.com/bjango/Greyprint
+
+  AiSmartPathfinderPalette, jsx/fx/AiSmartPathfinderPalette.jsx
+  https://github.com/swwwitch/illustrator-scripts
+  Masahiro Takano (@swwwitch).
+
+src/blend.js writes Blend Options as a generated Action, in the format and
+with the parameter codes used by:
+
+  BlendSp, jsx/blend/BlendSp.jsx
+  https://github.com/swwwitch/illustrator-scripts
+  Masahiro Takano (@swwwitch). MIT licence.
+
+src/tools/actions.js lists the loaded action sets from the preference keys
+(plugin/Action/SavedSets) that AiCommandPalette reads in src/user/actions.ts.
+
+src/tools/three_d.js writes the 3D and Materials effect with the parameters
+Illustrator stores for it, as read back and re-applied by:
+
+  illustrator-com-skill, presets/effects.json
+  https://github.com/Moksa1123/illustrator-com-skill
+  Copyright (c) 2026 Moksa1123. MIT licence.
+
+and the classic 3D effect in the format and with the parameters used by:
+
+  Live Effect Functions for Illustrator, scripts/LE_Functions.js (LE_3DEffect)
+  https://github.com/mark1bean/live-effect-functions-for-illustrator
+  Copyright (c) 2021 Mark Bean. MIT licence.
+
+src/tools/brushes.js brings brushes in from a library file the way it is done by:
+
+  ImportAndApplyBrush, jsx/fx/single-function/ImportAndApplyBrush.jsx
+  https://github.com/swwwitch/illustrator-scripts
+  Masahiro Takano (@swwwitch). MIT licence.
+
+src/flatten.js writes Flatten Transparency as a generated Action, with
+the event and parameter codes recorded in:
+
+  FlattenOpacityPro, jsx/color/FlattenOpacityPro.jsx
+  https://github.com/swwwitch/illustrator-scripts
+  Masahiro Takano (@swwwitch). MIT licence.
+
+  AI_PS_Library, libraries/AI_PS_Library.js
+  https://github.com/alexander-ladygin/illustrator-scripts
+  Copyright (c) 2018 Alexander Ladygin. MIT licence.
+
+These licences require this notice to be kept with copies of the data:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
