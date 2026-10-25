@@ -5060,5 +5060,39 @@
       "file_count": 1555,
       "total_bytes": 13875233
     }
+  },
+  {
+    "name": "kk-exhibition-planner-skill",
+    "description": "展览策划工作助手，覆盖从项目启动到输出展览大纲的完整流程。适用于企业展厅、博物馆/文化馆、文旅/主题展馆三类项目。当用户需要策划展览、撰写展陈大纲、确定展览主题、梳理展览叙事逻辑、整理甲方资料时使用此 skill。",
+    "category": "16_专业设计与生产交付",
+    "folder": "kk-exhibition-planner-skill",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/kk-exhibition-planner-skill",
+    "aliases": [
+      "展览策划",
+      "策展助手",
+      "KK策展助手",
+      "展陈大纲",
+      "展览大纲",
+      "exhibition planning"
+    ],
+    "tags": [
+      "展览",
+      "策展",
+      "企业展厅",
+      "博物馆",
+      "文化馆",
+      "文旅",
+      "主题展馆",
+      "叙事结构",
+      "展陈",
+      "HTML表单"
+    ],
+    "updated_at": "2026-10-25T22:39:53+08:00",
+    "file_index": {
+      "path": ".catalog/2a972bed74667a08f7e1ed9696d6cd62ec17e35319267994fe53359bbfbee4fc.json",
+      "sha256": "2a972bed74667a08f7e1ed9696d6cd62ec17e35319267994fe53359bbfbee4fc",
+      "file_count": 11,
+      "total_bytes": 62931
+    }
   }
 ]
