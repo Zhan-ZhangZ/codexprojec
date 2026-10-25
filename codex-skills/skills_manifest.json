@@ -5026,5 +5026,39 @@
       "file_count": 16,
       "total_bytes": 79849
     }
+  },
+  {
+    "name": "logo-design-skill",
+    "description": "专业 Logo 与品牌标记设计技能。从需求访谈、设计 brief、词义图谱和标记类型选择开始，生成并几何化构建 SVG 概念，执行 16px、单色、反白、镜像、货架竞品与 SVG 结构审计，在概念检查点停止并由用户选择方向，再交付配色、字体锁定、行业样机板、规范、favicon 与应用图标。内置 1,400+ 个已分类真实 Logo SVG 参考库，用于学习结构、分析行业惯例和避免撞款，不可复制或描摹。",
+    "category": "16_专业设计与生产交付",
+    "folder": "logo-design-skill",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/logo-design-skill",
+    "aliases": [
+      "Logo设计",
+      "品牌Logo",
+      "字标设计",
+      "标志设计",
+      "wordmark",
+      "logo design"
+    ],
+    "tags": [
+      "Logo",
+      "SVG",
+      "品牌设计",
+      "字标",
+      "字母标",
+      "几何构建",
+      "参考库",
+      "16px测试",
+      "favicon",
+      "品牌规范"
+    ],
+    "updated_at": "2026-10-25T22:35:01+08:00",
+    "file_index": {
+      "path": ".catalog/f95ccc628ca4869b5157fe51db7157385b6d06b372b3f22bb92fbdf0f687579f.json",
+      "sha256": "f95ccc628ca4869b5157fe51db7157385b6d06b372b3f22bb92fbdf0f687579f",
+      "file_count": 1555,
+      "total_bytes": 13875233
+    }
   }
 ]
