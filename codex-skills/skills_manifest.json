@@ -5094,5 +5094,41 @@
       "file_count": 11,
       "total_bytes": 62931
     }
+  },
+  {
+    "name": "roomsmith",
+    "description": "Roomsmith 室内设计与空间生产交付工作流。根据真实房间照片、尺寸约束和客户目标，完成访谈、现场测绘、空间策略、设计方向、比例图纸、照片级效果图与可追溯 PDF 报告；通过 brief、room-model、direction-set、pilot、spend、report 六道人工审批门禁控制质量、渲染成本和隐私。适用于住宅与单房间改造、室内方案比选、平面/立面/轴测图、效果图及客户提案。",
+    "category": "16_专业设计与生产交付",
+    "folder": "roomsmith",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/roomsmith",
+    "aliases": [
+      "Roomsmith",
+      "室内设计",
+      "房间设计",
+      "室内改造",
+      "AI室内设计",
+      "interior design"
+    ],
+    "tags": [
+      "室内设计",
+      "空间设计",
+      "住宅改造",
+      "平面图",
+      "立面图",
+      "轴测图",
+      "效果图",
+      "PDF报告",
+      "图像渲染",
+      "Codex CLI",
+      "OpenRouter",
+      "审批门禁"
+    ],
+    "updated_at": "2026-10-25T22:43:07+08:00",
+    "file_index": {
+      "path": ".catalog/b5f31b8596c203957e17a783eafe8c8b7b8f87aaf7586f06c554147bf0b638af.json",
+      "sha256": "b5f31b8596c203957e17a783eafe8c8b7b8f87aaf7586f06c554147bf0b638af",
+      "file_count": 40,
+      "total_bytes": 319168
+    }
   }
 ]
