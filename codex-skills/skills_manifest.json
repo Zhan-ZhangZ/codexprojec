@@ -5164,5 +5164,39 @@
       "file_count": 23,
       "total_bytes": 150226
     }
+  },
+  {
+    "name": "ru-listing-writer",
+    "description": "根据按顺序排列的电商商品图、三张核心关键词截图和一张竞品标题截图，生成 Ozon/Wildberries 俄语商品标题、转化导向描述、中文对照、关键词使用说明和字符数/格式校验结果。适用于俄罗斯跨境电商 Listing 本地化、图片卖点顺序映射和上架文案审核。",
+    "category": "06_商业与专业领域",
+    "folder": "ru-listing-writer",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/ru-listing-writer",
+    "aliases": [
+      "俄语Listing",
+      "Ozon俄语文案",
+      "Wildberries文案",
+      "俄罗斯商品标题",
+      "俄语商品描述",
+      "RU listing"
+    ],
+    "tags": [
+      "Ozon",
+      "Wildberries",
+      "俄语",
+      "商品标题",
+      "商品描述",
+      "Listing",
+      "关键词",
+      "跨境电商",
+      "图片卖点",
+      "格式校验"
+    ],
+    "updated_at": "2026-10-28T23:28:11+08:00",
+    "file_index": {
+      "path": ".catalog/1fbe9d4087da5f098c48cf66cf848e4646237ecf07b2631e41ff03df72638819.json",
+      "sha256": "1fbe9d4087da5f098c48cf66cf848e4646237ecf07b2631e41ff03df72638819",
+      "file_count": 11,
+      "total_bytes": 27131
+    }
   }
 ]
