@@ -5198,5 +5198,40 @@
       "file_count": 11,
       "total_bytes": 27131
     }
+  },
+  {
+    "name": "ozon-seller-api-mcp",
+    "description": "面向 Ozon 跨境电商的 Seller API 与 Performance API 操作技能。用于检索 466 个接口、查询商品/订单/库存/价格/财务/广告数据，并通过受控调用完成商品、价格和运营操作；内置 13 个工作流、限流、Schema 校验和写操作双重确认。",
+    "category": "06_商业与专业领域",
+    "folder": "ozon-seller-api-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/ozon-seller-api-mcp",
+    "aliases": [
+      "Ozon MCP",
+      "Ozon Seller API",
+      "Ozon Performance API",
+      "Ozon商品API",
+      "Ozon订单API",
+      "Ozon广告API"
+    ],
+    "tags": [
+      "Ozon",
+      "Seller API",
+      "Performance API",
+      "跨境电商",
+      "商品",
+      "订单",
+      "库存",
+      "价格",
+      "财务",
+      "广告",
+      "MCP"
+    ],
+    "updated_at": "2026-10-28T23:30:08+08:00",
+    "file_index": {
+      "path": ".catalog/89bc1253f7258923332799d93ca974f564730969db33d1ab6efe26dc9b49fe0a.json",
+      "sha256": "89bc1253f7258923332799d93ca974f564730969db33d1ab6efe26dc9b49fe0a",
+      "file_count": 54,
+      "total_bytes": 3228625
+    }
   }
 ]
