@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ozon 大学"
+  short_description: "面向新手卖家和运营实习生的 Ozon 公开问答与排查导航助手"
+  default_prompt: "Use $ozon-university to diagnose this Ozon operation question and give the next checks with sources."

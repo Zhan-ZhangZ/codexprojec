@@ -5130,5 +5130,39 @@
       "file_count": 40,
       "total_bytes": 319168
     }
+  },
+  {
+    "name": "ozon-university",
+    "description": "面向 Ozon 新手卖家和运营实习生的公开问答导航助手。用于回答商品发布与审核、曝光点击转化、定价利润、广告、物流履约、取消退货，以及铺货或精品等公开运营流派问题；将模糊问题转成有顺序的检查清单，区分 Ozon 官方事实、公开实践者观点和待验证推断，并在用户询问最新规则、精确费率或高风险操作时要求核验官方来源。",
+    "category": "06_商业与专业领域",
+    "folder": "ozon-university",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/ozon-university",
+    "aliases": [
+      "Ozon 大学",
+      "Ozon运营",
+      "Ozon新手",
+      "Ozon诊断",
+      "Ozon跨境",
+      "Ozon卖家"
+    ],
+    "tags": [
+      "Ozon",
+      "俄罗斯电商",
+      "跨境电商",
+      "商品审核",
+      "流量诊断",
+      "广告",
+      "履约",
+      "售后",
+      "定价",
+      "利润"
+    ],
+    "updated_at": "2026-10-28T23:26:49+08:00",
+    "file_index": {
+      "path": ".catalog/a85113c66e7c3b49222a24331bf92fba37bf99ce2315ec1566effd21b9b2f88d.json",
+      "sha256": "a85113c66e7c3b49222a24331bf92fba37bf99ce2315ec1566effd21b9b2f88d",
+      "file_count": 23,
+      "total_bytes": 150226
+    }
   }
 ]
