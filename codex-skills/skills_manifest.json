@@ -1348,12 +1348,12 @@
   {
     "name": "eCommerce-Skills",
     "description": "跨境电商泛平台 (Amazon/Shopify/TikTok) 全链路运营智囊库。提供 140+ 工业级原生 Prompt 与业务流模板。横扫独立站选品、本土化客服话术、广告投放优化及跨平台财务对账业务。Leading Words: 跨境电商全链路运营, 独立站Shopify选品, TikTok Shop营销话术, 泛平台财务对账",
-    "category": "06_商业与专业领域",
+    "category": "17_国内外电商工作流",
     "folder": "eCommerce-Skills",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/eCommerce-Skills",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/eCommerce-Skills",
     "file_index": {
-      "path": ".catalog/66353c0f7a1587ea8763f1822ee817320cb75808b824e78ca662a21833635f25.json",
-      "sha256": "66353c0f7a1587ea8763f1822ee817320cb75808b824e78ca662a21833635f25",
+      "path": ".catalog/0fc2f8c3102bb54010fff7e1ec5727951c5db5576f3b2df398a28c39c8db1d46.json",
+      "sha256": "0fc2f8c3102bb54010fff7e1ec5727951c5db5576f3b2df398a28c39c8db1d46",
       "file_count": 212,
       "total_bytes": 2279684
     }
@@ -2578,12 +2578,12 @@
   {
     "name": "ecom-details-image",
     "description": "面向 claude code / Codex / OpenClaw 的跨境电商和国内电商通用视觉创作 Skill。生成电商主图、详情页图片、社媒推广图、直播间场景图等全套视觉素材。支持 Campaign Style Lock 机制，保证整套图视觉一致。Leading Words: 电商图片生成, 视觉创作, 主图详情页, 风格锁定, 转化诊断",
-    "category": "05_多媒体与设计资产",
+    "category": "17_国内外电商工作流",
     "folder": "ecom-details-image",
-    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ecom-details-image",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/ecom-details-image",
     "file_index": {
-      "path": ".catalog/7179ec83f69d7b3f893607c8c859bfcf0e1d37c1a248174ee4d788b570fecffa.json",
-      "sha256": "7179ec83f69d7b3f893607c8c859bfcf0e1d37c1a248174ee4d788b570fecffa",
+      "path": ".catalog/dc8f56cb392a99983bcb8796359ff8d875f95f56576799080d412461daa35359.json",
+      "sha256": "dc8f56cb392a99983bcb8796359ff8d875f95f56576799080d412461daa35359",
       "file_count": 118,
       "total_bytes": 103769979
     }
@@ -5134,9 +5134,9 @@
   {
     "name": "ozon-university",
     "description": "面向 Ozon 新手卖家和运营实习生的公开问答导航助手。用于回答商品发布与审核、曝光点击转化、定价利润、广告、物流履约、取消退货，以及铺货或精品等公开运营流派问题；将模糊问题转成有顺序的检查清单，区分 Ozon 官方事实、公开实践者观点和待验证推断，并在用户询问最新规则、精确费率或高风险操作时要求核验官方来源。",
-    "category": "06_商业与专业领域",
+    "category": "17_国内外电商工作流",
     "folder": "ozon-university",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/ozon-university",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/ozon-university",
     "aliases": [
       "Ozon 大学",
       "Ozon运营",
@@ -5159,8 +5159,8 @@
     ],
     "updated_at": "2026-10-28T23:26:49+08:00",
     "file_index": {
-      "path": ".catalog/a85113c66e7c3b49222a24331bf92fba37bf99ce2315ec1566effd21b9b2f88d.json",
-      "sha256": "a85113c66e7c3b49222a24331bf92fba37bf99ce2315ec1566effd21b9b2f88d",
+      "path": ".catalog/a017610222d1517d8a661b94caf75f9696d9b4acfd4949c50033738c2e1f8c39.json",
+      "sha256": "a017610222d1517d8a661b94caf75f9696d9b4acfd4949c50033738c2e1f8c39",
       "file_count": 23,
       "total_bytes": 150226
     }
@@ -5168,9 +5168,9 @@
   {
     "name": "ru-listing-writer",
     "description": "根据按顺序排列的电商商品图、三张核心关键词截图和一张竞品标题截图，生成 Ozon/Wildberries 俄语商品标题、转化导向描述、中文对照、关键词使用说明和字符数/格式校验结果。适用于俄罗斯跨境电商 Listing 本地化、图片卖点顺序映射和上架文案审核。",
-    "category": "06_商业与专业领域",
+    "category": "17_国内外电商工作流",
     "folder": "ru-listing-writer",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/ru-listing-writer",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/ru-listing-writer",
     "aliases": [
       "俄语Listing",
       "Ozon俄语文案",
@@ -5193,8 +5193,8 @@
     ],
     "updated_at": "2026-10-28T23:28:11+08:00",
     "file_index": {
-      "path": ".catalog/1fbe9d4087da5f098c48cf66cf848e4646237ecf07b2631e41ff03df72638819.json",
-      "sha256": "1fbe9d4087da5f098c48cf66cf848e4646237ecf07b2631e41ff03df72638819",
+      "path": ".catalog/0d970b55d914ce59b13ba9013a2fc8a1121c74a7026713233149b7f301c8ebf5.json",
+      "sha256": "0d970b55d914ce59b13ba9013a2fc8a1121c74a7026713233149b7f301c8ebf5",
       "file_count": 11,
       "total_bytes": 27131
     }
@@ -5202,9 +5202,9 @@
   {
     "name": "ozon-seller-api-mcp",
     "description": "面向 Ozon 跨境电商的 Seller API 与 Performance API 操作技能。用于检索 466 个接口、查询商品/订单/库存/价格/财务/广告数据，并通过受控调用完成商品、价格和运营操作；内置 13 个工作流、限流、Schema 校验和写操作双重确认。",
-    "category": "06_商业与专业领域",
+    "category": "17_国内外电商工作流",
     "folder": "ozon-seller-api-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/ozon-seller-api-mcp",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/ozon-seller-api-mcp",
     "aliases": [
       "Ozon MCP",
       "Ozon Seller API",
@@ -5228,10 +5228,47 @@
     ],
     "updated_at": "2026-10-28T23:30:08+08:00",
     "file_index": {
-      "path": ".catalog/89bc1253f7258923332799d93ca974f564730969db33d1ab6efe26dc9b49fe0a.json",
-      "sha256": "89bc1253f7258923332799d93ca974f564730969db33d1ab6efe26dc9b49fe0a",
+      "path": ".catalog/86a4c47a2b12e73a588c80bf00be79526f38bac737173e93ee5b2624dfedb0df.json",
+      "sha256": "86a4c47a2b12e73a588c80bf00be79526f38bac737173e93ee5b2624dfedb0df",
       "file_count": 54,
       "total_bytes": 3228625
+    }
+  },
+  {
+    "name": "cross-border-ecommerce-workflows",
+    "description": "面向跨境电商与国内电商全链路的本地私有工作流集合。覆盖选品调研、Listing、广告、采购、仓储、物流、客服、CRM、经营分析、BI 与合规，按任务路由到 11 个子技能；适用于 Amazon、Shopee、Temu、TikTok Shop、独立站及淘宝、京东、抖音、拼多多。",
+    "category": "17_国内外电商工作流",
+    "folder": "cross-border-ecommerce-workflows",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/cross-border-ecommerce-workflows",
+    "aliases": [
+      "跨境国内电商AI工作流",
+      "跨境电商工作流",
+      "国内电商工作流",
+      "电商全链路",
+      "电商运营工作流"
+    ],
+    "tags": [
+      "本地私有",
+      "跨境电商",
+      "国内电商",
+      "选品",
+      "Listing",
+      "广告投放",
+      "采购",
+      "仓储",
+      "物流",
+      "客服",
+      "CRM",
+      "经营分析",
+      "BI",
+      "合规"
+    ],
+    "updated_at": "2026-11-05",
+    "file_index": {
+      "path": ".catalog/005c50dc91c245f0b2f66e649e5bee540f989dff968d6fc46e6f8e84ed61e276.json",
+      "sha256": "005c50dc91c245f0b2f66e649e5bee540f989dff968d6fc46e6f8e84ed61e276",
+      "file_count": 49,
+      "total_bytes": 218905
     }
   }
 ]
