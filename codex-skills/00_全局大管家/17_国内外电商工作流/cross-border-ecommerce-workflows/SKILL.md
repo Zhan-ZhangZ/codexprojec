@@ -1,15 +1,15 @@
 ---
 name: cross-border-ecommerce-workflows
-description: "面向跨境电商与国内电商全链路的本地私有工作流集合。覆盖选品调研、Listing、广告、采购、仓储、物流、客服、CRM、经营分析、BI 与合规，按任务路由到 11 个子技能；适用于 Amazon、Shopee、Temu、TikTok Shop、独立站及淘宝、京东、抖音、拼多多。"
+description: "面向跨境电商与国内电商全链路的专业工作流集合。覆盖选品调研、Listing、广告、采购、仓储、物流、客服、CRM、经营分析、BI 与合规，按任务路由到 11 个子技能；适用于 Amazon、Shopee、Temu、TikTok Shop、独立站及淘宝、京东、抖音、拼多多。"
 metadata:
-  distribution: local-private
   source: local-import
+  source_access: local-private
   version: "1.1"
 ---
 
 # 跨境与国内电商 AI 工作流
 
-这是本地私有的电商运营技能集合。先判断用户当前要推进的业务环节，再只读取对应子技能，不需要一次加载全部资料。
+这是来源为非公开市场本地资料的电商运营技能集合。集成后由本技能库正常发布和路由。先判断用户当前要推进的业务环节，再只读取对应子技能，不需要一次加载全部资料。
 
 ## 路由表
 

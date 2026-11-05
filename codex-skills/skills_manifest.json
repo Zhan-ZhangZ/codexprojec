@@ -5236,7 +5236,7 @@
   },
   {
     "name": "cross-border-ecommerce-workflows",
-    "description": "面向跨境电商与国内电商全链路的本地私有工作流集合。覆盖选品调研、Listing、广告、采购、仓储、物流、客服、CRM、经营分析、BI 与合规，按任务路由到 11 个子技能；适用于 Amazon、Shopee、Temu、TikTok Shop、独立站及淘宝、京东、抖音、拼多多。",
+    "description": "面向跨境电商与国内电商全链路的专业工作流集合。覆盖选品调研、Listing、广告、采购、仓储、物流、客服、CRM、经营分析、BI 与合规，按任务路由到 11 个子技能；适用于 Amazon、Shopee、Temu、TikTok Shop、独立站及淘宝、京东、抖音、拼多多。",
     "category": "17_国内外电商工作流",
     "folder": "cross-border-ecommerce-workflows",
     "relative_path": "./00_全局大管家/17_国内外电商工作流/cross-border-ecommerce-workflows",
@@ -5248,7 +5248,7 @@
       "电商运营工作流"
     ],
     "tags": [
-      "本地私有",
+      "电商运营",
       "跨境电商",
       "国内电商",
       "选品",
@@ -5265,10 +5265,10 @@
     ],
     "updated_at": "2026-11-05",
     "file_index": {
-      "path": ".catalog/005c50dc91c245f0b2f66e649e5bee540f989dff968d6fc46e6f8e84ed61e276.json",
-      "sha256": "005c50dc91c245f0b2f66e649e5bee540f989dff968d6fc46e6f8e84ed61e276",
+      "path": ".catalog/ae3f84c7ccbadfa27a56eea279bb8338636695d08b6620a755c559e558c2f90b.json",
+      "sha256": "ae3f84c7ccbadfa27a56eea279bb8338636695d08b6620a755c559e558c2f90b",
       "file_count": 49,
-      "total_bytes": 218905
+      "total_bytes": 219112
     }
   }
 ]
