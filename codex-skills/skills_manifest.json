@@ -5270,5 +5270,40 @@
       "file_count": 49,
       "total_bytes": 219112
     }
+  },
+  {
+    "name": "academic-humanizer",
+    "description": "面向 AI 辅助的学术论文、学位论文、反驳信和科研基金申请（NSF/NIH 等）的学术语体与表达优化。在不改动数字、结果和引文的前提下，匹配作者原有声音，强化主张与证据（基金申请中为主张与可行性）的对应关系，并保留学术规范；不用于规避 AI 使用披露。适用于学术稿件与基金申请文字修订。",
+    "category": "12_学术论文与科研图表",
+    "folder": "academic-humanizer",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/academic-humanizer",
+    "aliases": [
+      "学术去AI味",
+      "学术润色",
+      "论文润色",
+      "学术文稿修改",
+      "基金申请润色",
+      "NSF申请写作",
+      "NIH特定目标",
+      "academic humanizer"
+    ],
+    "tags": [
+      "学术写作",
+      "论文修改",
+      "基金申请",
+      "NSF",
+      "NIH",
+      "证据链",
+      "语体匹配",
+      "去AI痕迹",
+      "学术诚信"
+    ],
+    "updated_at": "2026-11-10",
+    "file_index": {
+      "path": ".catalog/c8febf4561f56582b8f18b82741f4b31a1c9355b420da9e6e01621aa2e7dab24.json",
+      "sha256": "c8febf4561f56582b8f18b82741f4b31a1c9355b420da9e6e01621aa2e7dab24",
+      "file_count": 7,
+      "total_bytes": 40166
+    }
   }
 ]
