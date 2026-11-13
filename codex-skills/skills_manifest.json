@@ -5305,5 +5305,37 @@
       "file_count": 7,
       "total_bytes": 40166
     }
+  },
+  {
+    "name": "livestream-clip-editor",
+    "description": "把直播录屏剪成约1分钟、提速、精华拼接（jump-cut）、以双逼单收尾的带货短视频；不加字幕不加BGM。当用户给出直播录频/录屏原片要求做切片带货、高光拼接、精华剪辑、按参考成品重剪、或要求钩子开头+双逼单结尾的短视频时使用。内置FFmpeg工业级去重与x264比特流SEI脱敏。也用于反推参考成品的剪辑参数（语速/切点/响度）。触发词：直播录屏、切片、带货、精华拼接、高光、逼单、双逼单、jump-cut、重剪、约1分钟。",
+    "category": "17_国内外电商工作流",
+    "folder": "livestream-clip-editor",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/livestream-clip-editor",
+    "aliases": [
+      "直播切片剪辑器",
+      "直播录屏切片",
+      "带货短视频剪辑",
+      "精华剪辑",
+      "高光拼接",
+      "双逼单剪辑"
+    ],
+    "tags": [
+      "直播切片",
+      "电商短视频",
+      "FFmpeg",
+      "faster-whisper",
+      "jump-cut",
+      "跳剪拼接",
+      "带货",
+      "防同质化"
+    ],
+    "updated_at": "2026-11-13",
+    "file_index": {
+      "path": ".catalog/4302ef24c291f6c7bbd3e5357289559bc83f509167eab67dace381135e8e2277.json",
+      "sha256": "4302ef24c291f6c7bbd3e5357289559bc83f509167eab67dace381135e8e2277",
+      "file_count": 15,
+      "total_bytes": 157197
+    }
   }
 ]

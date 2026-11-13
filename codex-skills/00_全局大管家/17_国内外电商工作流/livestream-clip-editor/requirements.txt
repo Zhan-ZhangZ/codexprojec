@@ -1,0 +1,6 @@
+# livestream-clip-editor 依赖项
+# 建议国内通过清华镜像安装: pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+faster-whisper>=1.0.0
+pillow>=10.0.0
+numpy>=1.24.0
