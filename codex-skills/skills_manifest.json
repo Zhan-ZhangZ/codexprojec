@@ -1192,12 +1192,12 @@
   {
     "name": "CAD-MCP",
     "description": "2D 平面工程制图 MCP 服务。作为通用翻译器，允许 AI 通过自然语言直接操控 AutoCAD、中望 CAD (ZWCAD) 和浩辰 CAD (GstarCAD) 进行绘图、图层管理和尺寸标注。仅支持 Windows 系统。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "CAD-MCP",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/CAD-MCP",
+    "relative_path": "./00_全局大管家/18_工程电子领域/CAD-MCP",
     "file_index": {
-      "path": ".catalog/a12e8e70082f18c4e33103167fa0d3edd6416e7461cb39c025c720b2ed1903c4.json",
-      "sha256": "a12e8e70082f18c4e33103167fa0d3edd6416e7461cb39c025c720b2ed1903c4",
+      "path": ".catalog/0cd849d5930c4fbc5bf95ab1dd9adc6a8e2f15fa7da5643245c7ff1242b3a618.json",
+      "sha256": "0cd849d5930c4fbc5bf95ab1dd9adc6a8e2f15fa7da5643245c7ff1242b3a618",
       "file_count": 12,
       "total_bytes": 130568
     }
@@ -1218,12 +1218,12 @@
   {
     "name": "MODBUS-MCP",
     "description": "工业 Modbus 协议通讯控制 MCP。支持通过 Modbus TCP、UDP 或 Serial/RTU 串口方式与工业设备建立连接，执行读取/写入线圈和寄存器操作以控制 PLC、传感器和执行机构。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "MODBUS-MCP",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/MODBUS-MCP",
+    "relative_path": "./00_全局大管家/18_工程电子领域/MODBUS-MCP",
     "file_index": {
-      "path": ".catalog/663913134810e08c81177dab43adf4dcf1a54db91ddbf616b9e3c0796fee7935.json",
-      "sha256": "663913134810e08c81177dab43adf4dcf1a54db91ddbf616b9e3c0796fee7935",
+      "path": ".catalog/317151f2c7f5269015c460700460b0340bf474dfc7b9d0b1414086599c732934.json",
+      "sha256": "317151f2c7f5269015c460700460b0340bf474dfc7b9d0b1414086599c732934",
       "file_count": 18,
       "total_bytes": 214973
     }
@@ -1231,12 +1231,12 @@
   {
     "name": "OPCUA-MCP",
     "description": "标准工业 OPC UA 客户端 MCP。支持自动浏览现场设备节点命名空间，高频读取/写入设备数据项，并可直接调用 OPC UA 服务器内部暴露的方法进行状态切换。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "OPCUA-MCP",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/OPCUA-MCP",
+    "relative_path": "./00_全局大管家/18_工程电子领域/OPCUA-MCP",
     "file_index": {
-      "path": ".catalog/0ee688efc29a14ec8589ec04638d19f5a5caeb3e03fad1d1ae9f58bd69921d07.json",
-      "sha256": "0ee688efc29a14ec8589ec04638d19f5a5caeb3e03fad1d1ae9f58bd69921d07",
+      "path": ".catalog/5a74194704a290720e18fb9f5224711d1e0323f6b320a98ff2b53ae80d4050d3.json",
+      "sha256": "5a74194704a290720e18fb9f5224711d1e0323f6b320a98ff2b53ae80d4050d3",
       "file_count": 36,
       "total_bytes": 661450
     }
@@ -1257,12 +1257,12 @@
   {
     "name": "altium-designer-mcp",
     "description": "Altium Designer 元器件库智能化管理 MCP。辅助管理 AD 库中的封装、原理图符号并进行参数校验，提升硬件设计的元器件建库效率。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "altium-designer-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/altium-designer-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/altium-designer-mcp",
     "file_index": {
-      "path": ".catalog/e5af450619562fa460706be0d3b3edae2f3f8295f48aef330569326fdc8f38fc.json",
-      "sha256": "e5af450619562fa460706be0d3b3edae2f3f8295f48aef330569326fdc8f38fc",
+      "path": ".catalog/85c00aad766cec24c2b3b3c655231137b48ed78f8fffa93d58d757ee94bad3ba.json",
+      "sha256": "85c00aad766cec24c2b3b3c655231137b48ed78f8fffa93d58d757ee94bad3ba",
       "file_count": 92,
       "total_bytes": 3665229
     }
@@ -1270,12 +1270,12 @@
   {
     "name": "altium-eda-agent",
     "description": "Altium Designer 深度自动化与智能协作 MCP。内置 300 多个开发工具，通过 DelphiScript 桥接与 Altium 交互，支持自然语言触发设计走线、器件网表分析与连接驱动的智能布局。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "altium-eda-agent",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/altium-eda-agent",
+    "relative_path": "./00_全局大管家/18_工程电子领域/altium-eda-agent",
     "file_index": {
-      "path": ".catalog/690acfbc62b1360bdf6a6e34d5e0e70603e3ffda0a5ec375c38270a815d5fa46.json",
-      "sha256": "690acfbc62b1360bdf6a6e34d5e0e70603e3ffda0a5ec375c38270a815d5fa46",
+      "path": ".catalog/59111ba5598ba96f3b2f83be8625ba558139bd1cc8c666682de6906371f65536.json",
+      "sha256": "59111ba5598ba96f3b2f83be8625ba558139bd1cc8c666682de6906371f65536",
       "file_count": 256,
       "total_bytes": 7426504
     }
@@ -1296,12 +1296,12 @@
   {
     "name": "arduino-cli-mcp",
     "description": "Arduino CLI 的 MCP 集成。用于编译本地工程、管理开发板与库依赖，并完成 ESP8266、ESP32 或 Arduino 固件烧录和串口调试。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "arduino-cli-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/arduino-cli-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/arduino-cli-mcp",
     "file_index": {
-      "path": ".catalog/a68e06d8abe65aae3a23a07bd32d7ade6825312412775212792430a4518e3d62.json",
-      "sha256": "a68e06d8abe65aae3a23a07bd32d7ade6825312412775212792430a4518e3d62",
+      "path": ".catalog/3160040c8f64b06c57961a0105227571735c11795efc7e9502a08cfb69e0dbbe.json",
+      "sha256": "3160040c8f64b06c57961a0105227571735c11795efc7e9502a08cfb69e0dbbe",
       "file_count": 15,
       "total_bytes": 140146
     }
@@ -1335,12 +1335,12 @@
   {
     "name": "digikey_mcp",
     "description": "DigiKey 官方全球电子元器件供应链寻源雷达 (MCP)。支持根据规格参数或特定 MPN 反查实时全球库存水位、阶梯报价，以及自动化寻找同规 (Drop-in) 替代料型号。Leading Words: DigiKey元器件寻源, 全球电子供应链库存, 替代料型号反查, 阶梯报价多维检索",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "digikey_mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/digikey_mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/digikey_mcp",
     "file_index": {
-      "path": ".catalog/b2b368057facd74086d2d5da3e88a926bc707ddba2f1891af41113aeb632f51e.json",
-      "sha256": "b2b368057facd74086d2d5da3e88a926bc707ddba2f1891af41113aeb632f51e",
+      "path": ".catalog/5c8e2c801067b9260aa68b4c63bc4f7231e15e21dde1383ea29effc209275b96.json",
+      "sha256": "5c8e2c801067b9260aa68b4c63bc4f7231e15e21dde1383ea29effc209275b96",
       "file_count": 14,
       "total_bytes": 1381003
     }
@@ -1374,12 +1374,12 @@
   {
     "name": "embedded-debugger-mcp",
     "description": "底层探针级 (probe-rs) 硬件在线断点调试控制台 (MCP)。无缝挂载 J-Link / ST-Link 等仿真器，直连 ARM Cortex-M 与 RISC-V 内核芯片，实现汇编级单步执行、寄存器穿透与裸机固件热烧录。Leading Words: 底层硬件断点单步调试, probe-rs仿真器直连, 寄存器读写与热烧录, ARM/RISC-V内核级控制",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "embedded-debugger-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/embedded-debugger-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/embedded-debugger-mcp",
     "file_index": {
-      "path": ".catalog/39377052113626a04f70048260e9848f11daf817ad38727f85d1cbcf05ea16fc.json",
-      "sha256": "39377052113626a04f70048260e9848f11daf817ad38727f85d1cbcf05ea16fc",
+      "path": ".catalog/fd0986c7faa655ce55bafb7a70374c03e2237e939464d02679026e0b47860b3f.json",
+      "sha256": "fd0986c7faa655ce55bafb7a70374c03e2237e939464d02679026e0b47860b3f",
       "file_count": 35,
       "total_bytes": 3464635
     }
@@ -1387,12 +1387,12 @@
   {
     "name": "freecad-mcp",
     "description": "FreeCAD 3D 机械图纸参数化建模拓扑生成器 (MCP)。完全舍弃 GUI，使用自然语言驱动底层的拓扑特征引擎完成拉伸、布尔打孔、倒角倒圆角操作，并支持无头环境大批量转换 STEP/STL 制造级模型。Leading Words: 3D机械参数化建模, FreeCAD拓扑特征引擎, 自然语言驱动布尔打孔, STEP/STL无头批量生成",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "freecad-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/freecad-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/freecad-mcp",
     "file_index": {
-      "path": ".catalog/491966278b27fe4fe494ee8d042b3039b9b67fca37a8245ac7ae0a0cc803dcdb.json",
-      "sha256": "491966278b27fe4fe494ee8d042b3039b9b67fca37a8245ac7ae0a0cc803dcdb",
+      "path": ".catalog/e7901ac8530335f5eb082f7e3a205a1b2734e136f575c4f31ef38e980d299b3c.json",
+      "sha256": "e7901ac8530335f5eb082f7e3a205a1b2734e136f575c4f31ef38e980d299b3c",
       "file_count": 45,
       "total_bytes": 377542
     }
@@ -1426,12 +1426,12 @@
   {
     "name": "jlcpcb-parts-mcp",
     "description": "嘉立创 SMT (PCBA) 供应链可制造性查询雷达 (MCP)。在前置硬件设计期（Schematic 阶段）穿透检索立创库实时贴片库存、阶梯加工费与基础库匹配，避免后续制造时因缺件导致的换板成本。Leading Words: 嘉立创SMT贴片寻源, 可制造性前置校验, PCBA阶梯加工费, 基础库/扩展库选型",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "jlcpcb-parts-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/jlcpcb-parts-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/jlcpcb-parts-mcp",
     "file_index": {
-      "path": ".catalog/cfec919b441720331d9cc345792f6f2d042ee85931f0e4a61fe00f0fa2120e76.json",
-      "sha256": "cfec919b441720331d9cc345792f6f2d042ee85931f0e4a61fe00f0fa2120e76",
+      "path": ".catalog/52253e133c5d89560125021c3bfb9f2ad471dd341d968d41d2e879928eb13270.json",
+      "sha256": "52253e133c5d89560125021c3bfb9f2ad471dd341d968d41d2e879928eb13270",
       "file_count": 6,
       "total_bytes": 203131
     }
@@ -1439,12 +1439,12 @@
   {
     "name": "kicad-mcp-automation",
     "description": "KiCad MCP 自动化服务。通过自然语言或 CLI 管理工程、运行 ERC/DRC、维护元器件，并导出 BOM、Gerber、钻孔文件和 3D 模型。",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "kicad-mcp-automation",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-automation",
+    "relative_path": "./00_全局大管家/18_工程电子领域/kicad-mcp-automation",
     "file_index": {
-      "path": ".catalog/c0283837830bb38db5c936552c851834f97d8f22b28ec97aed9a55e84ea83e1e.json",
-      "sha256": "c0283837830bb38db5c936552c851834f97d8f22b28ec97aed9a55e84ea83e1e",
+      "path": ".catalog/db9e8f2d770985987add2d9cc634bbb2a588ea702284a9a0670d7b57315ae53d.json",
+      "sha256": "db9e8f2d770985987add2d9cc634bbb2a588ea702284a9a0670d7b57315ae53d",
       "file_count": 63,
       "total_bytes": 442185
     }
@@ -1452,12 +1452,12 @@
   {
     "name": "kicad-mcp-seeed",
     "description": "Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。Leading Words: Seeed官方KiCad助手, Netlist信号互连追踪, 底层驱动代码反推, PCB拓扑关系分析",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "kicad-mcp-seeed",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-seeed",
+    "relative_path": "./00_全局大管家/18_工程电子领域/kicad-mcp-seeed",
     "file_index": {
-      "path": ".catalog/99770456baa5cdd7fd9590fe5b5799a8be3b318f6ca6de4ef47777b34f5aa450.json",
-      "sha256": "99770456baa5cdd7fd9590fe5b5799a8be3b318f6ca6de4ef47777b34f5aa450",
+      "path": ".catalog/ce1bfc85acd4b1964e5fae2bad480208d7a55c3adfcf817eb8a8fd6b92f484dc.json",
+      "sha256": "ce1bfc85acd4b1964e5fae2bad480208d7a55c3adfcf817eb8a8fd6b92f484dc",
       "file_count": 69,
       "total_bytes": 459526
     }
@@ -1465,12 +1465,12 @@
   {
     "name": "mcp2serial",
     "description": "TTY / COM 物理串口穿透式数据监听与控制台桥接器 (MCP)。赋予大模型直接操作宿主机裸串口的能力，通过波特率握手实现与树莓派 Pico、ESP32 或工业级 PLC 的双向字节流通信与 REPL 会话。Leading Words: 物理串口穿透监听, TTY/COM底层通信, REPL双向字节流, 裸板卡控制台桥接",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "mcp2serial",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/mcp2serial",
+    "relative_path": "./00_全局大管家/18_工程电子领域/mcp2serial",
     "file_index": {
-      "path": ".catalog/18d6e8b50ac383e96bd0d9893ba1eda8b6f1a2b3680c1ccdffd4863ef0273f2a.json",
-      "sha256": "18d6e8b50ac383e96bd0d9893ba1eda8b6f1a2b3680c1ccdffd4863ef0273f2a",
+      "path": ".catalog/29b36b8d3a011fc6f17e648712fc50eeb0f80166388ba06a16318637dcd948ee.json",
+      "sha256": "29b36b8d3a011fc6f17e648712fc50eeb0f80166388ba06a16318637dcd948ee",
       "file_count": 37,
       "total_bytes": 5646312
     }
@@ -1478,12 +1478,12 @@
   {
     "name": "mqtt-mcp",
     "description": "工业级 MQTT 协议栈代理抓包与收发中继站 (MCP)。允许智能体作为合法 Client 连接局域网 / 公网 Broker。提供 QoS 等级控制，实时订阅或发布物联网传感器遥测数据与异构设备的控制报文。Leading Words: 工业级MQTT协议栈, Broker节点代理连接, 遥测数据流发布订阅, QoS异构控制报文",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "mqtt-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/mqtt-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/mqtt-mcp",
     "file_index": {
-      "path": ".catalog/0e2e97c4dc303c8f9b6219bf3f7d6c9da9f27f09ae1d296c0623a87c97840051.json",
-      "sha256": "0e2e97c4dc303c8f9b6219bf3f7d6c9da9f27f09ae1d296c0623a87c97840051",
+      "path": ".catalog/efb547354d51e07d97753f126d6e4db512599c0c93a4701cbf23f779c70c1166.json",
+      "sha256": "efb547354d51e07d97753f126d6e4db512599c0c93a4701cbf23f779c70c1166",
       "file_count": 47,
       "total_bytes": 861289
     }
@@ -1491,12 +1491,12 @@
   {
     "name": "nexar-mcp",
     "description": "Octopart / Nexar 官方电子供应链全局搜索引擎 (MCP)。跨越独立分销商壁垒，聚合搜索全球元器件实时库存水位与多渠道阶梯报价，并提供技术选型参数对比及 PDF 数据手册直达。Leading Words: Octopart/Nexar API集成, 全球元器件库存搜索, 多渠道阶梯报价, PDF数据手册Datasheet",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "nexar-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/nexar-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/nexar-mcp",
     "file_index": {
-      "path": ".catalog/4af456de3dc93f037901d7486dfec9b88f538a74eb5543e1704af5aea35a0e8b.json",
-      "sha256": "4af456de3dc93f037901d7486dfec9b88f538a74eb5543e1704af5aea35a0e8b",
+      "path": ".catalog/5e2cacaeaa1bb0bb8b0da7fe89209c935eb6f9f121b06d0b319f9324538a4bd0.json",
+      "sha256": "5e2cacaeaa1bb0bb8b0da7fe89209c935eb6f9f121b06d0b319f9324538a4bd0",
       "file_count": 7,
       "total_bytes": 98275
     }
@@ -1504,12 +1504,12 @@
   {
     "name": "openscad-mcp",
     "description": "OpenSCAD 纯代码驱动参数化 3D 建模与视觉纠错闭环引擎 (MCP)。极大发挥大模型的代码生成优势，通过自动后台编译输出 PNG 预览图，实现生成、渲染、视觉验证及自动纠错迭代的全链路覆盖。Leading Words: OpenSCAD代码3D建模, 纯代码参数化渲染, 视觉验证纠错闭环, PNG预览图生成",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "openscad-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/openscad-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/openscad-mcp",
     "file_index": {
-      "path": ".catalog/75c3292f92815287ad8a86c06561bef37063573a83cf6c3abb72d605205f3a38.json",
-      "sha256": "75c3292f92815287ad8a86c06561bef37063573a83cf6c3abb72d605205f3a38",
+      "path": ".catalog/1f34e7d6f0a4c025ffbe5ab5fab310757a8c94f09580eab1a4c54259d5511a82.json",
+      "sha256": "1f34e7d6f0a4c025ffbe5ab5fab310757a8c94f09580eab1a4c54259d5511a82",
       "file_count": 6,
       "total_bytes": 43705
     }
@@ -1517,12 +1517,12 @@
   {
     "name": "pcbparts-mcp",
     "description": "全网多源 EDA 元器件与引脚封装跨界检索引擎 (MCP)。底层桥接嘉立创、Mouser 及 DigiKey 数据库，一键打通供应链选型与底层工程设计，支持深度拉取立创 EDA 原理图符号及引脚网表定义。Leading Words: 跨平台EDA元器件检索, 嘉立创/Mouser/DigiKey, 原理图符号引脚定义, 供应链选型数据拉取",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "pcbparts-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/pcbparts-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/pcbparts-mcp",
     "file_index": {
-      "path": ".catalog/b8b255eb704c3ff391528ec16fb5bdfc7ffc33e6133ce1defca2e4642c981973.json",
-      "sha256": "b8b255eb704c3ff391528ec16fb5bdfc7ffc33e6133ce1defca2e4642c981973",
+      "path": ".catalog/d4abd92a9b8f43cf12120d576924d2991c8874a74305add9b7bc8f34a0513a7d.json",
+      "sha256": "d4abd92a9b8f43cf12120d576924d2991c8874a74305add9b7bc8f34a0513a7d",
       "file_count": 909,
       "total_bytes": 54070524
     }
@@ -1543,12 +1543,12 @@
   {
     "name": "rigol-dho824-mcp",
     "description": "普源 Rigol DHO824 数字示波器 LXI 远程实验室总线控制台 (MCP)。突破物理测试台限制，允许 AI 经以太网 LXI 协议直连示波器，执行状态轮询、通道波形截图采集并对离线测量数据进行自动化分析。Leading Words: 普源Rigol示波器控制, LXI以太网仪器通信, 多通道波形截图采集, 远程实验室总线分析",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "rigol-dho824-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/rigol-dho824-mcp",
+    "relative_path": "./00_全局大管家/18_工程电子领域/rigol-dho824-mcp",
     "file_index": {
-      "path": ".catalog/4cbbf88c22d6d3a5bf01d7f90b21347f2a5ae56240414c67057418d17ece7ff2.json",
-      "sha256": "4cbbf88c22d6d3a5bf01d7f90b21347f2a5ae56240414c67057418d17ece7ff2",
+      "path": ".catalog/f1338c79881747b2c39ddffdd90e7e300b65287032727ca452cd8a65c6321a82.json",
+      "sha256": "f1338c79881747b2c39ddffdd90e7e300b65287032727ca452cd8a65c6321a82",
       "file_count": 38,
       "total_bytes": 3207191
     }
@@ -1582,12 +1582,12 @@
   {
     "name": "spicebridge",
     "description": "基于 ngspice 的电路设计与仿真分析 MCP。支持使用自然语言描述电路结构，自动生成标准 SPICE 网表并运行 AC、DC 或瞬态仿真，可分析提取波形数据甚至导出为 KiCad 格式。Leading Words: ngspice电路设计仿真, SPICE网表自动生成, AC/DC瞬态仿真, 波形数据分析提取",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "spicebridge",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/spicebridge",
+    "relative_path": "./00_全局大管家/18_工程电子领域/spicebridge",
     "file_index": {
-      "path": ".catalog/58b7f1e99f031eade4d0a6c0f251c3966452021e5f80778dc25970e2784822fb.json",
-      "sha256": "58b7f1e99f031eade4d0a6c0f251c3966452021e5f80778dc25970e2784822fb",
+      "path": ".catalog/c5632dc203a2f63745ae60310e6683374d85206878708a2cccf7069dc7538f57.json",
+      "sha256": "c5632dc203a2f63745ae60310e6683374d85206878708a2cccf7069dc7538f57",
       "file_count": 133,
       "total_bytes": 874927
     }
@@ -1595,9 +1595,9 @@
   {
     "name": "text-to-cad",
     "description": "Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "text-to-cad",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/text-to-cad",
+    "relative_path": "./00_全局大管家/18_工程电子领域/text-to-cad",
     "aliases": [
       "text2cad",
       "文本转CAD",
@@ -1612,8 +1612,8 @@
       "3D打印"
     ],
     "file_index": {
-      "path": ".catalog/dcf80246a57188b9fe80276040db7629d125a0a048f2d148d683cdec5fdb79ad.json",
-      "sha256": "dcf80246a57188b9fe80276040db7629d125a0a048f2d148d683cdec5fdb79ad",
+      "path": ".catalog/d0a7cf712b243a1b3d40df78fb7af6563d677996ce5d771e939c04e5887d5259.json",
+      "sha256": "d0a7cf712b243a1b3d40df78fb7af6563d677996ce5d771e939c04e5887d5259",
       "file_count": 94,
       "total_bytes": 565080
     }
@@ -2774,12 +2774,12 @@
   {
     "name": "engineering-tender-writer",
     "description": "中文工程技术标书撰写器。起草/重构/审查技术标书、服务方案、研究内容、技术路线与参数响应表；从 DOCX/Markdown 标书材料提取需求并检查条款覆盖、指标一致性、任务边界与不当承诺。Leading Words: 技术标书, 服务方案, 技术路线, 参数响应表, 点对点响应, 条款覆盖检查",
-    "category": "06_商业与专业领域",
+    "category": "18_工程电子领域",
     "folder": "engineering-tender-writer",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer",
+    "relative_path": "./00_全局大管家/18_工程电子领域/engineering-tender-writer",
     "file_index": {
-      "path": ".catalog/894ef5e34c68e8526db2c4e8c17fa77dce7629bfc3214700e79dfb11e4faff43.json",
-      "sha256": "894ef5e34c68e8526db2c4e8c17fa77dce7629bfc3214700e79dfb11e4faff43",
+      "path": ".catalog/eff1b8a4c6b4ce879a346965e4dfd1c83bb76e391f818257a92e4a21f6595ef4.json",
+      "sha256": "eff1b8a4c6b4ce879a346965e4dfd1c83bb76e391f818257a92e4a21f6595ef4",
       "file_count": 8,
       "total_bytes": 16064
     }
