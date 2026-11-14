@@ -334,12 +334,12 @@
   {
     "name": "hk-finance-mcp-server",
     "description": "香港公开财经数据 MCP 服务器。通过 FastMCP 查询商业登记、负资产按揭、信用卡贷款、HIBOR、印花税、银行网点、ATM、按揭与反欺诈告示等 HKMA/IRD 数据。",
-    "category": "03_效率工具与协同管理",
+    "category": "14_股票币圈财经专项",
     "folder": "hk-finance-mcp-server",
-    "relative_path": "./00_全局大管家/03_效率工具与协同管理/hk-finance-mcp-server",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/hk-finance-mcp-server",
     "file_index": {
-      "path": ".catalog/8274ddf45b99e334b9ca0c78fc079e3446cf0e1c92af70f3e86a3135a529a79c.json",
-      "sha256": "8274ddf45b99e334b9ca0c78fc079e3446cf0e1c92af70f3e86a3135a529a79c",
+      "path": ".catalog/eda945041885d6b5cc3b4f68f6f8765dd5bf1aa91992884716201d547af629c8.json",
+      "sha256": "eda945041885d6b5cc3b4f68f6f8765dd5bf1aa91992884716201d547af629c8",
       "file_count": 60,
       "total_bytes": 250571
     }
@@ -1530,12 +1530,12 @@
   {
     "name": "quantdinger",
     "description": "量化金融宽客 (Quant) 策略全生命周期研发工作台。覆盖因子脑暴、算法代码生成、回测 (Backtest) 调优与模拟盘全栈流程。助力进阶投研人员将投资逻辑直接落地为高容错的实盘交易信号监控。Leading Words: AI宽客量化投研, 交易策略代码生成, Backtest行情回测, 实盘交易信号监控",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "quant-dinger",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/quant-dinger",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/quant-dinger",
     "file_index": {
-      "path": ".catalog/6f9320ab03ac2e6695add73470ffc874523bb5c26414c6ce8cc0c117e53e9d5f.json",
-      "sha256": "6f9320ab03ac2e6695add73470ffc874523bb5c26414c6ce8cc0c117e53e9d5f",
+      "path": ".catalog/e4a0ba677a3d8cf9eb64cdfbc91be2362dc26c64f2848f7ba9f3befeb265f154.json",
+      "sha256": "e4a0ba677a3d8cf9eb64cdfbc91be2362dc26c64f2848f7ba9f3befeb265f154",
       "file_count": 73,
       "total_bytes": 761481
     }
@@ -1556,12 +1556,12 @@
   {
     "name": "serenity-skill",
     "description": "Serenity 范式硬核产业链瓶颈与卡脖子节点狩猎器。将投资智能体转化为极度理性的研究员。专攻 A股/港股/美股 AI 及半导体硬科技赛道的价值链图谱拆解。执行基于证据链的深度调研与逻辑压力测试。无交易功能，纯投研支撑。Leading Words: Serenity产业链研究, 半导体卡点瓶颈狩猎, 价值链图谱拆解, 投资逻辑压力测试",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "serenity-skill",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/serenity-skill",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/serenity-skill",
     "file_index": {
-      "path": ".catalog/33e1f07a69d9005bf5c7e86e0fd0181611c0cb4c8e34f008ea89de70c8494932.json",
-      "sha256": "33e1f07a69d9005bf5c7e86e0fd0181611c0cb4c8e34f008ea89de70c8494932",
+      "path": ".catalog/7ec82b9dd8cb0d925dbdbae8379ed30566e9e5e7ac93be1c8e3c99018d49ccc4.json",
+      "sha256": "7ec82b9dd8cb0d925dbdbae8379ed30566e9e5e7ac93be1c8e3c99018d49ccc4",
       "file_count": 27,
       "total_bytes": 93427
     }
@@ -1621,12 +1621,12 @@
   {
     "name": "tradingagents",
     "description": "机构级 AI 金融投研多智能体协同攻防沙盘 (TradingAgents)。以高度模块化架构解构专业基金工作流：基本面定性、技术面量化、情绪面降噪及风控阻断多 Agent 角色博弈，搭建全真环境下的数字投研编队。Leading Words: 多智能体投研协同沙盘, 机构级量化风控博弈, AI金融交易员矩阵, 基本面与情绪面降噪",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "trading-agents",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/trading-agents",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/trading-agents",
     "file_index": {
-      "path": ".catalog/4dc052942910c89741536c0fa8fb0fc5173bd6a32b4001eeea18edbc530b78ec.json",
-      "sha256": "4dc052942910c89741536c0fa8fb0fc5173bd6a32b4001eeea18edbc530b78ec",
+      "path": ".catalog/dd9fd215504412a9fa845de454ae11995c8072405fd12470d1ffa508060d6aa5.json",
+      "sha256": "dd9fd215504412a9fa845de454ae11995c8072405fd12470d1ffa508060d6aa5",
       "file_count": 12,
       "total_bytes": 1177322
     }
@@ -1634,12 +1634,12 @@
   {
     "name": "uzi-skill",
     "description": "Uzi 中文区量化投研与大中华市场 (A股/港股) 靶向狙击库。内置 180 条红线级量化审计规则与 22 个基本面剖析维度。覆盖游资龙虎榜异动追踪、机构深度估值排雷，并加载特有的「多风格投资大佬评审团」交叉验证。Leading Words: 大中华A股港股量化投研, 龙虎榜异动追踪审计, 180条量化红线排雷, 投资大佬交叉评审闭环",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "uzi-skill",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/uzi-skill",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/uzi-skill",
     "file_index": {
-      "path": ".catalog/51543936a43d152f42ead972e7ceefda228308284c6ca6125a02f77dda97f3ac.json",
-      "sha256": "51543936a43d152f42ead972e7ceefda228308284c6ca6125a02f77dda97f3ac",
+      "path": ".catalog/dc369f7c0b991f13cf4bcf756392ba2642c4f9f4d34d59de125cba781e73057e.json",
+      "sha256": "dc369f7c0b991f13cf4bcf756392ba2642c4f9f4d34d59de125cba781e73057e",
       "file_count": 443,
       "total_bytes": 11472050
     }
@@ -2449,12 +2449,12 @@
   {
     "name": "EasyAccounts",
     "description": "搭载 AI 助手的开源智能记账与极速财务查询终端。通过会话式交互打通复式记账全链路，提供自然语言流水录入、多维财务报表实时聚合与高阶账单审计分析。专为 Agent 接管对账及资金流监控设计。Leading Words: AI开源智能记账终端, 复式记账会话式流转, 自然语言流水录入聚合, 对账及资金流自动化监控",
-    "category": "14_财务发票提取与归档",
+    "category": "03_效率工具与协同管理",
     "folder": "EasyAccounts",
-    "relative_path": "./00_全局大管家/14_财务发票提取与归档/EasyAccounts",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/EasyAccounts",
     "file_index": {
-      "path": ".catalog/da737d05d963688da697a31d97014a8d4f79755928fdcf13c8d0aa56e458befa.json",
-      "sha256": "da737d05d963688da697a31d97014a8d4f79755928fdcf13c8d0aa56e458befa",
+      "path": ".catalog/442c3f22bc89f74b8c3dfde448a4f1cbed97634d35554af5fd7a9e5bc782b9aa.json",
+      "sha256": "442c3f22bc89f74b8c3dfde448a4f1cbed97634d35554af5fd7a9e5bc782b9aa",
       "file_count": 56,
       "total_bytes": 6338040
     }
@@ -2462,12 +2462,12 @@
   {
     "name": "Invoice_LLM",
     "description": "基于 Qwen-VL 多模态大模型底座的端到端智能发票识别引擎。具备高度泛化的图像理解力，穿透各类发票/收据的扭曲、阴影与混排版式，实现结构化字段精准抽取与防伪校验，打造极速报销流水线。Leading Words: Qwen-VL多模态大模型底座, 泛化发票影像扭曲穿透, 收据防伪校验与字段抽取, 端到端结构化报销流水线",
-    "category": "14_财务发票提取与归档",
+    "category": "03_效率工具与协同管理",
     "folder": "Invoice_LLM",
-    "relative_path": "./00_全局大管家/14_财务发票提取与归档/Invoice_LLM",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/Invoice_LLM",
     "file_index": {
-      "path": ".catalog/69a8b70a2328bc3f91cbbce7fd96dd0b9abf4f2b8c100e34c694a6767dc769da.json",
-      "sha256": "69a8b70a2328bc3f91cbbce7fd96dd0b9abf4f2b8c100e34c694a6767dc769da",
+      "path": ".catalog/9f4f115692d007fca02b1c5f3e779caceb65ea05a3d85bb0207cebd935788c3f.json",
+      "sha256": "9f4f115692d007fca02b1c5f3e779caceb65ea05a3d85bb0207cebd935788c3f",
       "file_count": 9,
       "total_bytes": 316856
     }
@@ -2475,12 +2475,12 @@
   {
     "name": "invoice2data",
     "description": "基于正则模板与高精 OCR 的工业级发票收据提取、分类与归档中枢 (invoice2data)。以轻量化的规则引擎覆盖主流报销单据，实现 PDF/图像层自动化切片提取，提供无缝对接企业 ERP 系统的高效通道。Leading Words: 工业级规则发票提取, 高精OCR报销单据切片, PDF账单自动化归类中枢, 企业ERP无缝对接通道",
-    "category": "14_财务发票提取与归档",
+    "category": "03_效率工具与协同管理",
     "folder": "invoice2data",
-    "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice2data",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/invoice2data",
     "file_index": {
-      "path": ".catalog/fbe08267c85a2b996ec4b0451eee8d17634760df19f3eee5698093ac66f09a1c.json",
-      "sha256": "fbe08267c85a2b996ec4b0451eee8d17634760df19f3eee5698093ac66f09a1c",
+      "path": ".catalog/d5c5f059463f0ecca17f0d3b24563ea6ff10fcc0d079795e6d461bc520ca109b.json",
+      "sha256": "d5c5f059463f0ecca17f0d3b24563ea6ff10fcc0d079795e6d461bc520ca109b",
       "file_count": 233,
       "total_bytes": 312490
     }
@@ -2488,12 +2488,12 @@
   {
     "name": "invoice-organizer",
     "description": "纯 Agent 架构驱动的智能零依赖发票集散整理器。摒弃复杂 Python OCR 库依赖，完全依靠大模型原生视觉能力进行全盘扫描、票面特征挖掘与重命名归档。极速将混乱碎票重构为结构化 CSV 报表与整洁目录。Leading Words: 纯Agent架构零依赖驱动, 大模型原生视觉特征挖掘, 混乱发票重构结构化归档, 自动化CSV报表集散中枢",
-    "category": "14_财务发票提取与归档",
+    "category": "03_效率工具与协同管理",
     "folder": "invoice-organizer",
-    "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice-organizer",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/invoice-organizer",
     "file_index": {
-      "path": ".catalog/096f6154b16eecb8ac3cfd33cc751d4a76fd84f4d2e00866af35b79202abe99f.json",
-      "sha256": "096f6154b16eecb8ac3cfd33cc751d4a76fd84f4d2e00866af35b79202abe99f",
+      "path": ".catalog/a46ba19134efe445024f623f4452695d84d6a8358e5bca37c37b8ce4bbbe0681.json",
+      "sha256": "a46ba19134efe445024f623f4452695d84d6a8358e5bca37c37b8ce4bbbe0681",
       "file_count": 1,
       "total_bytes": 12167
     }
@@ -2591,12 +2591,12 @@
   {
     "name": "Financial-API",
     "description": "同花顺官方 A股金融数据服务，提供股票实时行情、历史行情、财务报表、指数、板块、涨停等数据，支持 API、MCP、CLI 和 Python SDK。适用于 AI Agent、量化研究和应用开发。Leading Words: 同花顺A股数据, 实时行情查询, 财务报表API, MCP金融数据, 量化研究数据源",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "Financial-API",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/Financial-API",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/Financial-API",
     "file_index": {
-      "path": ".catalog/420bbd5bda2354889e3f8b42b35d9fcf56cea18b82dece8d581b22ec125aa169.json",
-      "sha256": "420bbd5bda2354889e3f8b42b35d9fcf56cea18b82dece8d581b22ec125aa169",
+      "path": ".catalog/2ad4ec0c845b5bd6784dad9c3341ee97737abff99305ea0a0da4f98359524c96.json",
+      "sha256": "2ad4ec0c845b5bd6784dad9c3341ee97737abff99305ea0a0da4f98359524c96",
       "file_count": 50,
       "total_bytes": 319402
     }
@@ -2604,12 +2604,12 @@
   {
     "name": "stock-data-mcp",
     "description": "基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器，为 AI Agent 提供统一的股票/加密货币市场数据接口。支持 A 股、港股、美股、加密货币，采用多源数据供应商自动故障转移架构。Leading Words: 股票数据MCP服务, 多市场行情聚合, A股港股美股加密货币, FastMCP数据接口, 多源故障转移",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "stock-data-mcp",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/stock-data-mcp",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/stock-data-mcp",
     "file_index": {
-      "path": ".catalog/78b9951ca9c34a026ebd00f1f507912bbbf82a92318f283c6feb4fd70b61aa74.json",
-      "sha256": "78b9951ca9c34a026ebd00f1f507912bbbf82a92318f283c6feb4fd70b61aa74",
+      "path": ".catalog/a60bd46a37775176e9861b3d12bc99885e4c9b19881fe1f22a42b7b341016104.json",
+      "sha256": "a60bd46a37775176e9861b3d12bc99885e4c9b19881fe1f22a42b7b341016104",
       "file_count": 6,
       "total_bytes": 9413
     }
@@ -2617,12 +2617,12 @@
   {
     "name": "tickdb-unified-realtime-marketdata-api",
     "description": "TickDB AI 原生实时行情数据统一 API，覆盖外汇、贵金属、指数、美股、港股、A 股、加密货币。支持 Skill、CLI、MCP、REST API 和 WebSocket 接入，提供实时行情、K线、订单簿、资金流向等数据。Leading Words: TickDB实时行情API, 全球多市场数据, AI原生金融接口, WebSocket行情流, MCP行情服务",
-    "category": "06_商业与专业领域",
+    "category": "14_股票币圈财经专项",
     "folder": "tickdb-unified-realtime-marketdata-api",
-    "relative_path": "./00_全局大管家/06_商业与专业领域/tickdb-unified-realtime-marketdata-api",
+    "relative_path": "./00_全局大管家/14_股票币圈财经专项/tickdb-unified-realtime-marketdata-api",
     "file_index": {
-      "path": ".catalog/ac8b5cf0a0f6f2531df140572e1b6703a1c3ee806472f65ade6baad489b50609.json",
-      "sha256": "ac8b5cf0a0f6f2531df140572e1b6703a1c3ee806472f65ade6baad489b50609",
+      "path": ".catalog/37c6d5e07c36afc71e801e20be05445114ab0dfab81e5a05df7f3ec549b62f36.json",
+      "sha256": "37c6d5e07c36afc71e801e20be05445114ab0dfab81e5a05df7f3ec549b62f36",
       "file_count": 39,
       "total_bytes": 349385
     }
