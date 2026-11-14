@@ -1594,28 +1594,36 @@
   },
   {
     "name": "text-to-cad",
-    "description": "Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染",
+    "description": "Text-to-CAD 工程设计与制造技能套件。用 Python/build123d 创建和修改参数化 CAD 零件、装配与 2D 轮廓，导出 STEP、STL、3MF、GLB、DXF，并支持制造可行性检查、FEA 应力分析、工程制图、KiCad PCB 设计与 ERC/DRC、3D 打印切片、SendCutSend 预检、Blender 渲染以及 URDF/SRDF/MJCF 机器人仿真。Leading Words: Text-to-CAD, CAD参数化建模, STEP/STL/3MF/GLB/DXF, PCB设计与KiCad, FEA应力仿真, 工程制图, 3D打印切片, 机器人URDF/SRDF/MJCF",
     "category": "18_工程电子领域",
     "folder": "text-to-cad",
     "relative_path": "./00_全局大管家/18_工程电子领域/text-to-cad",
     "aliases": [
       "text2cad",
       "文本转CAD",
-      "CAD建模"
+      "CAD建模",
+      "产品设计"
     ],
     "tags": [
       "build123d",
-      "cadgen",
+      "CAD",
+      "FEA",
+      "PCB",
+      "KiCad",
       "工程制图",
-      "DfM",
-      "G-code",
-      "3D打印"
+      "3D打印",
+      "渲染",
+      "机器人仿真",
+      "URDF",
+      "SRDF",
+      "MJCF",
+      "STEP"
     ],
     "file_index": {
-      "path": ".catalog/d0a7cf712b243a1b3d40df78fb7af6563d677996ce5d771e939c04e5887d5259.json",
-      "sha256": "d0a7cf712b243a1b3d40df78fb7af6563d677996ce5d771e939c04e5887d5259",
-      "file_count": 94,
-      "total_bytes": 565080
+      "path": ".catalog/bc8869956b9e1a465f08696ab14b30233b830886946ec2e0711efb9dae3fcc77.json",
+      "sha256": "bc8869956b9e1a465f08696ab14b30233b830886946ec2e0711efb9dae3fcc77",
+      "file_count": 99,
+      "total_bytes": 854227
     }
   },
   {
