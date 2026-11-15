@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Русские строки MSI. Держать в синхроне с Strings.en-US.wxl: одинаковый набор Id и одинаковый
+  набор подставляемых полей.
+-->
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl"
+                 Culture="ru-RU"
+                 Codepage="1251">
+
+  <String Id="SummaryDescription"
+          Value="Аддон MCP-сервера (Model Context Protocol) для CorelDRAW $(var.CorelVersion)" />
+
+  <String Id="UpdateNoticeTitle" Value="Обновление [ProductName]" />
+  <String Id="UpdateNoticeSubtitle" Value="Найдена установленная версия продукта" />
+  <String Id="UpdateNoticeText"
+          Value="[ProductName] уже установлен на этом компьютере. Он будет обновлён до версии [ProductVersion]. Ваши настройки в config.json сохранятся.&#xD;&#xA;&#xD;&#xA;Нажмите «Далее», чтобы продолжить, или «Отмена», чтобы выйти." />
+  <String Id="UpdateNoticeNext" Value="Далее" />
+  <String Id="UpdateNoticeCancel" Value="Отмена" />
+
+  <String Id="DowngradeError"
+          Value="Уже установлена более новая версия аддона CorelDRAW MCP для CorelDRAW $(var.CorelVersion)." />
+
+  <String Id="CorelNotFound"
+          Value="CorelDRAW $(var.CorelVersion) не найден на этом компьютере. Установите CorelDRAW Graphics Suite $(var.CorelVersion) или соберите пакет под ту версию, которая у вас есть (build-msi.ps1 -CorelDrawVersion &lt;версия&gt;)." />
+
+  <String Id="CloseCorelDraw"
+          Value="CorelDRAW запущен. Файлы аддона нельзя заменить, пока он открыт.&#xD;&#xA;&#xD;&#xA;Закройте CorelDRAW и нажмите «Повторить». Нажмите «Пропустить», чтобы установщик закрыл его сам (возможно, вас попросят сохранить работу). Нажмите «Прервать», чтобы отменить установку." />
+
+  <String Id="ArpComments" Value="MCP-сервер для CorelDRAW Graphics Suite; только петлевой интерфейс" />
+  <String Id="ArpHelpLink" Value="https://github.com/pefedotov/coreldraw_mcp/issues" />
+  <String Id="ArpUrlInfoAbout" Value="https://github.com/pefedotov/coreldraw_mcp" />
+</WixLocalization>

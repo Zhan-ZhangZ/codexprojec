@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  English strings for the MSI. Keep this file and Strings.ru-RU.wxl in step: every Id here must
+  exist there too, with the same set of formatted fields.
+-->
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl"
+                 Culture="en-US"
+                 Codepage="1252">
+
+  <String Id="SummaryDescription"
+          Value="Model Context Protocol (MCP) server add-on for CorelDRAW $(var.CorelVersion)" />
+
+  <!-- Shown before the standard welcome page when an older build is already installed. -->
+  <String Id="UpdateNoticeTitle" Value="Updating [ProductName]" />
+  <String Id="UpdateNoticeSubtitle" Value="An existing version was found on this computer" />
+  <String Id="UpdateNoticeText"
+          Value="[ProductName] is already installed. It will be updated to version [ProductVersion]. Your config.json settings are kept.&#xD;&#xA;&#xD;&#xA;Choose Next to continue, or Cancel to quit." />
+  <String Id="UpdateNoticeNext" Value="Next" />
+  <String Id="UpdateNoticeCancel" Value="Cancel" />
+
+  <String Id="DowngradeError"
+          Value="A newer version of the CorelDRAW MCP add-on for CorelDRAW $(var.CorelVersion) is already installed." />
+
+  <!-- Launch condition: the targeted CorelDRAW release is not present. -->
+  <String Id="CorelNotFound"
+          Value="CorelDRAW $(var.CorelVersion) was not found on this computer. Install CorelDRAW Graphics Suite $(var.CorelVersion), or build the package for the version you have (build-msi.ps1 -CorelDrawVersion &lt;version&gt;)." />
+
+  <!-- Abort / Retry / Ignore prompt raised while CorelDRAW is running. -->
+  <String Id="CloseCorelDraw"
+          Value="CorelDRAW is running. The add-on files cannot be replaced while it is open.&#xD;&#xA;&#xD;&#xA;Close CorelDRAW, then click Retry. Click Ignore to let the installer close it for you (you may be asked to save your work). Click Abort to cancel the installation." />
+
+  <String Id="ArpComments" Value="MCP server for CorelDRAW Graphics Suite; loopback only" />
+  <String Id="ArpHelpLink" Value="https://github.com/pefedotov/coreldraw_mcp/issues" />
+  <String Id="ArpUrlInfoAbout" Value="https://github.com/pefedotov/coreldraw_mcp" />
+</WixLocalization>

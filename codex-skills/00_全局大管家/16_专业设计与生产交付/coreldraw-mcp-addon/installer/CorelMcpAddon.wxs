@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSI definition for the CorelDRAW MCP add-on.
+
+  The add-on folder is version-scoped inside the CorelDRAW installation, so one MSI
+  targets exactly one CorelDRAW version. The actual root is discovered at install time
+  from HKLM\SOFTWARE\Corel\CorelDRAW\<version>\ProgramsDir, so non-default install
+  locations work without rebuilding.
+
+  Build it through installer\build-msi.ps1, which supplies Version, CorelVersion,
+  SourceDir and the per-version GUIDs.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?define ProductName = "CorelDRAW MCP Add-on" ?>
+  <?define Manufacturer = "pefedotov" ?>
+  <?define AddonFolderName = "CorelMcp" ?>
+
+  <!-- Defaults so the file can also be built directly with: wix build ... -d ... -->
+  <?ifndef Version ?><?define Version = "1.0.0" ?><?endif?>
+  <?ifndef CorelVersion ?><?define CorelVersion = "27" ?><?endif?>
+  <?ifndef UpgradeCode ?><?define UpgradeCode = "83E1DAB4-7763-EC12-D043-7B81F2F46036" ?><?endif?>
+  <?ifndef GuidBinaries ?><?define GuidBinaries = "380AAF86-CE21-B425-183F-BBE0F93E7009" ?><?endif?>
+  <?ifndef GuidUi ?><?define GuidUi = "5D31546D-DE20-D316-2225-90F52F3338A3" ?><?endif?>
+  <?ifndef GuidConfig ?><?define GuidConfig = "29192E28-20B0-B5DF-F2E1-454509C0B6F9" ?><?endif?>
+  <?ifndef SourceDir ?><?error SourceDir must be defined (path to the built add-on payload) ?><?endif?>
+  <?ifndef IconPath ?><?define IconPath = "app.ico" ?><?endif?>
+  <!-- The licence file differs per language and is passed by build-msi.ps1. -->
+  <?ifndef EulaRtfPath ?><?define EulaRtfPath = "EULA.rtf" ?><?endif?>
+
+  <Package
+      Name="$(var.ProductName) (CorelDRAW $(var.CorelVersion))"
+      Manufacturer="$(var.Manufacturer)"
+      Version="$(var.Version)"
+      UpgradeCode="$(var.UpgradeCode)"
+      Scope="perMachine"
+      InstallerVersion="500"
+      Compressed="yes">
+
+    <SummaryInformation
+        Description="!(loc.SummaryDescription)"
+        Manufacturer="$(var.Manufacturer)" />
+
+    <!--
+      RemoveExistingProducts runs after InstallValidate, so the previously installed product is
+      removed *before* the new files are installed. Without this the incoming and outgoing
+      products share the same component GUIDs (they are derived from the CorelDRAW version),
+      the new install sees the components as already present and never replaces the DLL.
+      The user's config.json survives because its component is Permanent (below).
+    -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallValidate"
+                  DowngradeErrorMessage="!(loc.DowngradeError)" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      Add/Remove Programs identity: an icon, a publisher (Manufacturer above) and working links,
+      so the entry does not look like an anonymous bundle of files. The icon is compiled into the
+      package from Icon/@SourceFile and is not part of the installed payload.
+    -->
+    <Icon Id="ArpIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="ArpIcon" />
+    <Property Id="ARPCOMMENTS" Value="!(loc.ArpComments)" />
+    <Property Id="ARPHELPLINK" Value="!(loc.ArpHelpLink)" />
+    <Property Id="ARPURLINFOABOUT" Value="!(loc.ArpUrlInfoAbout)" />
+
+    <!--
+      Standard WiX UI set: welcome + licence -> progress -> finish. Without a UI sequence the
+      package shows no dialogs at all, so a successful install looks like nothing happened
+      and launch-condition failures are easy to miss.
+    -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.EulaRtfPath)" />
+
+    <!--
+      Explicit upgrade confirmation. On an upgrade, MajorUpgrade sets WIX_UPGRADE_DETECTED to
+      the ProductCode of the already-installed package; the dialog below is then shown before
+      the standard welcome/licence page so the user knows an existing install will be replaced.
+      (WiX exposes no property with the previously-installed version, so only the new version
+      is shown.)
+    -->
+    <UI Id="CorelMcpUpdateUI">
+      <Dialog Id="UpdateNoticeDlg" Width="370" Height="270" Title="!(loc.UpdateNoticeTitle)" NoMinimize="yes">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.UpdateNoticeTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="20"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.UpdateNoticeSubtitle)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="UpdateText" Type="Text" X="25" Y="70" Width="320" Height="120" NoPrefix="yes"
+                 Text="!(loc.UpdateNoticeText)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.UpdateNoticeNext)">
+          <Publish Event="NewDialog" Value="WelcomeEulaDlg" Condition="1" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.UpdateNoticeCancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <InstallUISequence>
+        <Show Dialog="UpdateNoticeDlg" Before="WelcomeEulaDlg" Condition="WIX_UPGRADE_DETECTED" />
+      </InstallUISequence>
+    </UI>
+
+    <!-- The add-on needs no configuration at install time. -->
+
+    <!--
+      Discover the CorelDRAW Programs64 folder. CorelDRAW publishes the absolute path in
+      its 64-bit registry view; the trailing separator it may contain is harmless.
+      This property overrides the path of the CORELPROGRAMS directory below.
+    -->
+    <Property Id="CORELPROGRAMS" Secure="yes">
+      <RegistrySearch Id="SearchCorelProgramsDir"
+                      Root="HKLM"
+                      Key="SOFTWARE\Corel\CorelDRAW\$(var.CorelVersion).0"
+                      Name="ProgramsDir"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+
+    <!-- Top-level directory; WiX roots it under TARGETDIR automatically.
+         Its path is overridden at install time by the CORELPROGRAMS property above. -->
+    <Directory Id="CORELPROGRAMS" Name="CorelPrograms">
+      <Directory Id="CorelAddonsFolder" Name="Addons">
+        <Directory Id="CorelMcpFolder" Name="$(var.AddonFolderName)">
+
+          <Component Id="ComponentBinaries" Guid="$(var.GuidBinaries)">
+            <!-- The add-on has no third-party runtime dependencies. -->
+            <File Id="FileCorelMcpDll" Name="CorelMcp.dll"
+                  Source="$(var.SourceDir)\CorelMcp.dll" KeyPath="yes" />
+          </Component>
+
+          <Component Id="ComponentAddonUi" Guid="$(var.GuidUi)">
+            <File Id="FileCoreldrwAddon" Name="Coreldrw.addon"
+                  Source="$(var.SourceDir)\Coreldrw.addon" KeyPath="yes" />
+            <File Id="FileAppUi" Name="AppUI.xslt"
+                  Source="$(var.SourceDir)\AppUI.xslt" />
+            <File Id="FileUserUi" Name="UserUI.xslt"
+                  Source="$(var.SourceDir)\UserUI.xslt" />
+          </Component>
+
+          <!--
+            User settings (port, auth token). Permanent keeps a customised config.json across
+            upgrades *and* uninstall: with MajorUpgrade scheduled afterInstallValidate the old
+            product is removed first, and a non-permanent component would take config.json with
+            it. NeverOverwrite additionally stops an upgrade from replacing the file.
+          -->
+          <Component Id="ComponentConfig" Guid="$(var.GuidConfig)" NeverOverwrite="yes" Permanent="yes">
+            <File Id="FileConfigJson" Name="config.json"
+                  Source="$(var.SourceDir)\config.json" KeyPath="yes" />
+          </Component>
+
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="$(var.ProductName)" Level="1" AllowAbsent="no">
+      <ComponentRef Id="ComponentBinaries" />
+      <ComponentRef Id="ComponentAddonUi" />
+      <ComponentRef Id="ComponentConfig" />
+    </Feature>
+
+    <!-- Refuse to install when the targeted CorelDRAW version is not present. -->
+    <Launch Condition="Installed OR CORELPROGRAMS"
+            Message="!(loc.CorelNotFound)" />
+
+    <!--
+      CorelDRAW must be closed so the add-on files can be replaced. The user is always asked
+      first: PromptToContinue shows an Abort / Retry / Ignore prompt with the Description text
+      below, before any close message is sent. Only if the user picks Ignore is a graceful
+      close (WM_CLOSE, so CorelDRAW can prompt to save) sent. No force-terminate, no reboot.
+    -->
+    <util:CloseApplication Id="CloseCorelDraw"
+                           Target="CorelDrw.exe"
+                           Description="!(loc.CloseCorelDraw)"
+                           PromptToContinue="yes"
+                           CloseMessage="yes"
+                           Timeout="30"
+                           RebootPrompt="no" />
+  </Package>
+</Wix>

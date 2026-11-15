@@ -5345,5 +5345,73 @@
       "file_count": 15,
       "total_bytes": 157197
     }
+  },
+  {
+    "name": "coreldraw-mcp-addon",
+    "description": "CorelDRAW 内置 MCP Add-on 技能集合。用于在 Windows 版 CorelDRAW 2025/2026 中连接本机 Add-on，随后完成文档绘制、图形与文字编辑、图层/特效/布尔运算以及 PNG、PDF、SVG、EPS、AI、DXF 等导入导出。适用于要求操作真实打开文档、复用 CorelDRAW 对象模型与撤销历史的自动化设计任务。",
+    "category": "16_专业设计与生产交付",
+    "folder": "coreldraw-mcp-addon",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/coreldraw-mcp-addon",
+    "aliases": [
+      "CorelDRAW MCP",
+      "CorelDRAW Add-on",
+      "CorelDRAW 自动化",
+      "CorelDRAW 对象模型",
+      "CorelMCP"
+    ],
+    "tags": [
+      "CorelDRAW",
+      "MCP",
+      "Windows",
+      "矢量设计",
+      "VGCore",
+      "图形编辑",
+      "文字处理",
+      "导出",
+      "设计自动化"
+    ],
+    "updated_at": "2026-11-15",
+    "file_index": {
+      "path": ".catalog/7345690c7e399dfa965975d3bcd297ae3899bf5b645048e38b6cbff74755b2f6.json",
+      "sha256": "7345690c7e399dfa965975d3bcd297ae3899bf5b645048e38b6cbff74755b2f6",
+      "file_count": 74,
+      "total_bytes": 543873
+    }
+  },
+  {
+    "name": "coreldraw-signage-mcp",
+    "description": "CorelDRAW 门牌标识与批量设计 MCP 服务。用于在 Windows 上通过 Python COM/FastMCP 驱动 CorelDRAW，完成模板打开与填充、Excel 数据合并、条形码/二维码、图形与文字编辑、图层和色彩处理、印前检查，以及 PDF、DXF、AI、SVG、PNG 批量导出。适合门牌、标识、工程图和模板化生产文件自动化。",
+    "category": "16_专业设计与生产交付",
+    "folder": "coreldraw-signage-mcp",
+    "relative_path": "./00_全局大管家/16_专业设计与生产交付/coreldraw-signage-mcp",
+    "aliases": [
+      "CorelDRAW 门牌 MCP",
+      "CorelDRAW Signage MCP",
+      "标识批量设计",
+      "门牌批量生成",
+      "CorelDRAW COM"
+    ],
+    "tags": [
+      "CorelDRAW",
+      "MCP",
+      "FastMCP",
+      "pywin32",
+      "Windows",
+      "门牌",
+      "标识",
+      "模板填充",
+      "Excel",
+      "条形码",
+      "二维码",
+      "印前检查",
+      "批量导出"
+    ],
+    "updated_at": "2026-11-15",
+    "file_index": {
+      "path": ".catalog/4ae4203606624ccf64f6a82ec05ba62799f840f75a074a138e3081d3c1e8aed0.json",
+      "sha256": "4ae4203606624ccf64f6a82ec05ba62799f840f75a074a138e3081d3c1e8aed0",
+      "file_count": 32,
+      "total_bytes": 233711
+    }
   }
 ]

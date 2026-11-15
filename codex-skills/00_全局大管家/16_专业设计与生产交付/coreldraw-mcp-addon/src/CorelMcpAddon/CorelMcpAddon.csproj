@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms supplies the hidden Control used to marshal calls onto CorelDRAW's UI thread. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>Library</OutputType>
+    <AssemblyName>CorelMcp</AssemblyName>
+    <RootNamespace>CorelMcp</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Product>CorelDRAW MCP Add-on</Product>
+    <Description>In-process Model Context Protocol server for CorelDRAW</Description>
+    <Authors>pefedotov</Authors>
+    <RepositoryUrl>https://github.com/pefedotov/coreldraw_mcp</RepositoryUrl>
+
+    <!-- CorelDRAW install to compile against and deploy into.
+         26 = CorelDRAW 2025, 27 = CorelDRAW 2026. Override with -p:CorelDrawVersion=26 -->
+    <CorelDrawVersion Condition="'$(CorelDrawVersion)' == ''">27</CorelDrawVersion>
+    <CorelInstallRoot Condition="'$(CorelInstallRoot)' == ''">C:\Program Files\Corel\CorelDRAW Graphics Suite\$(CorelDrawVersion)</CorelInstallRoot>
+    <CorelAddonDir>$(CorelInstallRoot)\Programs64\Addons\CorelMcp</CorelAddonDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- CorelDRAW object model (COM interop shipped with the suite). -->
+    <Reference Include="Corel.Interop.VGCore">
+      <HintPath>$(CorelInstallRoot)\Programs64\Assemblies\Corel.Interop.VGCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Add-on payload that must sit next to the DLL in the Addons folder. -->
+    <None Update="AppUI.xslt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="UserUI.xslt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Coreldrw.addon">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Assemble <repo root>\addon\ — the finished files a user copies straight into
+       <CorelDRAW>\Programs64\Addons\CorelMcp\. Release builds only, so a debug build
+       (e.g. `dotnet test`) never leaves a debug DLL in the shipping folder. -->
+  <Target Name="CopyAddonPayload" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <AddonPayload Include="$(TargetDir)CorelMcp.dll" />
+      <AddonPayload Include="$(TargetDir)Coreldrw.addon" />
+      <AddonPayload Include="$(TargetDir)AppUI.xslt" />
+      <AddonPayload Include="$(TargetDir)UserUI.xslt" />
+      <AddonPayload Include="$(TargetDir)config.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(AddonPayload)"
+          DestinationFolder="$(MSBuildThisFileDirectory)..\..\addon"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

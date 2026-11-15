@@ -1,0 +1,9 @@
+{
+  "Port": 8765,
+  "BindAddress": "127.0.0.1",
+  "AutoStart": true,
+  "AuthToken": "",
+  "MaxBodyBytes": 4194304,
+  "AllowedRoots": "",
+  "DisabledTools": ""
+}
