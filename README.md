@@ -21,6 +21,18 @@ codex-skills/
 - `00_全局大管家/` 下的数字序号分类目录按领域组织，当前包括：01_代码工程与架构、02_DevOps与自动化、03_效率工具与协同管理、04_内容创作与文档处理、05_多媒体与设计资产、06_商业与专业领域、07_智能体框架与协同、08_MCP服务开发与评估、09_Composio集成服务、10_Skill开发脚手架与安装器、11_API与第三方应用集成、12_学术论文与科研图表、13_社科研究与实证工具、14_股票币圈财经专项、15_优质GitHub项目清单、16_专业设计与生产交付、17_国内外电商工作流、18_工程电子领域。
 - 每个技能是一个独立文件夹，内含自己的 `SKILL.md`（触发条件、系统依赖与执行步骤）。大管家收到技能调用请求后，按 `skills_manifest.json` 定位并读取对应子技能文件，避免一次性加载全库。
 
+## 双语发现元数据
+
+`skills_manifest.json` 的每条记录除中文 `description` / `category` 外，还包含成对的 `description_en` / `category_en`。英文目录的审核源文件位于 `codex-skills/i18n/catalog-en.json`；修改中文描述或新增技能后，先补齐对应英文条目，再运行：
+
+```bash
+python3 scripts/update_english_metadata.py --write
+python3 scripts/validate_manifest.py
+python3 scripts/build_file_indexes.py --check
+```
+
+生成脚本会核对英文条目的 `source` 是否仍与当前中文描述逐字一致，避免技能更新后继续发布过期译文。
+
 ## Agent 导入行为引导
 
 本包供 Agent 导入到各个客户端使用，主要途径：
