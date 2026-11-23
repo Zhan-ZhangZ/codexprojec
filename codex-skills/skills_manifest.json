@@ -5413,5 +5413,75 @@
       "file_count": 32,
       "total_bytes": 233711
     }
+  },
+  {
+    "name": "clipforge",
+    "description": "面向抖音、快手、小红书、视频号、TikTok Shop 等平台的 AI 带货短视频生产技能。用于从商品图、商品链接、主题或现成脚本生成带货脚本、分镜、配音、字幕、BGM、成片与多平台导出，也支持爆款逐镜复刻、批量出片、直播素材剪辑、发布前合规检查以及 MCP/CLI 自动化。触发词：ClipForge、带货视频、电商短视频、商品图转视频、商品链接成片、TikTok Shop 视频、批量带货、爆款复刻。",
+    "category": "17_国内外电商工作流",
+    "folder": "clipforge",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/clipforge",
+    "aliases": [
+      "ClipForge",
+      "带货剪手",
+      "商品图转带货视频",
+      "商品链接成片",
+      "批量带货视频",
+      "爆款逐镜复刻"
+    ],
+    "tags": [
+      "电商短视频",
+      "带货视频",
+      "TikTok Shop",
+      "抖音",
+      "小红书",
+      "商品图转视频",
+      "FFmpeg",
+      "Edge TTS",
+      "MCP",
+      "CLI",
+      "自部署"
+    ],
+    "updated_at": "2026-11-23",
+    "file_index": {
+      "path": ".catalog/03c37cb0a4d2aee76e41f91cb5f6dd6bf15c9060400777310e72d2c6838920bd.json",
+      "sha256": "03c37cb0a4d2aee76e41f91cb5f6dd6bf15c9060400777310e72d2c6838920bd",
+      "file_count": 472,
+      "total_bytes": 11974549
+    }
+  },
+  {
+    "name": "ecommerce-video-skills",
+    "description": "由 13 个可独立调用的 Agent Skills 组成的电商短视频生产集合。用于从商品图和卖点生成 3 秒钩子、分镜脚本、图生视频提示词、口播配音、字幕花字、FFmpeg 自动成片、平台规格导出、直播切片、多语言配音和封面 A/B；支持抖音、TikTok Shop、视频号、小红书、淘宝主图视频与 Amazon。触发词：电商短视频、带货视频 Skill、商品图转视频、3 秒钩子、卖点分镜、edge-tts 配音、FFmpeg 自动成片、TikTok Shop 导出。",
+    "category": "17_国内外电商工作流",
+    "folder": "ecommerce-video-skills",
+    "relative_path": "./00_全局大管家/17_国内外电商工作流/ecommerce-video-skills",
+    "aliases": [
+      "电商视频技能包",
+      "带货视频Skills",
+      "商品图转9:16",
+      "3秒钩子脚本",
+      "卖点分镜",
+      "自动成片Skills"
+    ],
+    "tags": [
+      "电商短视频",
+      "Agent Skills",
+      "TikTok Shop",
+      "抖音",
+      "小红书",
+      "视频号",
+      "edge-tts",
+      "FFmpeg",
+      "字幕花字",
+      "多语言配音",
+      "封面AB"
+    ],
+    "updated_at": "2026-11-23",
+    "file_index": {
+      "path": ".catalog/451ccf5a0ee62e7b4b793bf7dac0655b340b6cecbbb930e72d8b357b407f4989.json",
+      "sha256": "451ccf5a0ee62e7b4b793bf7dac0655b340b6cecbbb930e72d8b357b407f4989",
+      "file_count": 59,
+      "total_bytes": 841023
+    }
   }
 ]

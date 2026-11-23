@@ -1,0 +1,51 @@
+import type { NamespaceMessages } from "../config";
+
+// projectsPage namespace: the full project list page (/projects) + the cross-project works feed
+export const projectsPage: NamespaceMessages = {
+  zh: {
+    pageTitle: "我的项目",
+    pageSubtitle: "按最近编辑排序，点开直接回到上次的步骤",
+    newProject: "新建项目",
+    searchPlaceholder: "搜索项目名或商品…",
+    untitled: "未命名项目",
+    empty: "还没有项目",
+    emptyDesc: "从工作台丢一张商品图开始，或用完整表单精细配置",
+    goStart: "去工作台",
+    goNew: "用完整表单新建",
+    noMatch: "没有匹配的项目",
+    loadError: "项目列表加载失败",
+    // 项目/作品双视图
+    tabProjects: "项目",
+    tabWorks: "作品",
+    worksEmpty: "还没有成片",
+    worksEmptyDesc: "出的每条片都会带封面出现在这里，凭画面一眼找回",
+    worksCount: "共 {n} 条成片",
+    download: "下载",
+    deleteProject: "删除项目",
+    deleteConfirm: "删除项目「{name}」？项目内的脚本、素材与成片记录会一并删除，且无法恢复。",
+    deleteFailed: "删除失败，请重试",
+  },
+  en: {
+    pageTitle: "My projects",
+    pageSubtitle: "Sorted by last edit — click to jump back to where you left off",
+    newProject: "New project",
+    searchPlaceholder: "Search projects or products…",
+    untitled: "Untitled project",
+    empty: "No projects yet",
+    emptyDesc: "Start from the workspace with a product photo, or use the full form",
+    goStart: "Go to workspace",
+    goNew: "New via full form",
+    noMatch: "No matching projects",
+    loadError: "Failed to load projects",
+    // projects / works dual view
+    tabProjects: "Projects",
+    tabWorks: "Works",
+    worksEmpty: "No finished videos yet",
+    worksEmptyDesc: "Every render lands here with a poster — find the one you need at a glance",
+    worksCount: "{n} videos",
+    download: "Download",
+    deleteProject: "Delete project",
+    deleteConfirm: "Delete project “{name}”? Its scripts, assets and renders will be removed permanently.",
+    deleteFailed: "Delete failed — please retry",
+  },
+};
